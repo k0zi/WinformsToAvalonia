@@ -1,0 +1,93 @@
+{
+  "customMappings": [
+    {
+      "winFormsType": "MyApp.CustomControl",
+      "avaloniaType": "MyApp.Avalonia.CustomControl",
+      "propertyMappings": {
+        "CustomProperty": "AvaloniaProperty"
+      },
+      "eventMappings": {
+        "CustomEvent": "AvaloniaEvent"
+      },
+      "customAxaml": null
+    }
+  ],
+  "thirdPartyMappings": [
+    {
+      "assemblyName": "DevExpress.XtraEditors",
+      "controlNamespace": "DevExpress.XtraEditors",
+      "placeholderTemplate": null,
+      "generateStubs": true,
+      "migrationNotes": "DevExpress controls need manual migration to Avalonia alternatives"
+    }
+  ],
+  "styleExtraction": {
+    "enabled": true,
+    "minimumOccurrence": 3,
+    "propertiesToExtract": [
+      "FontFamily",
+      "FontSize",
+      "FontWeight",
+      "Background",
+      "Foreground",
+      "BorderBrush",
+      "BorderThickness"
+    ],
+    "namingPattern": "{ControlType}{PropertyName}Style"
+  },
+  "layoutDetection": {
+    "alignmentTolerance": 5,
+    "confidenceThreshold": 70,
+    "gridDetectionWeight": 1,
+    "stackDetectionWeight": 1,
+    "dockDetectionWeight": 1
+  },
+  "excludePatterns": [],
+  "namingConventions": {
+    "namespaceTransformations": {},
+    "viewModelSuffix": "ViewModel",
+    "viewSuffix": "",
+    "outputDirectoryPattern": "{ProjectName}.Avalonia"
+  },
+  "incrementalSettings": {
+    "enabled": true,
+    "hashAlgorithm": "SHA256",
+    "checkpointFrequency": 10,
+    "cacheFileName": ".converter-cache.json",
+    "checkpointFileName": ".converter-checkpoint.json"
+  },
+  "parallelProcessing": {
+    "enabled": true,
+    "maxDegreeOfParallelism": null,
+    "batchSize": 5
+  },
+  "gitIntegration": {
+    "enabled": true,
+    "createFeatureBranch": true,
+    "branchNamePattern": "feature/avalonia-migration-{timestamp}",
+    "autoCommitCheckpoints": false,
+    "generateGitignore": true,
+    "gitignoreEntries": [
+      ".converter-cache.json",
+      ".converter-checkpoint.json"
+    ]
+  },
+  "documentation": {
+    "enabled": true,
+    "format": "markdown",
+    "includeCodeSamples": true,
+    "outputFileName": "MIGRATION_GUIDE.md",
+    "templatePath": null
+  },
+  "plugins": {
+    "pluginsDirectory": "plugins",
+    "enabledPlugins": [],
+    "pluginSettings": {}
+  },
+  "defaultOptions": {
+    "layoutMode": "auto",
+    "reportFormat": "html",
+    "generateViewModels": true,
+    "extractStyles": true
+  }
+}
