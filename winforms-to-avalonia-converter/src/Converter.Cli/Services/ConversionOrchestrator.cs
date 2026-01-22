@@ -14,6 +14,8 @@ using Converter.Mappings.BuiltIn;
 using Converter.Plugin.Abstractions;
 using Converter.Reporting.Builders;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using Converter.Cli.Models;
 
 namespace Converter.Cli.Services;
 
@@ -26,6 +28,10 @@ public class ConversionOrchestrator
     private readonly string _outputPath;
     private readonly ConverterConfig _config;
     private readonly ILogger<ConversionOrchestrator>? _logger;
+    
+    private OperationType _lastReportedOperation = OperationType.GitInit;
+    private DateTime _lastProgressReport = DateTime.MinValue;
+    private readonly Stopwatch _stopwatch = new();
 
     public ConversionOrchestrator(
         string sourcePath,
@@ -42,20 +48,28 @@ public class ConversionOrchestrator
     /// <summary>
     /// Execute the full conversion process.
     /// </summary>
-    public async Task<ConversionResult> ExecuteAsync(CancellationToken cancellationToken = default)
+    public async Task<ConversionResult> ExecuteAsync(
+        IProgress<ConversionProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
+        _stopwatch.Start();
         var startTime = DateTime.Now;
         var statistics = new ConversionStatistics();
         var formReports = new List<FormReportInfo>();
         var errors = new List<ReportMessage>();
         var warnings = new List<ReportMessage>();
+        var rollbackManager = new RollbackManager();
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            
             _logger?.LogInformation("Starting conversion: {SourcePath} -> {OutputPath}", _sourcePath, _outputPath);
 
             // Step 1: Initialize git if enabled
             GitIntegrationManager? gitManager = null;
+            ReportProgress(OperationType.GitInit, progress, statistics, 0, 0, 0, 0);
+            
             if (_config.GitIntegration.Enabled)
             {
                 gitManager = new GitIntegrationManager(_logger as ILogger<GitIntegrationManager>);
@@ -72,6 +86,9 @@ public class ConversionOrchestrator
             }
 
             // Step 2: Parse WinForms files
+            cancellationToken.ThrowIfCancellationRequested();
+            ReportProgress(OperationType.Parsing, progress, statistics, 0, 0, 0, 0, force: true);
+            
             _logger?.LogInformation("Parsing WinForms files...");
             var parser = new WinFormsParser();
             var parseResults = new List<ParseResult>();
@@ -81,8 +98,7 @@ public class ConversionOrchestrator
 
             foreach (var file in designerFiles)
             {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
+                cancellationToken.ThrowIfCancellationRequested();
 
                 try
                 {
@@ -107,6 +123,11 @@ public class ConversionOrchestrator
             _logger?.LogInformation("Parsed {Count} forms with {TotalControls} total controls", 
                 parseResults.Count, statistics.TotalControls);
 
+            // Calculate total files to generate: 3 per form + 5 project files
+            var totalForms = parseResults.Count;
+            var totalFilesToGenerate = (totalForms * 3) + 5;
+            ReportProgress(OperationType.Parsing, progress, statistics, totalForms, totalFilesToGenerate, 0, 0, force: true);
+
             // Step 3: Create output directory
             Directory.CreateDirectory(_outputPath);
             var viewsDir = Path.Combine(_outputPath, "Views");
@@ -119,15 +140,20 @@ public class ConversionOrchestrator
             var axamlGenerator = new AxamlGenerator();
             var vmGenerator = new ViewModelGenerator();
             var codeBehindGenerator = new CodeBehindGenerator();
+            var filesGenerated = 0;
+            var formsProcessed = 0;
 
             foreach (var parseResult in parseResults)
             {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
+                cancellationToken.ThrowIfCancellationRequested();
 
                 try
                 {
-                    var formReport = await ConvertFormAsync(
+                    var formName = parseResult.RootControl?.Name ?? "Unknown";
+                    ReportProgress(OperationType.ConvertingForm, progress, statistics, totalForms, totalFilesToGenerate, 
+                        formsProcessed, filesGenerated, formName: formName, force: true);
+                    
+                    var (formReport, updatedFilesGenerated) = await ConvertFormAsync(
                         parseResult,
                         layoutAnalyzer,
                         axamlGenerator,
@@ -135,9 +161,16 @@ public class ConversionOrchestrator
                         codeBehindGenerator,
                         viewsDir,
                         viewModelsDir,
-                        statistics);
+                        statistics,
+                        progress,
+                        totalForms,
+                        totalFilesToGenerate,
+                        formsProcessed,
+                        filesGenerated);
 
+                    filesGenerated = updatedFilesGenerated;
                     formReports.Add(formReport);
+                    formsProcessed++;
                     _logger?.LogInformation("Converted form: {FormName}", formReport.Name);
                 }
                 catch (Exception ex)
@@ -148,16 +181,29 @@ public class ConversionOrchestrator
                         Location = parseResult.FilePath,
                         Message = $"Conversion failed: {ex.Message}"
                     });
+                    formsProcessed++;
                 }
             }
 
             // Step 5: Generate project files
+            cancellationToken.ThrowIfCancellationRequested();
+            ReportProgress(OperationType.GeneratingProjectFiles, progress, statistics, totalForms, totalFilesToGenerate,
+                formsProcessed, filesGenerated, force: true);
+            
             _logger?.LogInformation("Generating project files...");
             await GenerateProjectFilesAsync();
+            filesGenerated += 5; // Project files generated
+            
+            ReportProgress(OperationType.GeneratingProjectFiles, progress, statistics, totalForms, totalFilesToGenerate,
+                formsProcessed, filesGenerated);
 
             // Step 6: Generate migration guide if enabled
             if (_config.Documentation.Enabled)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                ReportProgress(OperationType.GeneratingMigrationGuide, progress, statistics, totalForms, totalFilesToGenerate,
+                    formsProcessed, filesGenerated, force: true);
+                
                 _logger?.LogInformation("Generating migration guide...");
                 await GenerateMigrationGuideAsync(formReports, statistics);
             }
@@ -174,6 +220,10 @@ public class ConversionOrchestrator
 
             var duration = DateTime.Now - startTime;
             _logger?.LogInformation("Conversion completed in {Duration}s", duration.TotalSeconds);
+
+            // Report completion
+            ReportProgress(OperationType.Complete, progress, statistics, totalForms, totalFilesToGenerate,
+                formsProcessed, filesGenerated, force: true);
 
             // Generate report
             var report = new ConversionReport
@@ -195,6 +245,32 @@ public class ConversionOrchestrator
                 OutputPath = _outputPath
             };
         }
+        catch (OperationCanceledException)
+        {
+            _logger?.LogWarning("Conversion cancelled by user");
+            
+            // Report rollback state
+            var progressState = new ConversionProgress { IsRollingBack = true };
+            progress?.Report(progressState);
+            
+            // Perform rollback
+            await rollbackManager.RollbackTransactionAsync();
+            
+            // Report cancelled state
+            progressState = new ConversionProgress
+            {
+                CurrentOperation = OperationType.Cancelled,
+                ElapsedTime = _stopwatch.Elapsed
+            };
+            progress?.Report(progressState);
+            
+            return new ConversionResult
+            {
+                Success = false,
+                ErrorMessage = "Conversion cancelled by user",
+                OutputPath = _outputPath
+            };
+        }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Conversion failed");
@@ -208,7 +284,55 @@ public class ConversionOrchestrator
         }
     }
 
-    private async Task<FormReportInfo> ConvertFormAsync(
+    private void ReportProgress(
+        OperationType operation,
+        IProgress<ConversionProgress>? progress,
+        ConversionStatistics statistics,
+        int totalForms,
+        int totalFiles,
+        int formsProcessed,
+        int filesGenerated,
+        string? formName = null,
+        string? subOperation = null,
+        bool force = false)
+    {
+        if (progress == null)
+            return;
+
+        // Check if we should report (operation changed, forced, or 100ms elapsed)
+        var shouldReport = force || 
+                          operation != _lastReportedOperation ||
+                          (DateTime.Now - _lastProgressReport).TotalMilliseconds >= 100;
+
+        if (!shouldReport)
+            return;
+
+        var progressState = new ConversionProgress
+        {
+            CurrentOperation = operation,
+            CurrentSubOperation = subOperation,
+            FormsProcessed = formsProcessed,
+            TotalForms = totalForms,
+            CurrentFormName = formName,
+            FilesGenerated = filesGenerated,
+            TotalFilesToGenerate = totalFiles,
+            TotalControls = statistics.TotalControls,
+            ConvertedControls = statistics.ConvertedControls,
+            TotalProperties = statistics.TotalProperties,
+            MappedProperties = statistics.MappedProperties,
+            TotalEvents = statistics.TotalEvents,
+            ConvertedEvents = statistics.ConvertedToCommands,
+            Warnings = statistics.CheckpointsSaved, // Placeholder
+            Errors = statistics.RollbacksPerformed, // Placeholder
+            ElapsedTime = _stopwatch.Elapsed
+        };
+
+        progress.Report(progressState);
+        _lastProgressReport = DateTime.Now;
+        _lastReportedOperation = operation;
+    }
+
+    private async Task<(FormReportInfo Report, int FilesGenerated)> ConvertFormAsync(
         ParseResult parseResult,
         LayoutAnalyzer layoutAnalyzer,
         AxamlGenerator axamlGenerator,
@@ -216,7 +340,12 @@ public class ConversionOrchestrator
         CodeBehindGenerator codeBehindGenerator,
         string viewsDir,
         string viewModelsDir,
-        ConversionStatistics statistics)
+        ConversionStatistics statistics,
+        IProgress<ConversionProgress>? progress,
+        int totalForms,
+        int totalFiles,
+        int formsProcessed,
+        int filesGenerated)
     {
         var rootControl = parseResult.RootControl!;
         var className = rootControl.Name;
@@ -229,20 +358,32 @@ public class ConversionOrchestrator
         var layoutType = layoutResult.LayoutType;
 
         // Generate AXAML
+        ReportProgress(OperationType.GeneratingFiles, progress, statistics, totalForms, totalFiles,
+            formsProcessed, filesGenerated, className, "Generating AXAML");
+        
         var axamlContent = axamlGenerator.Generate(
             rootControl,
             layoutResult,
             namespaceName,
             className);
+        filesGenerated++;
 
         // Generate ViewModel
+        ReportProgress(OperationType.GeneratingFiles, progress, statistics, totalForms, totalFiles,
+            formsProcessed, filesGenerated, className, "Generating ViewModel");
+        
         var vmContent = vmGenerator.GeneratePartialClass(
             rootControl,
             namespaceName,
             className);
+        filesGenerated++;
 
         // Generate code-behind
+        ReportProgress(OperationType.GeneratingFiles, progress, statistics, totalForms, totalFiles,
+            formsProcessed, filesGenerated, className, "Generating code-behind");
+        
         var codeBehindContent = codeBehindGenerator.Generate(namespaceName, className);
+        filesGenerated++;
 
         // Write files
         var axamlPath = Path.Combine(viewsDir, $"{className}.axaml");
@@ -257,13 +398,15 @@ public class ConversionOrchestrator
         var controlCount = CountControls(rootControl);
         statistics.ConvertedControls += controlCount;
 
-        return new FormReportInfo
+        var report = new FormReportInfo
         {
             Name = className,
             ControlCount = controlCount,
             Layout = layoutType.ToString(),
             Status = "Converted"
         };
+
+        return (report, filesGenerated);
     }
 
     private async Task GenerateProjectFilesAsync()

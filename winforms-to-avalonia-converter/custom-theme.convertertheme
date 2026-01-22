@@ -1,0 +1,17 @@
+{
+  "Success": "Green",
+  "Warning": "Yellow",
+  "Error": "Red",
+  "Info": "Cyan",
+  "Debug": "Grey",
+  "Primary": "Blue",
+  "Secondary": "Purple",
+  "SuccessIcon": "✓",
+  "WarningIcon": "⚠",
+  "ErrorIcon": "✗",
+  "InfoIcon": "ℹ",
+  "DebugIcon": "●",
+  "FormIcon": "📄",
+  "ControlIcon": "🔧",
+  "ReportIcon": "📊"
+}

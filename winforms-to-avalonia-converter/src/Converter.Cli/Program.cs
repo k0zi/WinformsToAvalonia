@@ -1,16 +1,33 @@
 using System.CommandLine;
 using Converter.Cli.Services;
+using Converter.Cli.Models;
+using Converter.Cli.UI;
+using Converter.Cli.Logging;
 using Converter.Core.Configuration;
 using Converter.Reporting.Builders;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace Converter.Cli;
 
 class Program
 {
+    private static CancellationTokenSource? _cts;
+
     static async Task<int> Main(string[] args)
     {
+        // Setup cancellation handler
+        Console.CancelKeyPress += (sender, e) =>
+        {
+            if (_cts != null)
+            {
+                AnsiConsole.MarkupLine("[yellow]⏸️  Cancellation requested, cleaning up...[/]");
+                _cts.Cancel();
+                e.Cancel = true;
+            }
+        };
+
         var rootCommand = new RootCommand("WinForms to Avalonia Converter");
 
         // Convert command
@@ -112,6 +129,15 @@ class Program
             getDefaultValue: () => false,
             description: "Validate without generating files");
 
+        var noInteractiveOption = new Option<bool>(
+            aliases: ["--no-interactive"],
+            getDefaultValue: () => false,
+            description: "Disable interactive prompts, use defaults");
+
+        var themeOption = new Option<string?>(
+            aliases: ["--theme"],
+            description: "Path to custom theme file (.convertertheme)");
+
         command.AddOption(inputOption);
         command.AddOption(outputOption);
         command.AddOption(layoutOption);
@@ -128,6 +154,8 @@ class Program
         command.AddOption(noGitOption);
         command.AddOption(migrationGuideOption);
         command.AddOption(dryRunOption);
+        command.AddOption(noInteractiveOption);
+        command.AddOption(themeOption);
 
         command.SetHandler(async (context) =>
         {
@@ -147,9 +175,12 @@ class Program
             var noGit = context.ParseResult.GetValueForOption(noGitOption);
             var migrationGuide = context.ParseResult.GetValueForOption(migrationGuideOption);
             var dryRun = context.ParseResult.GetValueForOption(dryRunOption);
+            var noInteractive = context.ParseResult.GetValueForOption(noInteractiveOption);
+            var theme = context.ParseResult.GetValueForOption(themeOption);
 
             await ExecuteConvertAsync(input, output, layout, report, reportFormat, config, plugins,
-                incremental, force, resume, parallel, createBranch, branchName, noGit, migrationGuide, dryRun);
+                incremental, force, resume, parallel, createBranch, branchName, noGit, migrationGuide, dryRun,
+                noInteractive, theme);
         });
 
         return command;
@@ -223,8 +254,8 @@ class Program
     }
 
     private static async Task ExecuteConvertAsync(
-        string input,
-        string output,
+        string? input,
+        string? output,
         string layout,
         string? report,
         string reportFormat,
@@ -238,23 +269,88 @@ class Program
         string? branchName,
         bool noGit,
         bool migrationGuide,
-        bool dryRun)
+        bool dryRun,
+        bool noInteractive,
+        string? themePath)
     {
-        Console.WriteLine("╔════════════════════════════════════════════════════════╗");
-        Console.WriteLine("║   WinForms to Avalonia Converter (NET 10.0)          ║");
-        Console.WriteLine("╚════════════════════════════════════════════════════════╝");
-        Console.WriteLine();
+        // Create cancellation token source
+        _cts = new CancellationTokenSource();
 
         try
         {
-            Console.WriteLine($"Input:  {input}");
-            Console.WriteLine($"Output: {output}");
-            Console.WriteLine($"Layout: {layout}");
-            Console.WriteLine();
+            // Load theme
+            ConverterTheme theme;
+            if (!string.IsNullOrEmpty(themePath))
+            {
+                try
+                {
+                    theme = ConverterTheme.LoadFromConfig(themePath);
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine($"[red]✗ Failed to load theme: {ex.Message}[/]");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+            }
+            else
+            {
+                theme = ConverterTheme.Default;
+            }
+
+            // Display header
+            AnsiConsole.Write(new FigletText("WinForms → Avalonia")
+                .Centered()
+                .Color(theme.Primary));
+            AnsiConsole.WriteLine();
+
+            // Interactive prompts for missing options
+            if (!noInteractive)
+            {
+                if (string.IsNullOrEmpty(input))
+                {
+                    input = InteractivePrompts.PromptForInputPath(theme);
+                }
+
+                if (string.IsNullOrEmpty(output))
+                {
+                    output = InteractivePrompts.PromptForOutputPath(input!, theme);
+                }
+
+                if (layout == "auto")
+                {
+                    var layoutChoice = AnsiConsole.Confirm(
+                        $"[{theme.Primary}]Use automatic layout detection?[/]",
+                        defaultValue: true);
+                    
+                    if (!layoutChoice)
+                    {
+                        layout = InteractivePrompts.PromptForLayoutMode(theme);
+                    }
+                }
+            }
+
+            // Validate required options
+            if (string.IsNullOrEmpty(input))
+            {
+                AnsiConsole.MarkupLine($"[{theme.Error}]{theme.ErrorIcon} Input path is required[/]");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            if (string.IsNullOrEmpty(output))
+            {
+                AnsiConsole.MarkupLine($"[{theme.Error}]{theme.ErrorIcon} Output path is required[/]");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            // Ensure output directory exists
+            Directory.CreateDirectory(output);
 
             if (dryRun)
             {
-                Console.WriteLine("🔍 DRY RUN MODE - No files will be generated");
+                AnsiConsole.MarkupLine($"[{theme.Info}]🔍 DRY RUN MODE - No files will be generated[/]");
                 return;
             }
 
@@ -263,47 +359,176 @@ class Program
                 ? await ConfigurationLoader.LoadAsync(config)
                 : new ConverterConfig();
 
-            // Create logger
+            // Create logger with Spectre provider
             using var loggerFactory = LoggerFactory.Create(builder =>
             {
-                builder.AddConsole();
+                builder.AddProvider(new SpectreConsoleLoggerProvider());
                 builder.SetMinimumLevel(LogLevel.Information);
             });
             var logger = loggerFactory.CreateLogger<ConversionOrchestrator>();
 
-            // Execute conversion
-            Console.WriteLine("🔄 Starting conversion...");
-            Console.WriteLine();
-
+            // Create orchestrator
             var orchestrator = new ConversionOrchestrator(
                 Path.GetFullPath(input),
                 Path.GetFullPath(output),
                 converterConfig,
                 logger);
 
-            var result = await orchestrator.ExecuteAsync();
+            // Check terminal capabilities
+            bool supportsAnsi = AnsiConsole.Profile.Capabilities.Ansi && 
+                               AnsiConsole.Profile.Capabilities.Interactive;
 
+            // Create progress state and callback
+            var progressState = new ConversionProgress();
+            var progress = new Progress<ConversionProgress>(p =>
+            {
+                lock (progressState)
+                {
+                    progressState.CurrentOperation = p.CurrentOperation;
+                    progressState.CurrentSubOperation = p.CurrentSubOperation;
+                    progressState.FormsProcessed = p.FormsProcessed;
+                    progressState.TotalForms = p.TotalForms;
+                    progressState.CurrentFormName = p.CurrentFormName;
+                    progressState.FilesGenerated = p.FilesGenerated;
+                    progressState.TotalFilesToGenerate = p.TotalFilesToGenerate;
+                    progressState.TotalControls = p.TotalControls;
+                    progressState.ConvertedControls = p.ConvertedControls;
+                    progressState.TotalProperties = p.TotalProperties;
+                    progressState.MappedProperties = p.MappedProperties;
+                    progressState.TotalEvents = p.TotalEvents;
+                    progressState.ConvertedEvents = p.ConvertedEvents;
+                    progressState.Warnings = p.Warnings;
+                    progressState.Errors = p.Errors;
+                    progressState.ElapsedTime = p.ElapsedTime;
+                    progressState.IsGeneratingReport = p.IsGeneratingReport;
+                    progressState.IsRollingBack = p.IsRollingBack;
+                }
+            });
+
+            ConversionResult result;
+
+            if (supportsAnsi)
+            {
+                // Use live display
+                result = await AnsiConsole.Live(new ConversionStatusDisplay(progressState, _cts.Token, theme))
+                    .AutoClear(false)
+                    .Overflow(VerticalOverflow.Ellipsis)
+                    .StartAsync(async ctx =>
+                    {
+                        ctx.Refresh();
+                        return await orchestrator.ExecuteAsync(progress, _cts.Token);
+                    });
+            }
+            else
+            {
+                // Use basic progress display
+                var basicDisplay = new BasicProgressDisplay();
+                var basicProgress = new Progress<ConversionProgress>(p =>
+                {
+                    basicDisplay.Report(p);
+                    
+                    // Also update shared state
+                    lock (progressState)
+                    {
+                        progressState.CurrentOperation = p.CurrentOperation;
+                        progressState.CurrentSubOperation = p.CurrentSubOperation;
+                        progressState.FormsProcessed = p.FormsProcessed;
+                        progressState.TotalForms = p.TotalForms;
+                        progressState.CurrentFormName = p.CurrentFormName;
+                        progressState.FilesGenerated = p.FilesGenerated;
+                        progressState.TotalFilesToGenerate = p.TotalFilesToGenerate;
+                        progressState.TotalControls = p.TotalControls;
+                        progressState.ConvertedControls = p.ConvertedControls;
+                        progressState.TotalProperties = p.TotalProperties;
+                        progressState.MappedProperties = p.MappedProperties;
+                        progressState.TotalEvents = p.TotalEvents;
+                        progressState.ConvertedEvents = p.ConvertedEvents;
+                        progressState.Warnings = p.Warnings;
+                        progressState.Errors = p.Errors;
+                        progressState.ElapsedTime = p.ElapsedTime;
+                        progressState.IsGeneratingReport = p.IsGeneratingReport;
+                        progressState.IsRollingBack = p.IsRollingBack;
+                    }
+                });
+
+                result = await orchestrator.ExecuteAsync(basicProgress, _cts.Token);
+                basicDisplay.Clear();
+            }
+
+            // Display results
+            AnsiConsole.WriteLine();
+            
             if (!result.Success)
             {
-                Console.WriteLine();
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"❌ Conversion failed: {result.ErrorMessage}");
-                Console.ResetColor();
+                AnsiConsole.Write(new Panel(
+                    new Markup($"[{theme.Error}]{theme.ErrorIcon} Conversion failed: {Markup.Escape(result.ErrorMessage ?? "Unknown error")}[/]"))
+                {
+                    Border = BoxBorder.Rounded,
+                    BorderStyle = new Style(theme.Error),
+                    Padding = new Padding(1, 0)
+                });
                 Environment.ExitCode = 1;
                 return;
             }
 
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("✅ Conversion completed successfully!");
-            Console.ResetColor();
-            Console.WriteLine($"   Output: {result.OutputPath}");
-            
+            // Success - display summary
+            AnsiConsole.Write(new Panel(
+                new Markup($"[{theme.Success}]{theme.SuccessIcon} Conversion completed successfully![/]"))
+            {
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(theme.Success),
+                Padding = new Padding(1, 0)
+            });
+
             if (result.Report != null)
             {
-                Console.WriteLine($"   Forms: {result.Report.Forms.Count}");
-                Console.WriteLine($"   Controls: {result.Report.Statistics.ConvertedControls}");
-                Console.WriteLine($"   Duration: {result.Report.Duration.TotalSeconds:F2}s");
+                // Display forms table
+                if (result.Report.Forms.Count > 0)
+                {
+                    AnsiConsole.WriteLine();
+                    var formsTable = new Table()
+                        .Border(TableBorder.Rounded)
+                        .BorderColor(theme.Primary)
+                        .AddColumn(new TableColumn("[bold]Form[/]"))
+                        .AddColumn(new TableColumn("[bold]Controls[/]").Centered())
+                        .AddColumn(new TableColumn("[bold]Layout[/]").Centered())
+                        .AddColumn(new TableColumn("[bold]Status[/]").Centered());
+
+                    foreach (var form in result.Report.Forms)
+                    {
+                        var statusIcon = form.Status == "Converted" 
+                            ? $"[{theme.Success}]{theme.SuccessIcon}[/]"
+                            : $"[{theme.Warning}]{theme.WarningIcon}[/]";
+
+                        formsTable.AddRow(
+                            new Markup(Markup.Escape(form.Name)),
+                            new Markup($"[{theme.Info}]{form.ControlCount}[/]"),
+                            new Markup($"[{theme.Primary}]{form.Layout}[/]"),
+                            new Markup(statusIcon)
+                        );
+                    }
+
+                    AnsiConsole.Write(formsTable);
+                }
+
+                // Display summary panel
+                AnsiConsole.WriteLine();
+                var summaryGrid = new Grid()
+                    .AddColumn()
+                    .AddColumn()
+                    .AddRow("[bold]Forms:[/]", $"[{theme.Success}]{result.Report.Forms.Count}[/]")
+                    .AddRow("[bold]Controls:[/]", $"[{theme.Info}]{result.Report.Statistics.ConvertedControls}[/]")
+                    .AddRow("[bold]Properties:[/]", $"[{theme.Info}]{result.Report.Statistics.MappedProperties}[/]")
+                    .AddRow("[bold]Events:[/]", $"[{theme.Info}]{result.Report.Statistics.ConvertedToCommands}[/]")
+                    .AddRow("[bold]Duration:[/]", $"[dim]{result.Report.Duration.TotalSeconds:F2}s[/]")
+                    .AddRow("[bold]Output:[/]", $"[dim]{Markup.Escape(result.OutputPath ?? "")}[/]");
+
+                AnsiConsole.Write(new Panel(summaryGrid)
+                {
+                    Header = new PanelHeader("Conversion Summary", Justify.Left),
+                    Border = BoxBorder.Rounded,
+                    BorderStyle = new Style(theme.Success)
+                });
 
                 // Generate report if requested
                 if (report != null)
@@ -319,35 +544,87 @@ class Program
 
                     var reportContent = reportBuilder.Generate(result.Report, format);
                     await File.WriteAllTextAsync(report, reportContent);
-                    Console.WriteLine($"   Report: {report}");
+                    
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.Write(new Panel(
+                        new Markup($"[{theme.Info}]{theme.ReportIcon} Report generated: {Markup.Escape(report)}[/]"))
+                    {
+                        Border = BoxBorder.Rounded,
+                        BorderStyle = new Style(theme.Info),
+                        Padding = new Padding(1, 0)
+                    });
                 }
 
-                if (result.Report.Warnings.Count > 0)
+                // Display warnings and errors
+                if (result.Report.Warnings.Count > 0 || result.Report.Errors.Count > 0)
                 {
-                    Console.WriteLine();
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"⚠️  {result.Report.Warnings.Count} warning(s)");
-                    Console.ResetColor();
-                }
+                    AnsiConsole.WriteLine();
+                    var issuesTable = new Table()
+                        .Border(TableBorder.Rounded)
+                        .AddColumn("[bold]Type[/]")
+                        .AddColumn("[bold]Location[/]")
+                        .AddColumn("[bold]Message[/]");
 
-                if (result.Report.Errors.Count > 0)
-                {
-                    Console.WriteLine();
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"❌ {result.Report.Errors.Count} error(s)");
-                    Console.ResetColor();
+                    foreach (var warning in result.Report.Warnings.Take(5))
+                    {
+                        issuesTable.AddRow(
+                            new Markup($"[{theme.Warning}]{theme.WarningIcon} Warning[/]"),
+                            new Markup(Markup.Escape(warning.Location ?? "")),
+                            new Markup(Markup.Escape(warning.Message ?? ""))
+                        );
+                    }
+
+                    foreach (var error in result.Report.Errors.Take(5))
+                    {
+                        issuesTable.AddRow(
+                            new Markup($"[{theme.Error}]{theme.ErrorIcon} Error[/]"),
+                            new Markup(Markup.Escape(error.Location ?? "")),
+                            new Markup(Markup.Escape(error.Message ?? ""))
+                        );
+                    }
+
+                    if (result.Report.Warnings.Count + result.Report.Errors.Count > 10)
+                    {
+                        issuesTable.AddRow(
+                            new Markup("[dim]...[/]"),
+                            new Markup($"[dim]{result.Report.Warnings.Count + result.Report.Errors.Count - 10} more issues[/]"),
+                            new Markup("[dim]See report for full details[/]")
+                        );
+                    }
+
+                    AnsiConsole.Write(new Panel(issuesTable)
+                    {
+                        Header = new PanelHeader("Issues", Justify.Left),
+                        Border = BoxBorder.Rounded,
+                        BorderStyle = new Style(theme.Warning)
+                    });
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Panel(
+                new Markup("[yellow]⏸️  Conversion cancelled by user[/]\n\n" +
+                          "[dim]Workspace has been restored to original state[/]"))
+            {
+                Header = new PanelHeader("Conversion Cancelled", Justify.Left),
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(Color.Yellow),
+                Padding = new Padding(1, 1)
+            });
+            Environment.ExitCode = 130; // Standard exit code for Ctrl+C
+        }
         catch (Exception ex)
         {
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"❌ Error: {ex.Message}");
-            Console.ResetColor();
-            Console.WriteLine();
-            Console.WriteLine(ex.StackTrace);
+            AnsiConsole.WriteLine();
+            AnsiConsole.WriteException(ex, ExceptionFormats.ShortenEverything);
             Environment.ExitCode = 1;
+        }
+        finally
+        {
+            _cts?.Dispose();
+            _cts = null;
         }
     }
 }
