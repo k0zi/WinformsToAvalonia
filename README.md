@@ -136,6 +136,7 @@ See [src/README.md](winforms-to-avalonia-converter/src/README.md) for detailed d
 | Plugin System (third-party control handlers) | 🚧 Planned |
 | Checkpoint/Resume (`--resume`) | 🚧 Planned |
 | Event-Handler Body Migration | 🚧 Planned |
+| Avalonia 12 Support (generated projects currently target 11.2.0) | 🚧 Planned |
 
 ## 🤝 Contributing
 
