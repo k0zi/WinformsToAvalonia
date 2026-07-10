@@ -94,6 +94,29 @@ public class CodeBehindGeneratorTests
     }
 
     [Fact]
+    public void Generate_GotFocusHandler_DefaultsToV12FocusChangedEventArgs()
+    {
+        var root = BuildFormWithButtonHandler("GotFocus", "button1_GotFocus");
+
+        var content = new CodeBehindGenerator().Generate("SampleApp", "SampleForm", root);
+
+        Assert.Contains(
+            "private void button1_GotFocus(object? sender, Avalonia.Input.FocusChangedEventArgs e)", content);
+    }
+
+    [Fact]
+    public void Generate_GotFocusHandler_TargetingV11_UsesGotFocusEventArgs()
+    {
+        var root = BuildFormWithButtonHandler("GotFocus", "button1_GotFocus");
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "SampleForm", root, avaloniaMajorVersion: 11);
+
+        Assert.Contains(
+            "private void button1_GotFocus(object? sender, Avalonia.Input.GotFocusEventArgs e)", content);
+    }
+
+    [Fact]
     public void Generate_WithEmbeddedHandlerBodyComment_ProducesSyntacticallyValidCSharp()
     {
         var root = BuildFormWithButtonHandler("KeyDown", "textBox1_KeyDown");

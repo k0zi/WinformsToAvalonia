@@ -2,11 +2,12 @@
 
 # WinForms → Avalonia Converter
 
-**Automatically migrate Windows Forms projects to Avalonia 11.x with MVVM, intelligent layout detection, and a plugin-extensible pipeline.**
+**Automatically migrate Windows Forms projects to Avalonia 12.x (11.x still supported) with MVVM, intelligent layout detection, and a plugin-extensible pipeline.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
-[![Avalonia](https://img.shields.io/badge/UI-Avalonia%2011.x-8A2BE2)](https://avaloniaui.net/)
+[![Avalonia](https://img.shields.io/badge/UI-Avalonia%2012.x-8A2BE2)](https://avaloniaui.net/)
+[![dotnet tool](https://img.shields.io/badge/dotnet%20tool-winforms2avalonia-512BD4?logo=dotnet&logoColor=white)](#-quick-start)
 [![Tests](https://img.shields.io/badge/tests-xUnit-25A162)](winforms-to-avalonia-converter/src/Converter.Tests)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-contributing)
 
@@ -71,50 +72,57 @@ It won't do 100% of the work for you (WinForms and Avalonia are different UI fra
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or later
 
-### Build
+### Install as a CLI tool
+
+Not published to nuget.org yet — build and install locally as a [dotnet tool](https://learn.microsoft.com/dotnet/core/tools/global-tools):
 
 ```bash
 git clone https://github.com/k0zi/WinformsToAvalonia.git
 cd WinformsToAvalonia/winforms-to-avalonia-converter/src
-dotnet restore
-dotnet build
+
+dotnet pack Converter.Cli/Converter.Cli.csproj -c Release -o ./nupkg
+dotnet tool install --global --add-source ./nupkg WinformsToAvalonia.Converter
 ```
 
-### Test
+`winforms2avalonia` is now available anywhere. Reinstall with `dotnet tool update --global --add-source ./nupkg WinformsToAvalonia.Converter` after pulling changes.
+
+### Build & Test (for development)
 
 ```bash
+dotnet restore
+dotnet build
 dotnet test
 ```
 
 ## 🖥 Usage
 
 ```bash
-cd Converter.Cli
-
 # Scaffold a config file
-dotnet run -- init-config
+winforms2avalonia init-config
 
-# Convert a project
-dotnet run -- convert \
+# Convert a project (defaults to Avalonia 12.x output)
+winforms2avalonia convert \
   --input /path/to/WinFormsApp \
   --output /path/to/AvaloniaApp \
   --layout smart \
   --report report.html
 
 # Resume an interrupted run
-dotnet run -- convert -i ./MyApp -o ./MyApp.Avalonia --resume
+winforms2avalonia convert -i ./MyApp -o ./MyApp.Avalonia --resume
 
 # Discover / scaffold plugins
-dotnet run -- list-plugins --plugins ./plugins
-dotnet run -- init-plugin --name "MyPlugin" --output ./plugins/MyPlugin
+winforms2avalonia list-plugins --plugins ./plugins
+winforms2avalonia init-plugin --name "MyPlugin" --output ./plugins/MyPlugin
 ```
 
-Run `dotnet run -- convert --help` for the full flag list.
+Run `winforms2avalonia convert --help` for the full flag list. Prefer not to install the tool? Run from source instead: `cd Converter.Cli && dotnet run -- convert ...`.
+
+Still on Avalonia 11? Pin it explicitly — set `"projectGeneration": { "avaloniaVersion": "11.2.0" }` in `.converterconfig` (see [Configuration](#-configuration)).
 
 ## ⚙️ Configuration
 
 ```bash
-dotnet run -- init-config -o .converterconfig
+winforms2avalonia init-config -o .converterconfig
 ```
 
 ```json
@@ -123,9 +131,12 @@ dotnet run -- init-config -o .converterconfig
   "styleExtraction": { "enabled": true, "minimumOccurrence": 3 },
   "resourceConversion": { "enabled": true, "assetsDirectory": "Assets" },
   "eventHandlerMigration": { "enabled": true },
+  "projectGeneration": { "avaloniaVersion": "12.0.0" },
   "gitIntegration": { "enabled": true, "createFeatureBranch": true }
 }
 ```
+
+`projectGeneration.avaloniaVersion` defaults to `12.0.0` and is version-aware end to end — package references *and* the one confirmed Avalonia 11→12 breaking API change affecting generated code (`GotFocus`/`LostFocus` handler signatures) both track whichever version you target. Set it to `"11.2.0"` to keep generating Avalonia 11.x-compatible output.
 
 See [src/README.md](winforms-to-avalonia-converter/src/README.md#configuration) for the full schema.
 
@@ -147,7 +158,8 @@ See [src/README.md](winforms-to-avalonia-converter/src/README.md#configuration) 
 | Comprehensive Reports (HTML/JSON/Markdown/CSV) | ✅ Implemented |
 | Migration Guides (auto-generated, with concrete manual steps) | ✅ Implemented |
 | Configurable Avalonia/CommunityToolkit.Mvvm Target Version | ✅ Implemented |
-| Native Avalonia 12 API/Syntax Support | 🚧 Planned |
+| Avalonia 12 Support (default target; 11.x supported via config) | ✅ Implemented |
+| Installable as a dotnet tool (`winforms2avalonia`) | ✅ Implemented (local install only — not on nuget.org) |
 
 ## 📁 Project Structure
 

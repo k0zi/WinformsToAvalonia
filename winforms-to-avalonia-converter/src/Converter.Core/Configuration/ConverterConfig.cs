@@ -333,7 +333,7 @@ public class DefaultOptionsConfig
 public class ProjectGenerationConfig
 {
     [JsonPropertyName("avaloniaVersion")]
-    public string AvaloniaVersion { get; init; } = "11.2.0";
+    public string AvaloniaVersion { get; init; } = "12.0.0";
 
     [JsonPropertyName("communityToolkitMvvmVersion")]
     public string CommunityToolkitMvvmVersion { get; init; } = "8.3.2";

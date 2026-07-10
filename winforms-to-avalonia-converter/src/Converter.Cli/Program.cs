@@ -30,7 +30,7 @@ class Program
             }
         };
 
-        var rootCommand = new RootCommand("WinForms to Avalonia Converter");
+        var rootCommand = new RootCommand("WinForms to Avalonia Converter") { Name = "winforms2avalonia" };
 
         // Convert command
         var convertCommand = CreateConvertCommand();
@@ -260,11 +260,12 @@ class Program
     }
 
     /// <summary>
-    /// Scaffolds a minimal plugin project: plugin.json manifest, a .csproj referencing this
-    /// checkout's Converter.Plugin.Abstractions build output directly (works immediately for
-    /// local development; there's no published package/NuGet feed for it today, so the
-    /// generated project says so rather than pretending a distribution story exists), and a
-    /// stub IConverterPlugin + example IControlMapper implementation.
+    /// Scaffolds a minimal plugin project: plugin.json manifest, a .csproj referencing
+    /// Converter.Plugin.Abstractions directly via wherever this process is currently running
+    /// from (works immediately, whether that's a dev checkout's build output or an installed
+    /// `winforms2avalonia` dotnet-tool location; there's no published package/NuGet feed for
+    /// it today, so the generated project says so rather than pretending a distribution story
+    /// exists), and a stub IConverterPlugin + example IControlMapper implementation.
     /// </summary>
     private static async Task GeneratePluginTemplateAsync(string name, string outputDirectory)
     {
@@ -302,10 +303,13 @@ class Program
               </PropertyGroup>
 
               <ItemGroup>
-                <!-- Points at this local checkout's build output, for local development
-                     against this repo. Swap for a proper package/dll reference once
-                     Converter.Plugin.Abstractions is published - there's no NuGet feed for
-                     it today. -->
+                <!-- Points at wherever winforms2avalonia is currently running from (a dev
+                     checkout's build output, or an installed dotnet-tool location). Works
+                     immediately, but this exact path can go stale if the tool is later
+                     updated or uninstalled (`dotnet tool update`/`uninstall`) - re-run
+                     init-plugin, or fix the HintPath by hand, if that happens. Swap for a
+                     proper package reference once Converter.Plugin.Abstractions is published
+                     to NuGet - there's no feed for it today. -->
                 <Reference Include="Converter.Plugin.Abstractions">
                   <HintPath>{abstractionsAssemblyPath}</HintPath>
                 </Reference>

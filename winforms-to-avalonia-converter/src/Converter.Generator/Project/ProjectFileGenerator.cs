@@ -13,7 +13,7 @@ public class ProjectFileGenerator
     /// </summary>
     public static class PackageVersions
     {
-        public const string Avalonia = "11.2.0";
+        public const string Avalonia = "12.0.0";
         public const string CommunityToolkitMvvm = "8.3.2";
     }
 

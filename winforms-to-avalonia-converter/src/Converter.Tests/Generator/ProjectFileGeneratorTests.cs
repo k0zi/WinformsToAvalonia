@@ -13,6 +13,15 @@ public class ProjectFileGeneratorTests
     }
 
     [Fact]
+    public void PackageVersions_Avalonia_DefaultsToTwelveZero()
+    {
+        // Deliberate tripwire: Avalonia 12 is the current default target (11.x remains a
+        // fully-supported opt-in via projectGeneration.avaloniaVersion). If this const ever
+        // reverts to an 11.x value, this test should fail loudly rather than silently.
+        Assert.Equal("12.0.0", ProjectFileGenerator.PackageVersions.Avalonia);
+    }
+
+    [Fact]
     public void GenerateAvaloniaProject_PackageVersionsTraceToCentralConstants()
     {
         var csproj = new ProjectFileGenerator().GenerateAvaloniaProject("SampleApp");

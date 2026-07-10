@@ -8,6 +8,21 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- dotnet tool packaging: `dotnet pack` produces a .nupkg installable locally via
+         "dotnet tool install" with an "add source" flag pointing at the pack output
+         directory. Not published to nuget.org (no CI/publish automation set up yet). -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>winforms2avalonia</ToolCommandName>
+    <PackageId>WinformsToAvalonia.Converter</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>David Kozma</Authors>
+    <Description>Converts WinForms projects (.Designer.cs + code-behind) to Avalonia 11.x/12.x projects with MVVM architecture (CommunityToolkit.Mvvm).</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/k0zi/WinformsToAvalonia</RepositoryUrl>
+    <PackageTags>avalonia;winforms;migration;converter;mvvm</PackageTags>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.54.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />

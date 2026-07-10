@@ -322,17 +322,19 @@ public class ConversionOrchestrator
             var useParallel = !_resume && _config.ParallelProcessing.Enabled && parseResults.Count > 1;
 
             var mappingContext = new MappingContext { ProjectPath = _sourcePath, OutputPath = _outputPath };
+            var avaloniaMajorVersion = EventSignatureRegistry.ParseMajorVersion(_config.ProjectGeneration.AvaloniaVersion);
 
             var outcomes = useParallel
                 ? await ConvertFormsInParallelAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
-                    resxByFile, mappingResolver, mappingContext, _config.ParallelProcessing.MaxDegreeOfParallelism, cancellationToken)
+                    resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion,
+                    _config.ParallelProcessing.MaxDegreeOfParallelism, cancellationToken)
                 : await ConvertFormsSequentiallyAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
-                    resxByFile, mappingResolver, mappingContext, progress, statistics, totalForms, totalFilesToGenerate,
-                    cancellationToken, checkpointManager, state);
+                    resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, progress, statistics, totalForms,
+                    totalFilesToGenerate, cancellationToken, checkpointManager, state);
 
             var filesGenerated = 0;
             var formsProcessed = 0;
@@ -595,7 +597,8 @@ public class ConversionOrchestrator
         LayoutAnalysisContext layoutContext,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, ResxEntry>> resxByFile,
         MappingResolver mappingResolver,
-        MappingContext mappingContext)
+        MappingContext mappingContext,
+        int avaloniaMajorVersion)
     {
         try
         {
@@ -624,7 +627,7 @@ public class ConversionOrchestrator
             var vmContent = vmGenerator.GeneratePartialClass(
                 rootControl, namespaceName, className, overrides, parseResult.EventHandlerBodies);
             var codeBehindContent = codeBehindGenerator.Generate(
-                namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides);
+                namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides, avaloniaMajorVersion);
 
             var axamlPath = Path.Combine(viewsDir, $"{className}.axaml");
             var codeBehindPath = Path.Combine(viewsDir, $"{className}.axaml.cs");
@@ -903,6 +906,7 @@ public class ConversionOrchestrator
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, ResxEntry>> resxByFile,
         MappingResolver mappingResolver,
         MappingContext mappingContext,
+        int avaloniaMajorVersion,
         IProgress<ConversionProgress>? progress,
         ConversionStatistics statistics,
         int totalForms,
@@ -925,7 +929,8 @@ public class ConversionOrchestrator
 
             var outcome = await ConvertFormAsync(parseResult, layoutAnalyzer, axamlGenerator, vmGenerator,
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
-                namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext);
+                namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
+                avaloniaMajorVersion);
 
             outcomes.Add(outcome);
             formsProcessed++;
@@ -982,6 +987,7 @@ public class ConversionOrchestrator
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, ResxEntry>> resxByFile,
         MappingResolver mappingResolver,
         MappingContext mappingContext,
+        int avaloniaMajorVersion,
         int? maxDegreeOfParallelism,
         CancellationToken cancellationToken)
     {
@@ -997,7 +1003,8 @@ public class ConversionOrchestrator
         {
             outcomes[i] = await ConvertFormAsync(parseResults[i], layoutAnalyzer, axamlGenerator, vmGenerator,
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
-                namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext);
+                namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
+                avaloniaMajorVersion);
         });
 
         return outcomes.Select(o => o!.Value).ToList();

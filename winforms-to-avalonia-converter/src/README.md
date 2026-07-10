@@ -1,6 +1,6 @@
 # WinForms to Avalonia Converter
 
-A comprehensive .NET 10 application that automatically converts Windows Forms projects to Avalonia 11.x with MVVM architecture, intelligent layout detection, and extensible plugin system.
+A comprehensive .NET 10 application that automatically converts Windows Forms projects to Avalonia with MVVM architecture, intelligent layout detection, and extensible plugin system. Targets Avalonia 12.x by default; Avalonia 11.x remains fully supported as an explicit opt-in. Packaged as a dotnet tool (`winforms2avalonia`).
 
 ## Features
 
@@ -62,7 +62,19 @@ src/
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - Git (for git integration features)
 
-### Build from Source
+### Install as a dotnet tool
+
+Not published to nuget.org yet — pack and install locally:
+
+```bash
+cd winforms-to-avalonia-converter/src
+dotnet pack Converter.Cli/Converter.Cli.csproj -c Release -o ./nupkg
+dotnet tool install --global --add-source ./nupkg WinformsToAvalonia.Converter
+```
+
+This installs the `winforms2avalonia` command. Re-run `dotnet tool update` (same flags) after pulling changes.
+
+### Build from Source (for development)
 
 ```bash
 cd winforms-to-avalonia-converter/src
@@ -70,7 +82,7 @@ dotnet restore
 dotnet build
 ```
 
-### Run
+### Run from Source
 
 ```bash
 cd Converter.Cli
@@ -91,21 +103,23 @@ Runs the `Converter.Tests` xUnit suite: parser, generator, mapping registry, lay
 
 ```bash
 # Generate configuration template
-dotnet run -- init-config
+winforms2avalonia init-config
 
-# Convert a single project
-dotnet run -- convert \
+# Convert a single project (defaults to Avalonia 12.x output)
+winforms2avalonia convert \
   --input /path/to/MyApp.csproj \
   --output /path/to/output \
   --layout auto
 
 # Convert entire solution
-dotnet run -- convert \
+winforms2avalonia convert \
   --input /path/to/MySolution.sln \
   --output /path/to/output \
   --create-branch \
   --report report.html
 ```
+
+Running from source instead of the installed tool? Replace `winforms2avalonia` with `dotnet run --` from inside `Converter.Cli`.
 
 ### Command Line Options
 
@@ -133,13 +147,13 @@ dotnet run -- convert \
 #### `init-config` - Generate Configuration Template
 
 ```bash
-dotnet run -- init-config --output .converterconfig
+winforms2avalonia init-config --output .converterconfig
 ```
 
 #### `list-plugins` - List Available Plugins
 
 ```bash
-dotnet run -- list-plugins --plugins ./plugins
+winforms2avalonia list-plugins --plugins ./plugins
 ```
 
 ## Configuration
@@ -165,6 +179,11 @@ Create a `.converterconfig` file in your project root:
     "enabled": true,
     "minimumOccurrence": 3
   },
+  "projectGeneration": {
+    "avaloniaVersion": "12.0.0",
+    "communityToolkitMvvmVersion": "8.3.2",
+    "targetFramework": "net10.0"
+  },
   "gitIntegration": {
     "enabled": true,
     "createFeatureBranch": true,
@@ -172,6 +191,8 @@ Create a `.converterconfig` file in your project root:
   }
 }
 ```
+
+`projectGeneration.avaloniaVersion` is version-aware, not just a version-string passthrough: it drives both the generated `.csproj`'s package references and the one confirmed Avalonia 11→12 breaking API change affecting generated code (`GotFocus`/`LostFocus` handler signatures, resolved via `Converter.Mappings/BuiltIn/EventSignatureRegistry.cs`). Set it to `"11.2.0"` for Avalonia 11.x-compatible output.
 
 ## Development Status
 
@@ -189,20 +210,22 @@ Create a `.converterconfig` file in your project root:
 - Layout detection algorithms (Grid/StackPanel/DockPanel/Canvas, weighted confidence scoring, container-type fast paths)
 - Control, property, and event mapping registries
 - Code generators (AXAML, ViewModels with real `[ObservableProperty]`/`[RelayCommand]` members, code-behind, style extraction, project scaffolding)
-- Configurable Avalonia/CommunityToolkit.Mvvm target package versions (`projectGeneration.avaloniaVersion`/`communityToolkitMvvmVersion`/`targetFramework`)
+- Configurable, version-aware Avalonia/CommunityToolkit.Mvvm target package versions (`projectGeneration.avaloniaVersion`/`communityToolkitMvvmVersion`/`targetFramework`) — Avalonia 12.x is the default target, Avalonia 11.x remains fully supported as an opt-in, and `EventSignatureRegistry` tracks the one confirmed 11→12 breaking API change affecting generated code (`GotFocus`/`LostFocus` handler signatures)
+- Packaged as a dotnet tool (`winforms2avalonia`, package id `WinformsToAvalonia.Converter`) — `dotnet pack` + local `dotnet tool install`
 - Git integration with LibGit2Sharp
 - Multi-format reporting system
 - Migration guide generator, including concrete manual-steps reporting
 - Comprehensive unit test suite (`Converter.Tests`, xUnit)
 
 ### 📋 Planned
-- Native Avalonia 12 support: the target package version is configurable, but no Avalonia 12-specific API/syntax changes have been validated or accounted for
+- Publishing `WinformsToAvalonia.Converter` (and `Converter.Plugin.Abstractions` as its own package) to nuget.org — currently local-pack-and-install only, no CI/publish automation
+- Broader Avalonia 12 API validation beyond the one confirmed breaking change already handled (`GotFocus`/`LostFocus`) — the official breaking-changes list covers areas (Android/iOS lifecycle, clipboard `IDataObject` removal, `ToggleButton` event renames, etc.) that don't affect what this tool generates today, but should be re-checked as generator coverage grows
 
 ## Contributing
 
 Contributions are welcome! Areas needing implementation:
 
-1. **Avalonia 12 Support**: Validate and account for any Avalonia 12-specific API/syntax changes beyond the already-configurable package version
+1. **NuGet Publishing**: Set up CI to publish `WinformsToAvalonia.Converter` to nuget.org, and publish `Converter.Plugin.Abstractions` as its own package so `init-plugin`'s scaffolded `HintPath` reference (currently points at wherever the tool is currently installed, which can go stale across `dotnet tool update`/`uninstall`) can become a proper `PackageReference`
 2. **Plugins**: Sample plugins for popular third-party controls (DevExpress, Telerik)
 
 ## License
@@ -218,4 +241,4 @@ MIT License - see [LICENSE](../LICENSE) file for details.
 
 ---
 
-**Status**: Core conversion pipeline functional and covered by an automated test suite, including plugin consumption, `.resx` conversion, checkpoint/resume, and event-handler body migration; native Avalonia 12 API/syntax support remains planned.
+**Status**: Core conversion pipeline functional and covered by an automated test suite, including plugin consumption, `.resx` conversion, checkpoint/resume, event-handler body migration, and Avalonia 12 support (now the default target, with 11.x fully supported via config); packaged as a dotnet tool (`winforms2avalonia`), installable locally — nuget.org publishing remains planned.

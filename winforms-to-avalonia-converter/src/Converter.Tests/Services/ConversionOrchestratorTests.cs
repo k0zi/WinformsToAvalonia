@@ -351,6 +351,99 @@ public class ConversionOrchestratorTests
         }
     }
 
+    private static string DesignerFileWithGotFocusHandler(string className) => $$"""
+        namespace SampleApp
+        {
+            partial class {{className}}
+            {
+                private System.Windows.Forms.TextBox textBox1;
+
+                private void InitializeComponent()
+                {
+                    this.textBox1 = new System.Windows.Forms.TextBox();
+                    this.SuspendLayout();
+                    this.textBox1.Name = "textBox1";
+                    this.textBox1.GotFocus += new System.EventHandler(this.textBox1_GotFocus);
+                    this.Controls.Add(this.textBox1);
+                    this.Name = "{{className}}";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_DefaultConfig_TargetsAvalonia12_AndUsesFocusChangedEventArgs()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "Form1.Designer.cs"), DesignerFileWithGotFocusHandler("Form1"));
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = false }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config).ExecuteAsync();
+
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var csprojPath = Path.Combine(outputDir, $"{Path.GetFileName(outputDir)}.csproj");
+            var csprojContent = await File.ReadAllTextAsync(csprojPath);
+            Assert.Contains("Include=\"Avalonia\" Version=\"12.0.0\"", csprojContent);
+
+            var codeBehindContent = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "Form1.axaml.cs"));
+            Assert.Contains("Avalonia.Input.FocusChangedEventArgs", codeBehindContent);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ExplicitAvalonia11Config_UsesGotFocusEventArgs()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "Form1.Designer.cs"), DesignerFileWithGotFocusHandler("Form1"));
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = false },
+                ProjectGeneration = new ProjectGenerationConfig { AvaloniaVersion = "11.2.0" }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config).ExecuteAsync();
+
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var csprojPath = Path.Combine(outputDir, $"{Path.GetFileName(outputDir)}.csproj");
+            var csprojContent = await File.ReadAllTextAsync(csprojPath);
+            Assert.Contains("Include=\"Avalonia\" Version=\"11.2.0\"", csprojContent);
+
+            var codeBehindContent = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "Form1.axaml.cs"));
+            Assert.Contains("Avalonia.Input.GotFocusEventArgs", codeBehindContent);
+            Assert.DoesNotContain("FocusChangedEventArgs", codeBehindContent);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task ExecuteAsync_WithResume_CancelledMidRun_LeavesCompletedFormsOnDiskAndSavesCheckpoint()
     {

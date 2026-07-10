@@ -18,11 +18,15 @@ public class CodeBehindGenerator
     /// <paramref name="handlerBodies"/>, is embedded as an inert `//`-prefixed comment block
     /// - never live/compiled code - inside it. A handler not found in
     /// <paramref name="handlerBodies"/> gets a plain "port manually" TODO comment instead.
+    /// <paramref name="avaloniaMajorVersion"/> picks which EventSignatureRegistry entries
+    /// apply (defaults to 12, matching this converter's current default generated-project
+    /// target) - the only entries that currently differ by version are GotFocus/LostFocus.
     /// </summary>
     public string Generate(
         string namespaceName, string className, ControlNode root,
         IReadOnlyDictionary<string, string>? handlerBodies = null,
-        PluginMappingOverrides? overrides = null)
+        PluginMappingOverrides? overrides = null,
+        int avaloniaMajorVersion = 12)
     {
         overrides ??= PluginMappingOverrides.Empty;
         var sb = new StringBuilder();
@@ -48,7 +52,7 @@ public class CodeBehindGenerator
 
         foreach (var (avaloniaEvent, handlerName) in handlers.DistinctBy(h => h.HandlerName))
         {
-            var signature = EventSignatureRegistry.GetSignature(avaloniaEvent);
+            var signature = EventSignatureRegistry.GetSignature(avaloniaEvent, avaloniaMajorVersion);
 
             sb.AppendLine();
             sb.AppendLine($"    private void {handlerName}(object? sender, {signature.EventArgsType} e)");
