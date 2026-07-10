@@ -10,18 +10,18 @@ Core correctness (event handler and data binding extraction, so generated ViewMo
 
 ## Repository Layout
 
-The actual solution lives one level down from the repo root:
+The solution lives in `src/`:
 
 ```
-winforms-to-avalonia-converter/src/Converter.sln
+src/Converter.sln
 ```
 
-All `dotnet` commands below assume you `cd winforms-to-avalonia-converter/src` first.
+All `dotnet` commands below assume you `cd src` first.
 
 ## Common Commands
 
 ```bash
-cd winforms-to-avalonia-converter/src
+cd src
 
 # restore + build the whole solution
 dotnet restore
@@ -123,7 +123,7 @@ Gated by `_config.EventHandlerMigration.Enabled` (default on). For each parsed f
 - `UI/ConversionStatusDisplay.cs` — live-updating panel while ANSI/interactive terminal support is detected.
 - `UI/BasicProgressDisplay.cs` — fallback for non-interactive terminals.
 - `UI/InteractivePrompts.cs` — prompts for missing `--input`/`--output`/`--layout` when `--no-interactive` is not set.
-- `UI/ConverterTheme.cs` — colors/icons, overridable via a `.convertertheme` JSON file (see `winforms-to-avalonia-converter/custom-theme.convertertheme` for the schema: `Success`, `Warning`, `Error`, `Info`, `Debug`, `Primary`, `Secondary` colors plus icon glyphs).
+- `UI/ConverterTheme.cs` — colors/icons, overridable via a `.convertertheme` JSON file (see `custom-theme.convertertheme` at the repo root for the schema: `Success`, `Warning`, `Error`, `Info`, `Debug`, `Primary`, `Secondary` colors plus icon glyphs).
 - `Logging/SpectreConsoleLogger*.cs` — bridges `Microsoft.Extensions.Logging` into Spectre console output.
 
 ### Configuration

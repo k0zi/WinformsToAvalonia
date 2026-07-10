@@ -8,7 +8,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Avalonia](https://img.shields.io/badge/UI-Avalonia%2012.x-8A2BE2)](https://avaloniaui.net/)
 [![dotnet tool](https://img.shields.io/badge/dotnet%20tool-winforms2avalonia-512BD4?logo=dotnet&logoColor=white)](#-quick-start)
-[![Tests](https://img.shields.io/badge/tests-xUnit-25A162)](winforms-to-avalonia-converter/src/Converter.Tests)
+[![Tests](https://img.shields.io/badge/tests-xUnit-25A162)](src/Converter.Tests)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-contributing)
 
 [Quick Start](#-quick-start) •
@@ -78,7 +78,7 @@ Not published to nuget.org yet — build and install locally as a [dotnet tool](
 
 ```bash
 git clone https://github.com/k0zi/WinformsToAvalonia.git
-cd WinformsToAvalonia/winforms-to-avalonia-converter/src
+cd WinformsToAvalonia/src
 
 dotnet pack Converter.Cli/Converter.Cli.csproj -c Release -o ./nupkg
 dotnet tool install --global --add-source ./nupkg WinformsToAvalonia.Converter
@@ -138,7 +138,7 @@ winforms2avalonia init-config -o .converterconfig
 
 `projectGeneration.avaloniaVersion` defaults to `12.0.0` and is version-aware end to end — package references *and* the one confirmed Avalonia 11→12 breaking API change affecting generated code (`GotFocus`/`LostFocus` handler signatures) both track whichever version you target. Set it to `"11.2.0"` to keep generating Avalonia 11.x-compatible output.
 
-See [src/README.md](winforms-to-avalonia-converter/src/README.md#configuration) for the full schema.
+See [src/README.md](src/README.md#configuration) for the full schema.
 
 ## 🎯 Feature Status
 
@@ -169,30 +169,29 @@ See [src/README.md](winforms-to-avalonia-converter/src/README.md#configuration) 
 ```
 ├── LICENSE
 ├── README.md
-└── winforms-to-avalonia-converter/
-    └── src/
-        ├── Converter.sln
-        ├── README.md                      # Detailed documentation
-        ├── Converter.Core/                # Parsing, layout analysis, config, services
-        ├── Converter.Plugin.Abstractions/  # Plugin contracts
-        ├── Converter.Mappings/             # Built-in control/property/event registries
-        ├── Converter.Generator/            # AXAML / ViewModel / code-behind / style generators
-        ├── Converter.Reporting/            # HTML/JSON/Markdown/CSV report builder
-        ├── Converter.Documentation/        # Migration guide generator
-        ├── Converter.Cli/                  # CLI entry point + orchestrator
-        ├── Converter.Tests/                # xUnit test suite
-        └── Converter.Tests.SamplePlugin/   # Compiled plugin fixture for integration tests
+└── src/
+    ├── Converter.sln
+    ├── README.md                      # Detailed documentation
+    ├── Converter.Core/                # Parsing, layout analysis, config, services
+    ├── Converter.Plugin.Abstractions/  # Plugin contracts
+    ├── Converter.Mappings/             # Built-in control/property/event registries
+    ├── Converter.Generator/            # AXAML / ViewModel / code-behind / style generators
+    ├── Converter.Reporting/            # HTML/JSON/Markdown/CSV report builder
+    ├── Converter.Documentation/        # Migration guide generator
+    ├── Converter.Cli/                  # CLI entry point + orchestrator
+    ├── Converter.Tests/                # xUnit test suite
+    └── Converter.Tests.SamplePlugin/   # Compiled plugin fixture for integration tests
 ```
 
 </details>
 
 ## 📖 Documentation
 
-See **[src/README.md](winforms-to-avalonia-converter/src/README.md)** for the full picture: architecture, configuration schema, CLI reference, and development status.
+See **[src/README.md](src/README.md)** for the full picture: architecture, configuration schema, CLI reference, and development status.
 
 ## 🤝 Contributing
 
-Contributions are welcome — this project is in active development. Check [src/README.md](winforms-to-avalonia-converter/src/README.md#contributing) for areas that still need work, then open a PR or issue.
+Contributions are welcome — this project is in active development. Check [src/README.md](src/README.md#contributing) for areas that still need work, then open a PR or issue.
 
 ## 📄 License
 
