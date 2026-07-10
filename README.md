@@ -4,7 +4,7 @@ A comprehensive .NET 10 application that automatically converts Windows Forms pr
 
 ## 🚀 Project Status
 
-**Current Phase**: Initial Implementation - Core Architecture Complete
+**Current Phase**: Core Conversion Pipeline Functional - Actively Tested
 
 ### ✅ Completed Components
 - **Solution Structure**: 8 projects targeting .NET 10
@@ -15,27 +15,35 @@ A comprehensive .NET 10 application that automatically converts Windows Forms pr
   - Converter.Reporting (multi-format reports)
   - Converter.Documentation (migration guides)
   - Converter.Cli (command-line interface)
-  - Converter.Tests (unit tests)
+  - Converter.Tests (xUnit test suite covering the parser, generators, mapping registries, layout analyzer, and end-to-end orchestrator runs)
 
-- **Plugin Architecture**: Extensible interfaces for custom converters
+- **Conversion Engine**:
+  - Roslyn-based WinForms parser: extracts control hierarchy, properties, event-handler subscriptions, and data bindings from `.Designer.cs` files
+  - Layout detection: Grid/StackPanel/DockPanel/Canvas confidence scoring (configurable weights), with fast-path detection for `TableLayoutPanel`/`FlowLayoutPanel`/`SplitContainer`
+  - AXAML generator: maps controls and converts properties (colors, fonts, dock, location) into valid Avalonia attributes; unmapped custom/third-party controls still render their mapped children
+  - ViewModel generator: produces real `[ObservableProperty]` fields (from data bindings) and `[RelayCommand]` methods (from event handlers) using CommunityToolkit.Mvvm
+  - Style extraction: generates shared Avalonia styles for controls with repeated property values
+  - Migration guide generator: reports concrete manual steps (unmapped controls, properties needing custom logic, event handlers needing manual porting) instead of a generic checklist
+
+- **Plugin Architecture**: Extensible interfaces for custom converters (not yet consulted by the built-in mapping registries - see below)
   - `IControlMapper` - Custom control mapping
   - `IPropertyTranslator` - Property translation
   - `ILayoutAnalyzer` - Layout detection
   - `ICodeGenerator` - Code generation
   - `IValidationRule` - Custom validation
 
-- **Configuration System**: JSON-based `.converterconfig` with:
+- **Configuration System**: JSON-based `.converterconfig`, merged with explicit CLI flags, covering:
   - Custom control mappings
   - Third-party library handling
   - Style extraction rules
-  - Layout detection thresholds
-  - Git integration settings
+  - Layout detection thresholds and weights
+  - Naming conventions (root namespace, ViewModel suffix) and exclude patterns
+  - Git integration settings (branch creation, branch name pattern)
   - Plugin configuration
 
 - **Infrastructure Services**:
-  - File hash tracking (SHA256) for incremental conversion
-  - Checkpoint manager with resume capability
-  - Transactional rollback manager
+  - File hash tracking (SHA256) powering `--incremental`/`--force`
+  - Transactional rollback manager - a failed or cancelled run cleans up every file it wrote
   - Configuration loader with validation
 
 - **CLI Framework**: Complete command structure using System.CommandLine
@@ -44,14 +52,11 @@ A comprehensive .NET 10 application that automatically converts Windows Forms pr
   - `init-plugin` - Create plugin project (planned)
   - `list-plugins` - List available plugins (planned)
 
-### 🚧 In Development
-- Roslyn-based WinForms parser
-- Layout detection algorithms
-- Control mapping registry
-- AXAML and ViewModel generators
-- Git integration with LibGit2Sharp
-- Multi-format reporting system
-- Migration guide generator
+### 🚧 Not Yet Implemented
+- Plugin consumption: `PluginLoader` can discover plugin assemblies, but the mapping registries don't yet consult loaded plugins
+- Checkpoint/resume support (`--resume`) - resuming a parallelized conversion batch needs its own design pass
+- `.resx` resource conversion (WinForms resources → Avalonia resource dictionaries)
+- WinForms event-handler *body* migration - events are mapped to commands, but the original handler code isn't ported automatically yet
 
 ## 📁 Repository Structure
 
@@ -92,6 +97,13 @@ cd Converter.Cli
 dotnet run -- --help
 ```
 
+### Test
+
+```bash
+cd winforms-to-avalonia-converter/src
+dotnet test
+```
+
 ### Generate Configuration Template
 
 ```bash
@@ -107,19 +119,23 @@ See [src/README.md](winforms-to-avalonia-converter/src/README.md) for detailed d
 - CLI usage examples
 - Development roadmap
 
-## 🎯 Planned Features
+## 🎯 Feature Status
 
-- **Automatic Conversion**: WinForms → Avalonia AXAML with ViewModels
-- **Intelligent Layouts**: Grid, StackPanel, DockPanel detection
-- **MVVM Architecture**: CommunityToolkit.Mvvm integration
-- **Event to Command**: Automatic ICommand generation
-- **Resource Conversion**: `.resx` → `.axaml` dictionaries
-- **Style Extraction**: Automatic style generation
-- **Incremental Updates**: Hash-based change detection
-- **Git Integration**: Feature branch creation and commits
-- **Plugin System**: Third-party control handlers
-- **Comprehensive Reports**: HTML/JSON/Markdown/CSV formats
-- **Migration Guides**: Auto-generated documentation
+| Feature | Status |
+|---|---|
+| Automatic Conversion (WinForms → Avalonia AXAML + ViewModels) | ✅ Implemented |
+| Intelligent Layouts (Grid, StackPanel, DockPanel, Canvas) | ✅ Implemented |
+| MVVM Architecture (CommunityToolkit.Mvvm integration) | ✅ Implemented |
+| Event to Command (automatic ICommand generation) | ✅ Implemented |
+| Style Extraction | ✅ Implemented |
+| Incremental Updates (hash-based change detection) | ✅ Implemented |
+| Git Integration (feature branch creation and commits) | ✅ Implemented |
+| Comprehensive Reports (HTML/JSON/Markdown/CSV) | ✅ Implemented |
+| Migration Guides (auto-generated, with concrete manual steps) | ✅ Implemented |
+| Resource Conversion (`.resx` → `.axaml` dictionaries) | 🚧 Planned |
+| Plugin System (third-party control handlers) | 🚧 Planned |
+| Checkpoint/Resume (`--resume`) | 🚧 Planned |
+| Event-Handler Body Migration | 🚧 Planned |
 
 ## 🤝 Contributing
 
