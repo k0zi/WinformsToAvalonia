@@ -1,5 +1,6 @@
 using System.Text;
 using Converter.Generator.Axaml;
+using Converter.Generator.Mapping;
 using Converter.Mappings.BuiltIn;
 using Converter.Plugin.Abstractions;
 
@@ -20,11 +21,15 @@ public class StyleGenerator
     private static readonly string[] StyleWorthyProperties = ["Font", "BackColor", "ForeColor"];
 
     /// <summary>
-    /// Extract and generate styles from control tree.
+    /// Extract and generate styles from control tree. <paramref name="overrides"/> - resolved
+    /// once per form by MappingResolver before generation starts - lets a plugin
+    /// IPropertyTranslator override a style setter's value; default null (normalized to
+    /// Empty) preserves this method's behavior for every existing caller.
     /// </summary>
-    public string GenerateStyles(ControlNode root, int minimumOccurrence = 3)
+    public string GenerateStyles(ControlNode root, int minimumOccurrence = 3, PluginMappingOverrides? overrides = null)
     {
-        var propertyGroups = AnalyzePropertyPatterns(root, minimumOccurrence);
+        overrides ??= PluginMappingOverrides.Empty;
+        var propertyGroups = AnalyzePropertyPatterns(root, minimumOccurrence, overrides);
 
         if (propertyGroups.Count == 0)
         {
@@ -61,7 +66,7 @@ public class StyleGenerator
         sb.AppendLine();
     }
 
-    private List<PropertyPattern> AnalyzePropertyPatterns(ControlNode root, int minimumOccurrence)
+    private List<PropertyPattern> AnalyzePropertyPatterns(ControlNode root, int minimumOccurrence, PluginMappingOverrides overrides)
     {
         var allControls = GetAllControls(root);
         var patterns = new List<PropertyPattern>();
@@ -75,7 +80,7 @@ public class StyleGenerator
                 continue;
 
             var controls = typeGroup.ToList();
-            var setters = FindCommonPropertySetters(controls, typeGroup.Key);
+            var setters = FindCommonPropertySetters(controls, typeGroup.Key, overrides);
 
             if (setters.Count > 0)
             {
@@ -96,7 +101,7 @@ public class StyleGenerator
     /// Finds WinForms properties shared verbatim (identical raw captured value) across
     /// every control in the group, and converts each to its Avalonia attribute form.
     /// </summary>
-    private Dictionary<string, string> FindCommonPropertySetters(List<ControlNode> controls, string controlType)
+    private Dictionary<string, string> FindCommonPropertySetters(List<ControlNode> controls, string controlType, PluginMappingOverrides overrides)
     {
         var setters = new Dictionary<string, string>();
 
@@ -121,6 +126,16 @@ public class StyleGenerator
 
             if (!allShareValue)
                 continue;
+
+            if (overrides.PropertyTranslations.TryGetValue((firstControl, propName), out var pluginTranslation))
+            {
+                var pluginValue = pluginTranslation.Value?.ToString();
+                if (!string.IsNullOrEmpty(pluginValue))
+                {
+                    setters[pluginTranslation.AvaloniaPropertyName] = pluginValue;
+                }
+                continue;
+            }
 
             var mapping = PropertyMappingRegistry.GetMapping(propName, controlType);
             if (mapping == null)

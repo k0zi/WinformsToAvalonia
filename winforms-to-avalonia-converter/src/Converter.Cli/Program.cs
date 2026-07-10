@@ -4,6 +4,7 @@ using Converter.Cli.Models;
 using Converter.Cli.UI;
 using Converter.Cli.Logging;
 using Converter.Core.Configuration;
+using Converter.Core.Plugins;
 using Converter.Plugin.Abstractions;
 using Converter.Reporting.Builders;
 using Microsoft.Extensions.DependencyInjection;
@@ -247,15 +248,126 @@ class Program
         command.AddOption(nameOption);
         command.AddOption(outputOption);
 
-        command.SetHandler((name, output) =>
+        command.SetHandler(async (name, output) =>
         {
-            Console.WriteLine($"Plugin template generation not yet implemented.");
-            Console.WriteLine($"Plugin: {name}");
-            Console.WriteLine($"Output: {output}");
-            return Task.CompletedTask;
+            await GeneratePluginTemplateAsync(name, output);
+            AnsiConsole.MarkupLine($"[green]✓[/] Generated plugin template: {Markup.Escape(output)}");
+            AnsiConsole.MarkupLine(
+                $"[grey]Run 'dotnet build' inside {Markup.Escape(output)}, then point --plugins at its bin/<Configuration>/<TargetFramework> output directory (that's where the built DLL and plugin.json end up together).[/]");
         }, nameOption, outputOption);
 
         return command;
+    }
+
+    /// <summary>
+    /// Scaffolds a minimal plugin project: plugin.json manifest, a .csproj referencing this
+    /// checkout's Converter.Plugin.Abstractions build output directly (works immediately for
+    /// local development; there's no published package/NuGet feed for it today, so the
+    /// generated project says so rather than pretending a distribution story exists), and a
+    /// stub IConverterPlugin + example IControlMapper implementation.
+    /// </summary>
+    private static async Task GeneratePluginTemplateAsync(string name, string outputDirectory)
+    {
+        Directory.CreateDirectory(outputDirectory);
+
+        var pluginId = string.Concat(name.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '-'));
+        var className = string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(word => char.ToUpperInvariant(word[0]) + word[1..]));
+        if (string.IsNullOrEmpty(className))
+        {
+            className = "MyPlugin";
+        }
+
+        var manifest = $$"""
+            {
+              "id": "{{pluginId}}",
+              "name": "{{name}}",
+              "version": "1.0.0",
+              "entryAssembly": "{{className}}.dll",
+              "entryType": "{{className}}.{{className}}Plugin",
+              "dependencies": []
+            }
+            """;
+        await File.WriteAllTextAsync(Path.Combine(outputDirectory, "plugin.json"), manifest);
+
+        var abstractionsAssemblyPath = typeof(IConverterPlugin).Assembly.Location;
+
+        var csproj = $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+
+              <ItemGroup>
+                <!-- Points at this local checkout's build output, for local development
+                     against this repo. Swap for a proper package/dll reference once
+                     Converter.Plugin.Abstractions is published - there's no NuGet feed for
+                     it today. -->
+                <Reference Include="Converter.Plugin.Abstractions">
+                  <HintPath>{abstractionsAssemblyPath}</HintPath>
+                </Reference>
+              </ItemGroup>
+
+              <ItemGroup>
+                <!-- PluginLoader resolves EntryAssembly relative to the directory plugin.json
+                     lives in, so the manifest must end up next to the built DLL (bin/.../net10.0),
+                     not stay behind in the project source root. -->
+                <None Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+              </ItemGroup>
+
+            </Project>
+            """;
+        await File.WriteAllTextAsync(Path.Combine(outputDirectory, $"{className}.csproj"), csproj);
+
+        var pluginSource = $$"""
+            using Converter.Plugin.Abstractions;
+
+            namespace {{className}};
+
+            // PluginLoader instantiates exactly one object per plugin - the manifest's
+            // EntryType - and GetPlugins<T>() only tests that single instance for "is T".
+            // So every extension-point interface this plugin implements (IControlMapper,
+            // IPropertyTranslator, IEventMapper, ICodeGenerator, IValidationRule) must be
+            // implemented directly on THIS class, not on a separate helper class - a
+            // separate class would simply never be discovered.
+            public class {{className}}Plugin : IConverterPlugin, IControlMapper
+            {
+                public PluginManifest Manifest { get; } = new PluginManifest
+                {
+                    Id = "{{pluginId}}",
+                    Name = "{{name}}",
+                    Version = "1.0.0",
+                    EntryAssembly = "{{className}}.dll",
+                    EntryType = "{{className}}.{{className}}Plugin"
+                };
+
+                public Task InitializeAsync(Dictionary<string, object>? configuration) => Task.CompletedTask;
+
+                public void Configure(IServiceProvider services) { }
+
+                public Task CleanupAsync() => Task.CompletedTask;
+
+                // Example control mapper - replace CanMap/MapAsync with your own mapping
+                // logic, or remove ", IControlMapper" above and these three members if you
+                // only need a different plugin interface (IPropertyTranslator/IEventMapper/
+                // ICodeGenerator/IValidationRule - implement those on this class the same way).
+                public int Priority => 0;
+
+                public bool CanMap(ControlNode winFormsControl) => false; // TODO: match your control type(s)
+
+                public Task<ControlMappingResult> MapAsync(ControlNode winFormsControl, MappingContext context)
+                {
+                    return Task.FromResult(new ControlMappingResult
+                    {
+                        AvaloniaControlType = "Avalonia.Controls.ContentControl"
+                    });
+                }
+            }
+            """;
+        await File.WriteAllTextAsync(Path.Combine(outputDirectory, $"{className}Plugin.cs"), pluginSource);
     }
 
     private static Command CreateListPluginsCommand()
@@ -264,14 +376,40 @@ class Program
 
         var pluginsOption = new Option<string?>(
             aliases: ["--plugins", "-p"],
+            getDefaultValue: () => "plugins",
             description: "Path to plugins directory");
 
         command.AddOption(pluginsOption);
 
-        command.SetHandler((plugins) =>
+        command.SetHandler(async (plugins) =>
         {
-            Console.WriteLine("Plugin discovery not yet implemented.");
-            return Task.CompletedTask;
+            var directory = plugins ?? "plugins";
+            var loader = new PluginLoader();
+            var manifests = await loader.DiscoverPluginsAsync(directory);
+
+            if (manifests.Count == 0)
+            {
+                AnsiConsole.MarkupLine($"[yellow]No plugins found in {Markup.Escape(directory)}[/]");
+                return;
+            }
+
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn("[bold]Id[/]")
+                .AddColumn("[bold]Name[/]")
+                .AddColumn("[bold]Version[/]")
+                .AddColumn("[bold]Description[/]");
+
+            foreach (var manifest in manifests)
+            {
+                table.AddRow(
+                    Markup.Escape(manifest.Id),
+                    Markup.Escape(manifest.Name),
+                    Markup.Escape(manifest.Version),
+                    Markup.Escape(manifest.Description ?? ""));
+            }
+
+            AnsiConsole.Write(table);
         }, pluginsOption);
 
         return command;
@@ -403,7 +541,8 @@ class Program
                 logger,
                 layoutMode: MapLayoutMode(layout),
                 force: force,
-                resume: resume);
+                resume: resume,
+                pluginsDirectory: plugins);
 
             // Check terminal capabilities
             bool supportsAnsi = AnsiConsole.Profile.Capabilities.Ansi && 

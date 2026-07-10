@@ -25,4 +25,21 @@ public class ProjectFileGeneratorTests
             $"Include=\"CommunityToolkit.Mvvm\" Version=\"{ProjectFileGenerator.PackageVersions.CommunityToolkitMvvm}\"",
             csproj);
     }
+
+    [Fact]
+    public void GenerateAvaloniaProject_ExplicitVersions_OverrideDefaults()
+    {
+        var csproj = new ProjectFileGenerator().GenerateAvaloniaProject(
+            "SampleApp",
+            targetFramework: "net10.0",
+            avaloniaVersion: "11.9.9",
+            communityToolkitMvvmVersion: "9.9.9");
+
+        Assert.Contains("Include=\"Avalonia\" Version=\"11.9.9\"", csproj);
+        Assert.Contains("Include=\"Avalonia.Desktop\" Version=\"11.9.9\"", csproj);
+        Assert.Contains("Include=\"Avalonia.Themes.Fluent\" Version=\"11.9.9\"", csproj);
+        Assert.Contains("Include=\"Avalonia.Fonts.Inter\" Version=\"11.9.9\"", csproj);
+        Assert.Contains("Include=\"CommunityToolkit.Mvvm\" Version=\"9.9.9\"", csproj);
+        Assert.DoesNotContain($"Version=\"{ProjectFileGenerator.PackageVersions.Avalonia}\"", csproj);
+    }
 }

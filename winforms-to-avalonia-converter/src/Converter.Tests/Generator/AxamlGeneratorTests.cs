@@ -124,4 +124,40 @@ public class AxamlGeneratorTests
         Assert.Contains("Name=\"button1\"", axaml);
         Assert.Contains("Name=\"button2\"", axaml);
     }
+
+    [Fact]
+    public void Generate_PreserveEventHandlerEvent_EmitsAxamlEventAttribute()
+    {
+        var root = new ControlNode
+        {
+            ControlType = "Form",
+            FullTypeName = "System.Windows.Forms.Form",
+            Name = "SampleForm"
+        };
+
+        var button = new ControlNode
+        {
+            ControlType = "Button",
+            FullTypeName = "System.Windows.Forms.Button",
+            Name = "button1",
+            Parent = root
+        };
+        button.EventHandlers["MouseDown"] = "button1_MouseDown";
+        root.Children.Add(button);
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains("PointerPressed=\"button1_MouseDown\"", axaml);
+    }
+
+    [Fact]
+    public void Generate_ConvertToCommandEvent_DoesNotEmitAxamlEventAttribute()
+    {
+        var root = BuildFormWithButton();
+        root.Children[0].EventHandlers["Click"] = "button1_Click";
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.DoesNotContain("Click=\"button1_Click\"", axaml);
+    }
 }

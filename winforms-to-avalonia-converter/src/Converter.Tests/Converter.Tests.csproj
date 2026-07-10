@@ -25,6 +25,7 @@
     <ProjectReference Include="..\Converter.Mappings\Converter.Mappings.csproj" />
     <ProjectReference Include="..\Converter.Generator\Converter.Generator.csproj" />
     <ProjectReference Include="..\Converter.Cli\Converter.Cli.csproj" />
+    <ProjectReference Include="..\Converter.Tests.SamplePlugin\Converter.Tests.SamplePlugin.csproj" />
   </ItemGroup>
 
   <ItemGroup>

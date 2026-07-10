@@ -41,11 +41,26 @@ public static class PropertyValueConverter
             return mapping.ConversionType switch
             {
                 "ColorToBrush" => TryConvertColorToBrush(mapping, rawValue),
+                "ImageToBitmap" => TryConvertImagePath(mapping, rawValue),
                 _ => null
             };
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// By the time this runs, rawValue is already a relative "Assets/..." path (rewritten by
+    /// ConversionOrchestrator.ExtractResxAssetsAsync from the resolved resx entry), not a raw
+    /// C# expression - AxamlGenerator further qualifies it into a full avares:// URI, since it
+    /// has the target namespace in scope and this converter deliberately stays free of
+    /// orchestration-level context, consistent with its pure-function design.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertImagePath(PropertyMapping mapping, string rawValue)
+    {
+        return rawValue.StartsWith("Assets/", StringComparison.Ordinal)
+            ? [(mapping.AvaloniaProperty, rawValue)]
+            : null;
     }
 
     private static IReadOnlyList<(string, string)>? TryConvertColorToBrush(PropertyMapping mapping, string rawValue)

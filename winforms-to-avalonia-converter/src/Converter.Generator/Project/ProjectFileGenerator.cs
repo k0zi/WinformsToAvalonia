@@ -20,7 +20,11 @@ public class ProjectFileGenerator
     /// <summary>
     /// Generate an Avalonia Desktop project file.
     /// </summary>
-    public string GenerateAvaloniaProject(string projectName, string targetFramework = "net10.0")
+    public string GenerateAvaloniaProject(
+        string projectName,
+        string targetFramework = "net10.0",
+        string avaloniaVersion = PackageVersions.Avalonia,
+        string communityToolkitMvvmVersion = PackageVersions.CommunityToolkitMvvm)
     {
         var sb = new StringBuilder();
 
@@ -42,11 +46,11 @@ public class ProjectFileGenerator
         sb.AppendLine();
 
         sb.AppendLine("  <ItemGroup>");
-        sb.AppendLine($"    <PackageReference Include=\"Avalonia\" Version=\"{PackageVersions.Avalonia}\" />");
-        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Desktop\" Version=\"{PackageVersions.Avalonia}\" />");
-        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Themes.Fluent\" Version=\"{PackageVersions.Avalonia}\" />");
-        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Fonts.Inter\" Version=\"{PackageVersions.Avalonia}\" />");
-        sb.AppendLine($"    <PackageReference Include=\"CommunityToolkit.Mvvm\" Version=\"{PackageVersions.CommunityToolkitMvvm}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia\" Version=\"{avaloniaVersion}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Desktop\" Version=\"{avaloniaVersion}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Themes.Fluent\" Version=\"{avaloniaVersion}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Fonts.Inter\" Version=\"{avaloniaVersion}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"CommunityToolkit.Mvvm\" Version=\"{communityToolkitMvvmVersion}\" />");
         sb.AppendLine("  </ItemGroup>");
         sb.AppendLine();
 

@@ -55,15 +55,25 @@ public class WinFormsParser
     /// </summary>
     private const string ThisAlias = "this";
 
+    /// <summary>
+    /// Local variable name WinForms designer code always uses for the form's
+    /// ComponentResourceManager (e.g. `resources.GetObject("button1.Image")`).
+    /// </summary>
+    private const string ResourceManagerVariableName = "resources";
+
     public WinFormsParser(ILogger<WinFormsParser>? logger = null)
     {
         _logger = logger;
     }
 
     /// <summary>
-    /// Parse a Designer.cs file into a control tree.
+    /// Parse a Designer.cs file into a control tree. When <paramref name="resources"/> is
+    /// provided (the sibling .resx file's parsed entries), resx-backed property values
+    /// (`resources.GetObject("key")`/`GetString("key")`/`ApplyResources(target, "prefix")`)
+    /// are resolved to their real values instead of being stored as opaque raw C# text.
     /// </summary>
-    public async Task<ParseResult> ParseDesignerFileAsync(string filePath)
+    public async Task<ParseResult> ParseDesignerFileAsync(
+        string filePath, IReadOnlyDictionary<string, ResxEntry>? resources = null)
     {
         try
         {
@@ -151,7 +161,7 @@ public class WinFormsParser
             }
 
             // Parse InitializeComponent to build hierarchy and extract properties
-            ParseInitializeComponent(initializeComponentMethod, controls, rootControl);
+            ParseInitializeComponent(initializeComponentMethod, controls, rootControl, resources);
 
             result.RootControl = rootControl;
             result.AllControls = controls.Values.Where(c => !ReferenceEquals(c, rootControl))
@@ -177,10 +187,11 @@ public class WinFormsParser
     }
 
     private void ParseInitializeComponent(MethodDeclarationSyntax method,
-        Dictionary<string, ControlNode> controls, ControlNode rootControl)
+        Dictionary<string, ControlNode> controls, ControlNode rootControl,
+        IReadOnlyDictionary<string, ResxEntry>? resources)
     {
         var statements = method.Body?.Statements ?? default;
-        WalkStatements(statements, controls, rootControl);
+        WalkStatements(statements, controls, rootControl, resources);
     }
 
     /// <summary>
@@ -188,43 +199,46 @@ public class WinFormsParser
     /// declarations wrapped in conditional or looping designer code aren't skipped.
     /// </summary>
     private void WalkStatements(SyntaxList<StatementSyntax> statements,
-        Dictionary<string, ControlNode> controls, ControlNode rootControl)
+        Dictionary<string, ControlNode> controls, ControlNode rootControl,
+        IReadOnlyDictionary<string, ResxEntry>? resources)
     {
         foreach (var statement in statements)
         {
-            WalkStatement(statement, controls, rootControl);
+            WalkStatement(statement, controls, rootControl, resources);
         }
     }
 
     private void WalkStatement(StatementSyntax statement,
-        Dictionary<string, ControlNode> controls, ControlNode rootControl)
+        Dictionary<string, ControlNode> controls, ControlNode rootControl,
+        IReadOnlyDictionary<string, ResxEntry>? resources)
     {
         switch (statement)
         {
             case ExpressionStatementSyntax expressionStatement:
-                DispatchExpressionStatement(expressionStatement, controls, rootControl);
+                DispatchExpressionStatement(expressionStatement, controls, rootControl, resources);
                 break;
 
             case BlockSyntax block:
-                WalkStatements(block.Statements, controls, rootControl);
+                WalkStatements(block.Statements, controls, rootControl, resources);
                 break;
 
             case IfStatementSyntax ifStatement:
-                WalkStatement(ifStatement.Statement, controls, rootControl);
+                WalkStatement(ifStatement.Statement, controls, rootControl, resources);
                 if (ifStatement.Else != null)
                 {
-                    WalkStatement(ifStatement.Else.Statement, controls, rootControl);
+                    WalkStatement(ifStatement.Else.Statement, controls, rootControl, resources);
                 }
                 break;
 
             case ForEachStatementSyntax forEachStatement:
-                WalkStatement(forEachStatement.Statement, controls, rootControl);
+                WalkStatement(forEachStatement.Statement, controls, rootControl, resources);
                 break;
         }
     }
 
     private void DispatchExpressionStatement(ExpressionStatementSyntax expressionStatement,
-        Dictionary<string, ControlNode> controls, ControlNode rootControl)
+        Dictionary<string, ControlNode> controls, ControlNode rootControl,
+        IReadOnlyDictionary<string, ResxEntry>? resources)
     {
         if (expressionStatement.Expression is AssignmentExpressionSyntax assignment)
         {
@@ -234,17 +248,17 @@ public class WinFormsParser
             }
             else
             {
-                ParsePropertyAssignment(assignment, controls);
+                ParsePropertyAssignment(assignment, controls, resources);
             }
         }
         else if (expressionStatement.Expression is InvocationExpressionSyntax invocation)
         {
-            ParseMethodInvocation(invocation, controls, rootControl);
+            ParseMethodInvocation(invocation, controls, rootControl, resources);
         }
     }
 
     private void ParsePropertyAssignment(AssignmentExpressionSyntax assignment,
-        Dictionary<string, ControlNode> controls)
+        Dictionary<string, ControlNode> controls, IReadOnlyDictionary<string, ResxEntry>? resources)
     {
         if (assignment.Left is MemberAccessExpressionSyntax memberAccess)
         {
@@ -253,6 +267,14 @@ public class WinFormsParser
 
             if (!string.IsNullOrEmpty(controlName) && controls.TryGetValue(controlName, out var control))
             {
+                if (resources != null &&
+                    TryGetResxKey(assignment.Right, out var resxKey) &&
+                    resources.TryGetValue(resxKey, out var entry))
+                {
+                    control.Properties[propertyName] = BuildResxPropertyValue(propertyName, entry);
+                    return;
+                }
+
                 var value = assignment.Right.ToString();
                 control.Properties[propertyName] = new PropertyValue
                 {
@@ -311,7 +333,8 @@ public class WinFormsParser
     }
 
     private void ParseMethodInvocation(InvocationExpressionSyntax invocation,
-        Dictionary<string, ControlNode> controls, ControlNode rootControl)
+        Dictionary<string, ControlNode> controls, ControlNode rootControl,
+        IReadOnlyDictionary<string, ResxEntry>? resources)
     {
         if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
         {
@@ -319,6 +342,13 @@ public class WinFormsParser
         }
 
         var methodName = memberAccess.Name.Identifier.Text;
+
+        if (methodName == "ApplyResources" &&
+            memberAccess.Expression.ToString() == ResourceManagerVariableName)
+        {
+            ParseApplyResourcesInvocation(invocation, controls, resources);
+            return;
+        }
 
         if (methodName != "Add" || memberAccess.Expression is not MemberAccessExpressionSyntax collectionAccess)
         {
@@ -412,6 +442,144 @@ public class WinFormsParser
         });
     }
 
+    /// <summary>
+    /// Parses `resources.ApplyResources(target, "prefix")`, synthesizing a PropertyValue on
+    /// the target control for every resx entry whose key starts with "{prefix}." (e.g. key
+    /// "button1.Text" with prefix "button1" becomes property "Text"). Nested/compound keys
+    /// (more than one dot after the prefix) are skipped as out of scope for v1 - they fall
+    /// back to "unmapped property", same as any other property this parser doesn't recognize.
+    /// </summary>
+    private void ParseApplyResourcesInvocation(InvocationExpressionSyntax invocation,
+        Dictionary<string, ControlNode> controls, IReadOnlyDictionary<string, ResxEntry>? resources)
+    {
+        if (resources == null)
+        {
+            return;
+        }
+
+        var arguments = invocation.ArgumentList.Arguments;
+        if (arguments.Count < 2)
+        {
+            return;
+        }
+
+        var targetControlName = GetControlNameFromExpression(arguments[0].Expression);
+        if (string.IsNullOrEmpty(targetControlName) || !controls.TryGetValue(targetControlName, out var control))
+        {
+            return;
+        }
+
+        if (arguments[1].Expression is not LiteralExpressionSyntax prefixLiteral ||
+            !prefixLiteral.IsKind(SyntaxKind.StringLiteralExpression))
+        {
+            return;
+        }
+
+        var searchPrefix = UnquoteStringLiteral(prefixLiteral.ToString()) + ".";
+
+        foreach (var (key, entry) in resources)
+        {
+            if (!key.StartsWith(searchPrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var suffix = key[searchPrefix.Length..];
+            if (suffix.Contains('.'))
+            {
+                continue;
+            }
+
+            control.Properties[suffix] = BuildResxPropertyValue(suffix, entry);
+        }
+    }
+
+    /// <summary>
+    /// Detects `resources.GetObject("key")`/`resources.GetString("key")`, unwrapping any
+    /// leading cast/parenthesization (e.g. `((System.Drawing.Image)(resources.GetObject(...)))`,
+    /// the shape the WinForms designer actually emits for non-string resources).
+    /// </summary>
+    private static bool TryGetResxKey(ExpressionSyntax expression, out string key)
+    {
+        key = string.Empty;
+        var unwrapped = UnwrapCastsAndParens(expression);
+
+        if (unwrapped is not InvocationExpressionSyntax invocation ||
+            invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
+        {
+            return false;
+        }
+
+        var methodName = memberAccess.Name.Identifier.Text;
+        if (methodName != "GetObject" && methodName != "GetString")
+        {
+            return false;
+        }
+
+        if (memberAccess.Expression.ToString() != ResourceManagerVariableName)
+        {
+            return false;
+        }
+
+        if (invocation.ArgumentList.Arguments.FirstOrDefault()?.Expression is not LiteralExpressionSyntax literal ||
+            !literal.IsKind(SyntaxKind.StringLiteralExpression))
+        {
+            return false;
+        }
+
+        key = UnquoteStringLiteral(literal.ToString());
+        return true;
+    }
+
+    private static ExpressionSyntax UnwrapCastsAndParens(ExpressionSyntax expression)
+    {
+        while (true)
+        {
+            switch (expression)
+            {
+                case CastExpressionSyntax cast:
+                    expression = cast.Expression;
+                    continue;
+                case ParenthesizedExpressionSyntax paren:
+                    expression = paren.Expression;
+                    continue;
+                default:
+                    return expression;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Builds a PropertyValue for a resolved resx entry. String entries resolve fully here
+    /// (the value flows straight into the existing property-mapping/generation path
+    /// unchanged); binary/external-file entries are marked "resource-binary" with a null
+    /// Value, resolved later by ConversionOrchestrator (which knows the output directory -
+    /// this parser doesn't).
+    /// </summary>
+    private static PropertyValue BuildResxPropertyValue(string propertyName, ResxEntry entry)
+    {
+        if (entry.StringValue != null)
+        {
+            return new PropertyValue
+            {
+                Name = propertyName,
+                Value = entry.StringValue,
+                Type = "string",
+                IsResource = true,
+                ResourceKey = entry.Name
+            };
+        }
+
+        return new PropertyValue
+        {
+            Name = propertyName,
+            Value = null,
+            Type = "resource-binary",
+            IsResource = true,
+            ResourceKey = entry.Name
+        };
+    }
+
     private static string UnquoteStringLiteral(string text)
     {
         return text.Length >= 2 && text[0] == '"' && text[^1] == '"'
@@ -480,4 +648,13 @@ public class ParseResult
     public List<string> Errors { get; init; } = [];
     public ControlNode? RootControl { get; set; }
     public List<ControlNode> AllControls { get; set; } = [];
+
+    /// <summary>
+    /// Original WinForms event-handler method bodies (keyed by method name, e.g.
+    /// "button1_Click"), extracted from the sibling non-designer .cs file by
+    /// EventHandlerBodyParser. Populated by the orchestrator after parsing (this parser only
+    /// reads the .Designer.cs file itself), so it defaults empty here - every existing
+    /// ParseResult construction/test keeps compiling and behaving identically.
+    /// </summary>
+    public Dictionary<string, string> EventHandlerBodies { get; set; } = [];
 }

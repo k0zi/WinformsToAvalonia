@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Converter.Cli.Models;
 using Converter.Cli.Services;
 using Converter.Core.Configuration;
+using Converter.Core.Models;
 
 namespace Converter.Tests.Services;
 
@@ -300,6 +302,272 @@ public class ConversionOrchestratorTests
             Assert.Contains("Selector=\"Button\"", stylesContent);
             Assert.Contains("Property=\"Background\"", stylesContent);
             Assert.Contains("Value=\"#0078D7\"", stylesContent);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CustomProjectGenerationConfig_FlowsIntoGeneratedCsproj()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "Form1.Designer.cs"), MinimalDesignerFile("Form1"));
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = false },
+                ProjectGeneration = new ProjectGenerationConfig
+                {
+                    AvaloniaVersion = "11.9.9",
+                    CommunityToolkitMvvmVersion = "9.9.9",
+                    TargetFramework = "net9.0"
+                }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config).ExecuteAsync();
+
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var csprojPath = Path.Combine(outputDir, $"{Path.GetFileName(outputDir)}.csproj");
+            var csprojContent = await File.ReadAllTextAsync(csprojPath);
+
+            Assert.Contains("Version=\"11.9.9\"", csprojContent);
+            Assert.Contains("Version=\"9.9.9\"", csprojContent);
+            Assert.Contains("<TargetFramework>net9.0</TargetFramework>", csprojContent);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithResume_CancelledMidRun_LeavesCompletedFormsOnDiskAndSavesCheckpoint()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            var form1Path = Path.Combine(sourceDir, "Form1.Designer.cs");
+            await File.WriteAllTextAsync(form1Path, MinimalDesignerFile("Form1"));
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "Form2.Designer.cs"), MinimalDesignerFile("Form2"));
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = false },
+                ParallelProcessing = new ParallelProcessingConfig { Enabled = false }
+            };
+
+            var orchestrator = new ConversionOrchestrator(sourceDir, outputDir, config, resume: true);
+            var cts = new CancellationTokenSource();
+
+            var progress = new SyncProgress(p =>
+            {
+                // Fires on the FIRST per-form progress report (FormsProcessed=0, reported
+                // right before that form's own conversion runs). By the time this callback
+                // sets the token, that form's own cancellation check has already passed, so
+                // it still completes; the *next* form's check (top of the next loop
+                // iteration) is what actually observes the cancellation - giving exactly one
+                // fully-completed form before the run aborts. Gating on CurrentFormName
+                // excludes the earlier GitInit/Parsing/pre-loop reports, which also report
+                // FormsProcessed=0 but with no form name attached.
+                if (p.CurrentOperation == OperationType.ConvertingForm && p.CurrentFormName != null)
+                {
+                    cts.Cancel();
+                }
+            });
+
+            var result = await orchestrator.ExecuteAsync(progress, cts.Token);
+
+            Assert.False(result.Success);
+
+            // Whichever form completed first (sequential, but source order isn't guaranteed by
+            // Directory.GetFiles) should have all 3 files still on disk - not rolled back.
+            var viewsDir = Path.Combine(outputDir, "Views");
+            var generatedAxaml = Directory.Exists(viewsDir)
+                ? Directory.GetFiles(viewsDir, "*.axaml")
+                : [];
+            Assert.Single(generatedAxaml);
+
+            var checkpointPath = Path.Combine(outputDir, ".converter-checkpoint.json");
+            Assert.True(File.Exists(checkpointPath));
+
+            var state = JsonSerializer.Deserialize<ConversionState>(
+                await File.ReadAllTextAsync(checkpointPath),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            Assert.NotNull(state);
+            Assert.Single(state!.CompletedFiles);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            if (Directory.Exists(outputDir))
+            {
+                Directory.Delete(outputDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithResume_SecondRun_OnlyReprocessesIncompleteForms()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "Form1.Designer.cs"), MinimalDesignerFile("Form1"));
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "Form2.Designer.cs"), MinimalDesignerFile("Form2"));
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = false },
+                ParallelProcessing = new ParallelProcessingConfig { Enabled = false }
+            };
+
+            // First run: cancel after the first form completes.
+            var cts = new CancellationTokenSource();
+            var progress = new SyncProgress(p =>
+            {
+                // Fires on the FIRST per-form progress report (FormsProcessed=0, reported
+                // right before that form's own conversion runs). By the time this callback
+                // sets the token, that form's own cancellation check has already passed, so
+                // it still completes; the *next* form's check (top of the next loop
+                // iteration) is what actually observes the cancellation - giving exactly one
+                // fully-completed form before the run aborts. Gating on CurrentFormName
+                // excludes the earlier GitInit/Parsing/pre-loop reports, which also report
+                // FormsProcessed=0 but with no form name attached.
+                if (p.CurrentOperation == OperationType.ConvertingForm && p.CurrentFormName != null)
+                {
+                    cts.Cancel();
+                }
+            });
+            var firstRun = await new ConversionOrchestrator(sourceDir, outputDir, config, resume: true)
+                .ExecuteAsync(progress, cts.Token);
+            Assert.False(firstRun.Success);
+
+            // Second run: no cancellation, should only reprocess the remaining form.
+            var secondRun = await new ConversionOrchestrator(sourceDir, outputDir, config, resume: true)
+                .ExecuteAsync();
+
+            Assert.True(secondRun.Success, secondRun.ErrorMessage);
+            Assert.Single(secondRun.Report!.Forms);
+
+            // Both forms' output should now exist, and the checkpoint should be gone.
+            var viewsDir = Path.Combine(outputDir, "Views");
+            Assert.Equal(2, Directory.GetFiles(viewsDir, "*.axaml").Length);
+            Assert.False(File.Exists(Path.Combine(outputDir, ".converter-checkpoint.json")));
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithoutResume_FailedRun_RollsBackAllCreatedFiles()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "Form1.Designer.cs"), MinimalDesignerFile("Form1"));
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "Form2.Designer.cs"), MinimalDesignerFile("Form2"));
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = false },
+                ParallelProcessing = new ParallelProcessingConfig { Enabled = false }
+            };
+
+            var cts = new CancellationTokenSource();
+            var progress = new SyncProgress(p =>
+            {
+                // Fires on the FIRST per-form progress report (FormsProcessed=0, reported
+                // right before that form's own conversion runs). By the time this callback
+                // sets the token, that form's own cancellation check has already passed, so
+                // it still completes; the *next* form's check (top of the next loop
+                // iteration) is what actually observes the cancellation - giving exactly one
+                // fully-completed form before the run aborts. Gating on CurrentFormName
+                // excludes the earlier GitInit/Parsing/pre-loop reports, which also report
+                // FormsProcessed=0 but with no form name attached.
+                if (p.CurrentOperation == OperationType.ConvertingForm && p.CurrentFormName != null)
+                {
+                    cts.Cancel();
+                }
+            });
+
+            // resume defaults to false - today's unchanged behavior.
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config)
+                .ExecuteAsync(progress, cts.Token);
+
+            Assert.False(result.Success);
+
+            var remainingFiles = Directory.Exists(outputDir)
+                ? Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                : [];
+            Assert.Empty(remainingFiles);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            if (Directory.Exists(outputDir))
+            {
+                Directory.Delete(outputDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithResumeAndParallelEnabled_ForcesSequentialProcessing()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                await File.WriteAllTextAsync(
+                    Path.Combine(sourceDir, $"Form{i}.Designer.cs"), MinimalDesignerFile($"Form{i}"));
+            }
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = false },
+                ParallelProcessing = new ParallelProcessingConfig { Enabled = true }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config, resume: true).ExecuteAsync();
+
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.Equal(4, result.Report!.Forms.Count);
+
+            // Deterministic, complete checkpoint content is itself the evidence that
+            // per-form sequential checkpointing ran (a parallel batch has no such guarantee).
+            Assert.False(File.Exists(Path.Combine(outputDir, ".converter-checkpoint.json")));
         }
         finally
         {

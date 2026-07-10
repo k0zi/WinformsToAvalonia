@@ -78,6 +78,24 @@ public class ConverterConfig
     /// </summary>
     [JsonPropertyName("defaultOptions")]
     public DefaultOptionsConfig DefaultOptions { get; init; } = new();
+
+    /// <summary>
+    /// Target versions/framework for generated Avalonia projects.
+    /// </summary>
+    [JsonPropertyName("projectGeneration")]
+    public ProjectGenerationConfig ProjectGeneration { get; init; } = new();
+
+    /// <summary>
+    /// .resx resource conversion settings.
+    /// </summary>
+    [JsonPropertyName("resourceConversion")]
+    public ResourceConversionConfig ResourceConversion { get; init; } = new();
+
+    /// <summary>
+    /// WinForms event-handler body migration settings.
+    /// </summary>
+    [JsonPropertyName("eventHandlerMigration")]
+    public EventHandlerMigrationConfig EventHandlerMigration { get; init; } = new();
 }
 
 /// <summary>
@@ -306,4 +324,45 @@ public class DefaultOptionsConfig
 
     [JsonPropertyName("extractStyles")]
     public bool ExtractStyles { get; init; } = true;
+}
+
+/// <summary>
+/// Target versions/framework for generated Avalonia projects. Defaults match
+/// ProjectFileGenerator.PackageVersions exactly, so an unconfigured run is unchanged.
+/// </summary>
+public class ProjectGenerationConfig
+{
+    [JsonPropertyName("avaloniaVersion")]
+    public string AvaloniaVersion { get; init; } = "11.2.0";
+
+    [JsonPropertyName("communityToolkitMvvmVersion")]
+    public string CommunityToolkitMvvmVersion { get; init; } = "8.3.2";
+
+    [JsonPropertyName("targetFramework")]
+    public string TargetFramework { get; init; } = "net10.0";
+}
+
+/// <summary>
+/// .resx resource conversion configuration.
+/// </summary>
+public class ResourceConversionConfig
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; init; } = true;
+
+    [JsonPropertyName("assetsDirectory")]
+    public string AssetsDirectory { get; init; } = "Assets";
+}
+
+/// <summary>
+/// WinForms event-handler body migration configuration. Extraction is always best-effort
+/// (a missing/unparseable sibling code-behind file simply yields no bodies, never a hard
+/// failure) and the extracted body is always emitted as an inert comment block inside a
+/// compiling stub - never live/compiled code - so enabling this by default carries no
+/// correctness risk, only a chance of "body not found".
+/// </summary>
+public class EventHandlerMigrationConfig
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; init; } = true;
 }

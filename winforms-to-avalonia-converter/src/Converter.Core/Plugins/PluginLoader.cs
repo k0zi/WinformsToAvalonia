@@ -11,13 +11,19 @@ namespace Converter.Core.Plugins;
 /// </summary>
 public class PluginLoader
 {
-    private readonly ILogger<PluginLoader>? _logger;
+    private readonly ILogger? _logger;
     private readonly List<LoadedPlugin> _loadedPlugins = [];
     private readonly Dictionary<string, AssemblyLoadContext> _loadContexts = [];
 
     public IReadOnlyList<LoadedPlugin> LoadedPlugins => _loadedPlugins.AsReadOnly();
 
-    public PluginLoader(ILogger<PluginLoader>? logger = null)
+    /// <summary>
+    /// Accepts a plain <see cref="ILogger"/> (not <see cref="ILogger{PluginLoader}"/>) so
+    /// callers that already hold a differently-typed logger (e.g. ConversionOrchestrator's
+    /// ILogger&lt;ConversionOrchestrator&gt;) can pass it straight through instead of an
+    /// `as` cast between unrelated closed generic types, which always yields null.
+    /// </summary>
+    public PluginLoader(ILogger? logger = null)
     {
         _logger = logger;
     }
@@ -249,6 +255,21 @@ public class LoadedPlugin
 /// </summary>
 internal class PluginLoadContext : AssemblyLoadContext
 {
+    /// <summary>
+    /// Name of the shared contracts assembly (defines IConverterPlugin, ControlNode, etc).
+    /// A framework-dependent plugin build - whether via ProjectReference or a raw
+    /// &lt;Reference HintPath&gt; - copies this DLL local to its own output directory by
+    /// default, same as any other dependency. If this context resolved and loaded that local
+    /// copy, the plugin's IConverterPlugin would be a *different* Type than the host's
+    /// (identical bytes, but a distinct load into this isolated context), and
+    /// `typeof(IConverterPlugin).IsAssignableFrom(entryType)` in PluginLoader.LoadPluginAsync
+    /// would always fail. Refusing to resolve it here forces the CLR to fall back to the
+    /// Default context, where the host's own copy already lives - the standard fix for the
+    /// "shared contracts assembly" plugin-isolation gotcha.
+    /// </summary>
+    private static readonly string SharedContractsAssemblyName =
+        typeof(IConverterPlugin).Assembly.GetName().Name!;
+
     private readonly AssemblyDependencyResolver _resolver;
 
     public PluginLoadContext(string pluginPath) : base(isCollectible: true)
@@ -258,6 +279,11 @@ internal class PluginLoadContext : AssemblyLoadContext
 
     protected override Assembly? Load(AssemblyName assemblyName)
     {
+        if (assemblyName.Name == SharedContractsAssemblyName)
+        {
+            return null;
+        }
+
         var assemblyPath = _resolver.ResolveAssemblyToPath(assemblyName);
         if (assemblyPath != null)
         {

@@ -1,0 +1,8 @@
+{
+  "id": "sample-plugin",
+  "name": "Sample Plugin",
+  "version": "1.0.0",
+  "entryAssembly": "Converter.Tests.SamplePlugin.dll",
+  "entryType": "Converter.Tests.SamplePlugin.SamplePlugin",
+  "dependencies": []
+}

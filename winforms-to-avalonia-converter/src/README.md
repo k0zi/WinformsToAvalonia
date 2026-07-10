@@ -9,18 +9,19 @@ A comprehensive .NET 10 application that automatically converts Windows Forms pr
 - **Intelligent Layout Detection**: Analyzes control positioning to detect Grid, StackPanel, DockPanel patterns with confidence scoring
 - **MVVM Architecture**: Generates ViewModels using CommunityToolkit.Mvvm with `[ObservableProperty]` and `[RelayCommand]` attributes
 - **Event to Command**: Automatically converts event handlers to ICommand
+- **Event-Handler Body Migration**: The original WinForms handler source (from the sibling non-designer `.cs` file) is embedded, verbatim, as an inert reference comment inside a correctly-signed, compiling stub - for `PreserveEventHandler` events (code-behind, also wired as a real AXAML event attribute) and `ConvertToCommand` events (the `[RelayCommand]` stub) alike
 - **Style Extraction**: Detects common property patterns and generates reusable Avalonia Styles
-- **Resource Conversion** *(planned)*: Transforming `.resx` files to Avalonia `.axaml` resource dictionaries is not implemented yet
+- **Resource Conversion**: `.resx` string resources resolve inline; binary/image resources are extracted into `Assets/` and referenced via `avares://` URIs; unrecoverable legacy `BinaryFormatter` payloads are flagged as an explicit manual step
 
 ### 🔄 Incremental Conversion
 - **File Hash Tracking**: SHA256-based change detection for reconverting only modified files (`--incremental`/`--force`)
 - **Partial Classes**: ViewModels split into `.g.cs` (generated) and `.cs` (manual edits preserved)
 - **Rollback Support**: Transactional file operations with automatic rollback on errors or cancellation
-- **Checkpointing** *(planned)*: The checkpoint manager exists but resuming an interrupted run (`--resume`) is not wired up yet
+- **Checkpointing**: `--resume` picks up an interrupted run from its last per-form checkpoint instead of starting over
 
 ### 🔌 Plugin Architecture
-- **Extensible Mappings**: Plugin interfaces for custom control/property/layout converters (interfaces and assembly discovery exist; not yet consulted by the built-in mapping registries)
-- **Third-Party Controls** *(planned)*: Generating compilable placeholder stubs for DevExpress, Telerik, etc. is not implemented yet
+- **Extensible Mappings**: Plugin interfaces for custom control/property/event converters, discovered via isolated `AssemblyLoadContext` and consulted by the generators ahead of the built-in mapping registries
+- **`init-plugin`/`list-plugins`**: Scaffold a new plugin project or discover/list plugins in a directory
 - **Custom Generators**: Plugin support for domain-specific code generation
 
 ### 🌳 Git Integration
@@ -176,35 +177,33 @@ Create a `.converterconfig` file in your project root:
 
 ### ✅ Completed
 - Project structure and build configuration
-- Plugin abstraction interfaces
+- Plugin abstraction interfaces, `AssemblyLoadContext`-isolated loading, and full consumption by the AXAML/ViewModel/style generators (`init-plugin`/`list-plugins` CLI commands)
 - Configuration system with JSON loader, merged with explicit CLI flags
 - Transactional rollback management (a failed or cancelled run cleans up every file it wrote)
 - File hash tracking powering incremental conversion (`--incremental`/`--force`)
+- Checkpoint/resume support (`--resume`), with per-form checkpointing surviving a hard kill mid-run
 - CLI framework with System.CommandLine
-- Roslyn-based WinForms parser (control hierarchy, properties, event-handler subscriptions, data bindings)
+- Roslyn-based WinForms parser (control hierarchy, properties, event-handler subscriptions, data bindings, `.resx`-backed resource resolution)
+- `.resx` resource conversion: string resources resolved inline, binary/image resources extracted to `Assets/` + `avares://` references, unrecoverable legacy payloads flagged as manual steps
+- WinForms event-handler body migration: original handler source preserved as reference comments inside compiling stubs, wired into both code-behind (AXAML event attribute) and ViewModel command paths
 - Layout detection algorithms (Grid/StackPanel/DockPanel/Canvas, weighted confidence scoring, container-type fast paths)
 - Control, property, and event mapping registries
 - Code generators (AXAML, ViewModels with real `[ObservableProperty]`/`[RelayCommand]` members, code-behind, style extraction, project scaffolding)
+- Configurable Avalonia/CommunityToolkit.Mvvm target package versions (`projectGeneration.avaloniaVersion`/`communityToolkitMvvmVersion`/`targetFramework`)
 - Git integration with LibGit2Sharp
 - Multi-format reporting system
 - Migration guide generator, including concrete manual-steps reporting
 - Comprehensive unit test suite (`Converter.Tests`, xUnit)
 
 ### 📋 Planned
-- Plugin loader consumption (discovery exists; the mapping registries don't yet consult loaded plugins)
-- Checkpoint/resume support (`--resume`)
-- `.resx` resource conversion
-- WinForms event-handler body migration (handlers are mapped to commands; the original code isn't ported automatically yet)
+- Native Avalonia 12 support: the target package version is configurable, but no Avalonia 12-specific API/syntax changes have been validated or accounted for
 
 ## Contributing
 
 Contributions are welcome! Areas needing implementation:
 
-1. **`.resx` Parsing**: Convert WinForms resource files to Avalonia resource dictionaries
-2. **Plugin Consumption**: Wire `PluginLoader`-discovered plugins into the control/property/event mapping registries (currently static classes with no extension seam)
-3. **Checkpoint/Resume**: Design and implement `--resume` for interrupted conversions, accounting for the parallel form-conversion path
-4. **Event-Handler Body Migration**: Locate and migrate the original handler method bodies from the non-designer form `.cs` file, not just the event-to-command mapping
-5. **Plugins**: Sample plugins for popular third-party controls (DevExpress, Telerik)
+1. **Avalonia 12 Support**: Validate and account for any Avalonia 12-specific API/syntax changes beyond the already-configurable package version
+2. **Plugins**: Sample plugins for popular third-party controls (DevExpress, Telerik)
 
 ## License
 
@@ -219,4 +218,4 @@ MIT License - see [LICENSE](../LICENSE) file for details.
 
 ---
 
-**Status**: Core conversion pipeline functional and covered by an automated test suite; plugin consumption, `.resx` conversion, checkpoint/resume, and event-handler body migration remain planned.
+**Status**: Core conversion pipeline functional and covered by an automated test suite, including plugin consumption, `.resx` conversion, checkpoint/resume, and event-handler body migration; native Avalonia 12 API/syntax support remains planned.

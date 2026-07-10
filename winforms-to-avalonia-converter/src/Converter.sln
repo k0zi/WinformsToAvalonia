@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Converter.Cli", "Converter.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Converter.Tests", "Converter.Tests\Converter.Tests.csproj", "{81021BF8-5A66-4A23-B3AE-C2FC7C2C6789}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Converter.Tests.SamplePlugin", "Converter.Tests.SamplePlugin\Converter.Tests.SamplePlugin.csproj", "{415B13C0-1411-4E48-A89B-603DE88DCB2F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -125,6 +127,18 @@ Global
 		{81021BF8-5A66-4A23-B3AE-C2FC7C2C6789}.Release|x64.Build.0 = Release|Any CPU
 		{81021BF8-5A66-4A23-B3AE-C2FC7C2C6789}.Release|x86.ActiveCfg = Release|Any CPU
 		{81021BF8-5A66-4A23-B3AE-C2FC7C2C6789}.Release|x86.Build.0 = Release|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Debug|x64.Build.0 = Debug|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Debug|x86.Build.0 = Debug|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Release|x64.ActiveCfg = Release|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Release|x64.Build.0 = Release|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Release|x86.ActiveCfg = Release|Any CPU
+		{415B13C0-1411-4E48-A89B-603DE88DCB2F}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

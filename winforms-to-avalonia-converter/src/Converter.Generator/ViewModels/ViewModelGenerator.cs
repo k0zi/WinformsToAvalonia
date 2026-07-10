@@ -1,4 +1,5 @@
 using System.Text;
+using Converter.Generator.Mapping;
 using Converter.Plugin.Abstractions;
 using Converter.Mappings.BuiltIn;
 
@@ -10,10 +11,19 @@ namespace Converter.Generator.ViewModels;
 public class ViewModelGenerator
 {
     /// <summary>
-    /// Generate a ViewModel class (generated partial class .g.cs).
+    /// Generate a ViewModel class (generated partial class .g.cs). <paramref name="overrides"/>
+    /// - resolved once per form by MappingResolver before generation starts - lets a plugin
+    /// IEventMapper override which events convert to commands; default null (normalized to
+    /// Empty) preserves this method's behavior for every existing caller. <paramref
+    /// name="handlerBodies"/> - the original WinForms handler source, keyed by method name,
+    /// from ParseResult.EventHandlerBodies - lets a converted-to-command stub embed the
+    /// original body as an inert reference comment instead of a bare TODO, when found.
     /// </summary>
-    public string GeneratePartialClass(ControlNode root, string namespaceName, string className)
+    public string GeneratePartialClass(
+        ControlNode root, string namespaceName, string className,
+        PluginMappingOverrides? overrides = null, IReadOnlyDictionary<string, string>? handlerBodies = null)
     {
+        overrides ??= PluginMappingOverrides.Empty;
         var sb = new StringBuilder();
 
         // Using statements
@@ -43,7 +53,7 @@ public class ViewModelGenerator
         }
 
         // Generate commands from events
-        var commands = ExtractCommands(root);
+        var commands = ExtractCommands(root, overrides);
         foreach (var command in commands)
         {
             sb.AppendLine($"    [RelayCommand]");
@@ -56,7 +66,18 @@ public class ViewModelGenerator
                 sb.AppendLine($"    private void {command.MethodName}()");
             }
             sb.AppendLine("    {");
-            sb.AppendLine($"        // TODO: Implement {command.OriginalEvent} logic");
+            if (handlerBodies != null && handlerBodies.TryGetValue(command.OriginalHandlerMethodName, out var originalSource))
+            {
+                sb.AppendLine($"        // Original WinForms handler \"{command.OriginalHandlerMethodName}\", preserved for reference - review and adapt:");
+                foreach (var line in originalSource.Replace("\r\n", "\n").Split('\n'))
+                {
+                    sb.AppendLine(string.IsNullOrWhiteSpace(line) ? "        //" : $"        // {line}");
+                }
+            }
+            else
+            {
+                sb.AppendLine($"        // TODO: Implement {command.OriginalEvent} logic");
+            }
             sb.AppendLine("    }");
             sb.AppendLine();
         }
@@ -119,17 +140,35 @@ public class ViewModelGenerator
         }
     }
 
-    private List<CommandInfo> ExtractCommands(ControlNode root)
+    private List<CommandInfo> ExtractCommands(ControlNode root, PluginMappingOverrides overrides)
     {
         var commands = new List<CommandInfo>();
-        ExtractCommandsRecursive(root, commands);
+        ExtractCommandsRecursive(root, commands, overrides);
         return commands;
     }
 
-    private void ExtractCommandsRecursive(ControlNode control, List<CommandInfo> commands)
+    private void ExtractCommandsRecursive(ControlNode control, List<CommandInfo> commands, PluginMappingOverrides overrides)
     {
         foreach (var eventHandler in control.EventHandlers)
         {
+            if (overrides.EventMappings.TryGetValue((control, eventHandler.Key), out var pluginMapping))
+            {
+                if (pluginMapping.ConvertToCommand)
+                {
+                    commands.Add(new CommandInfo
+                    {
+                        MethodName = eventHandler.Value.Replace("_", ""),
+                        OriginalEvent = eventHandler.Key,
+                        OriginalHandlerMethodName = eventHandler.Value,
+                        CommandName = pluginMapping.CommandName ?? $"{eventHandler.Key}Command",
+                        HasParameter = RequiresParameter(eventHandler.Key),
+                        ParameterType = GetParameterType(eventHandler.Key)
+                    });
+                }
+
+                continue;
+            }
+
             if (EventMappingRegistry.ShouldConvertToCommand(eventHandler.Key))
             {
                 var mapping = EventMappingRegistry.GetMapping(eventHandler.Key);
@@ -139,6 +178,7 @@ public class ViewModelGenerator
                 {
                     MethodName = eventHandler.Value.Replace("_", ""),
                     OriginalEvent = eventHandler.Key,
+                    OriginalHandlerMethodName = eventHandler.Value,
                     CommandName = commandName,
                     HasParameter = RequiresParameter(eventHandler.Key),
                     ParameterType = GetParameterType(eventHandler.Key)
@@ -148,7 +188,7 @@ public class ViewModelGenerator
 
         foreach (var child in control.Children)
         {
-            ExtractCommandsRecursive(child, commands);
+            ExtractCommandsRecursive(child, commands, overrides);
         }
     }
 
@@ -204,6 +244,7 @@ public class ViewModelGenerator
     {
         public required string MethodName { get; init; }
         public required string OriginalEvent { get; init; }
+        public required string OriginalHandlerMethodName { get; init; }
         public required string CommandName { get; init; }
         public bool HasParameter { get; init; }
         public string ParameterType { get; init; } = "object";
