@@ -1,4 +1,6 @@
 using System.Text;
+using Converter.Generator.Axaml;
+using Converter.Mappings.BuiltIn;
 using Converter.Plugin.Abstractions;
 
 namespace Converter.Generator.Styles;
@@ -9,12 +11,21 @@ namespace Converter.Generator.Styles;
 public class StyleGenerator
 {
     /// <summary>
+    /// WinForms-side property names to look for common values across a control group.
+    /// ControlNode.Properties is keyed by the original WinForms property name (e.g.
+    /// "BackColor", "Font"), not the Avalonia one, so matching must happen on that side and
+    /// then be converted via PropertyMappingRegistry/PropertyValueConverter - the same
+    /// pipeline AxamlGenerator uses - to produce valid Avalonia setter values.
+    /// </summary>
+    private static readonly string[] StyleWorthyProperties = ["Font", "BackColor", "ForeColor"];
+
+    /// <summary>
     /// Extract and generate styles from control tree.
     /// </summary>
     public string GenerateStyles(ControlNode root, int minimumOccurrence = 3)
     {
         var propertyGroups = AnalyzePropertyPatterns(root, minimumOccurrence);
-        
+
         if (propertyGroups.Count == 0)
         {
             return string.Empty;
@@ -40,12 +51,12 @@ public class StyleGenerator
     {
         sb.AppendLine($"    <!-- Style: {pattern.Name} (used by {pattern.ControlCount} controls) -->");
         sb.AppendLine($"    <Style Selector=\"{pattern.ControlType}\">");
-        
-        foreach (var prop in pattern.Properties)
+
+        foreach (var setter in pattern.Setters)
         {
-            sb.AppendLine($"        <Setter Property=\"{prop.Key}\" Value=\"{prop.Value}\" />");
+            sb.AppendLine($"        <Setter Property=\"{setter.Key}\" Value=\"{setter.Value}\" />");
         }
-        
+
         sb.AppendLine("    </Style>");
         sb.AppendLine();
     }
@@ -63,17 +74,17 @@ public class StyleGenerator
             if (typeGroup.Count() < minimumOccurrence)
                 continue;
 
-            // Find common properties
-            var commonProperties = FindCommonProperties(typeGroup.ToList());
+            var controls = typeGroup.ToList();
+            var setters = FindCommonPropertySetters(controls, typeGroup.Key);
 
-            if (commonProperties.Count > 0)
+            if (setters.Count > 0)
             {
                 patterns.Add(new PropertyPattern
                 {
                     Name = $"{typeGroup.Key}CommonStyle",
                     ControlType = typeGroup.Key,
-                    ControlCount = typeGroup.Count(),
-                    Properties = commonProperties
+                    ControlCount = controls.Count,
+                    Setters = setters
                 });
             }
         }
@@ -81,34 +92,54 @@ public class StyleGenerator
         return patterns;
     }
 
-    private Dictionary<string, string> FindCommonProperties(List<ControlNode> controls)
+    /// <summary>
+    /// Finds WinForms properties shared verbatim (identical raw captured value) across
+    /// every control in the group, and converts each to its Avalonia attribute form.
+    /// </summary>
+    private Dictionary<string, string> FindCommonPropertySetters(List<ControlNode> controls, string controlType)
     {
-        var commonProps = new Dictionary<string, string>();
-        
+        var setters = new Dictionary<string, string>();
+
         if (controls.Count == 0)
-            return commonProps;
-
-        var propertiesToCheck = new[] { "FontFamily", "FontSize", "FontWeight", "Background", "Foreground" };
-
-        foreach (var propName in propertiesToCheck)
         {
-            var firstControl = controls[0];
-            if (!firstControl.Properties.ContainsKey(propName))
+            return setters;
+        }
+
+        var firstControl = controls[0];
+
+        foreach (var propName in StyleWorthyProperties)
+        {
+            if (!firstControl.Properties.TryGetValue(propName, out var firstValue))
                 continue;
 
-            var value = firstControl.Properties[propName].Value?.ToString();
-            if (string.IsNullOrEmpty(value))
+            var rawValue = firstValue.Value?.ToString();
+            if (string.IsNullOrEmpty(rawValue))
                 continue;
 
-            // Check if all controls have the same value
-            if (controls.All(c => c.Properties.ContainsKey(propName) && 
-                                 c.Properties[propName].Value?.ToString() == value))
+            var allShareValue = controls.All(c =>
+                c.Properties.TryGetValue(propName, out var v) && v.Value?.ToString() == rawValue);
+
+            if (!allShareValue)
+                continue;
+
+            var mapping = PropertyMappingRegistry.GetMapping(propName, controlType);
+            if (mapping == null)
+                continue;
+
+            var converted = mapping.DirectMapping && !mapping.RequiresCustomLogic
+                ? new[] { (AttributeName: mapping.AvaloniaProperty, Value: rawValue) }
+                : PropertyValueConverter.Convert(mapping, rawValue);
+
+            if (converted == null)
+                continue;
+
+            foreach (var (attributeName, value) in converted)
             {
-                commonProps[propName] = value;
+                setters[attributeName] = value;
             }
         }
 
-        return commonProps;
+        return setters;
     }
 
     private List<ControlNode> GetAllControls(ControlNode root)
@@ -128,6 +159,6 @@ public class StyleGenerator
         public required string Name { get; init; }
         public required string ControlType { get; init; }
         public required int ControlCount { get; init; }
-        public required Dictionary<string, string> Properties { get; init; }
+        public required Dictionary<string, string> Setters { get; init; }
     }
 }

@@ -181,6 +181,13 @@ public class NamingConventionsConfig
 
     [JsonPropertyName("outputDirectoryPattern")]
     public string OutputDirectoryPattern { get; init; } = "{ProjectName}.Avalonia";
+
+    /// <summary>
+    /// Root namespace for generated views/viewmodels. When null, the output project's
+    /// directory name is used.
+    /// </summary>
+    [JsonPropertyName("rootNamespace")]
+    public string? RootNamespace { get; init; }
 }
 
 /// <summary>

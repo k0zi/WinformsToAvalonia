@@ -131,7 +131,7 @@ public class AxamlGenerator
         var mapping = ControlMappingRegistry.GetMapping(control.ControlType);
         if (mapping == null)
         {
-            sb.AppendLine($"{indent}<!-- TODO: Unmapped control: {control.ControlType} ({control.Name}) -->");
+            WriteUnmappedControl(sb, control, layoutInfo, indent);
             return;
         }
 
@@ -166,6 +166,34 @@ public class AxamlGenerator
         }
     }
 
+    /// <summary>
+    /// Writes an unmapped control as a TODO comment, but - unlike dropping the whole
+    /// branch - still recurses into its children wrapped in a plain Panel, so mapped
+    /// descendants nested inside an unmapped custom/third-party container still render.
+    /// </summary>
+    private void WriteUnmappedControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent)
+    {
+        sb.AppendLine($"{indent}<!-- TODO: Unmapped control: {control.ControlType} ({control.Name}) -->");
+
+        if (control.Children.Count == 0)
+        {
+            return;
+        }
+
+        sb.AppendLine($"{indent}<Panel Name=\"{control.Name}\">");
+
+        if (layoutInfo.ChildLayouts.TryGetValue(control.Name, out var childLayout))
+        {
+            WriteLayoutContainer(sb, control, childLayout, indent + "    ");
+        }
+        else
+        {
+            WriteChildren(sb, control, layoutInfo, indent + "    ");
+        }
+
+        sb.AppendLine($"{indent}</Panel>");
+    }
+
     private void WriteControlProperties(StringBuilder sb, ControlNode control, string indent)
     {
         foreach (var prop in control.Properties)
@@ -175,10 +203,33 @@ public class AxamlGenerator
 
             if (mapping.DirectMapping && !mapping.RequiresCustomLogic)
             {
-                sb.AppendLine();
-                sb.Append($"{indent}{mapping.AvaloniaProperty}=\"{EscapeXml(prop.Value.Value?.ToString())}\"");
+                AppendAttribute(sb, indent, mapping.AvaloniaProperty, prop.Value.Value?.ToString());
+                continue;
+            }
+
+            var rawValue = prop.Value.Value?.ToString();
+            if (string.IsNullOrEmpty(rawValue))
+            {
+                continue;
+            }
+
+            var converted = PropertyValueConverter.Convert(mapping, rawValue);
+            if (converted == null)
+            {
+                continue;
+            }
+
+            foreach (var (attributeName, value) in converted)
+            {
+                AppendAttribute(sb, indent, attributeName, value);
             }
         }
+    }
+
+    private void AppendAttribute(StringBuilder sb, string indent, string name, string? value)
+    {
+        sb.AppendLine();
+        sb.Append($"{indent}{name}=\"{EscapeXml(value)}\"");
     }
 
     private string EscapeXml(string? text)

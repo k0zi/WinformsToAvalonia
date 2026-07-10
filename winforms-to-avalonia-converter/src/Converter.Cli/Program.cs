@@ -4,6 +4,7 @@ using Converter.Cli.Models;
 using Converter.Cli.UI;
 using Converter.Cli.Logging;
 using Converter.Core.Configuration;
+using Converter.Plugin.Abstractions;
 using Converter.Reporting.Builders;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -178,13 +179,36 @@ class Program
             var noInteractive = context.ParseResult.GetValueForOption(noInteractiveOption);
             var theme = context.ParseResult.GetValueForOption(themeOption);
 
+            // Only override a loaded .converterconfig value when the user actually typed
+            // the flag - an option's silent default must not clobber a config-file setting.
+            var overrides = new CliOverrides
+            {
+                NoGit = IsExplicit(context, noGitOption) ? noGit : null,
+                CreateBranch = IsExplicit(context, createBranchOption) ? createBranch : null,
+                BranchName = branchName,
+                Parallel = IsExplicit(context, parallelOption) ? parallel : null,
+                Incremental = IsExplicit(context, incrementalOption) ? incremental : null
+            };
+
             await ExecuteConvertAsync(input, output, layout, report, reportFormat, config, plugins,
                 incremental, force, resume, parallel, createBranch, branchName, noGit, migrationGuide, dryRun,
-                noInteractive, theme);
+                noInteractive, theme, overrides);
         });
 
         return command;
     }
+
+    private static bool IsExplicit<T>(System.CommandLine.Invocation.InvocationContext context, Option<T> option)
+    {
+        return context.ParseResult.FindResultFor(option) is System.CommandLine.Parsing.OptionResult { IsImplicit: false };
+    }
+
+    private static LayoutMode MapLayoutMode(string layout) => layout.ToLowerInvariant() switch
+    {
+        "canvas" => LayoutMode.Canvas,
+        "smart" => LayoutMode.Smart,
+        _ => LayoutMode.Auto
+    };
 
     private static Command CreateInitConfigCommand()
     {
@@ -271,7 +295,8 @@ class Program
         bool migrationGuide,
         bool dryRun,
         bool noInteractive,
-        string? themePath)
+        string? themePath,
+        CliOverrides overrides)
     {
         // Create cancellation token source
         _cts = new CancellationTokenSource();
@@ -359,6 +384,9 @@ class Program
                 ? await ConfigurationLoader.LoadAsync(config)
                 : new ConverterConfig();
 
+            // Merge explicit CLI flags on top of the loaded/default config.
+            converterConfig = CliConfigMerger.Merge(converterConfig, overrides);
+
             // Create logger with Spectre provider
             using var loggerFactory = LoggerFactory.Create(builder =>
             {
@@ -372,7 +400,10 @@ class Program
                 Path.GetFullPath(input),
                 Path.GetFullPath(output),
                 converterConfig,
-                logger);
+                logger,
+                layoutMode: MapLayoutMode(layout),
+                force: force,
+                resume: resume);
 
             // Check terminal capabilities
             bool supportsAnsi = AnsiConsole.Profile.Capabilities.Ansi && 

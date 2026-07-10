@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Converter.Plugin.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -31,6 +32,34 @@ public class LayoutAnalyzer
             };
         }
 
+        // WinForms layout-container types that already declare their own layout intent -
+        // re-deriving it from child pixel positions would be strictly worse information
+        // than what the container type itself tells us.
+        switch (root.ControlType)
+        {
+            case "TableLayoutPanel":
+                return new LayoutAnalysisResult
+                {
+                    LayoutType = LayoutType.Grid,
+                    ConfidenceScore = 100,
+                    Reason = "TableLayoutPanel declares Grid layout explicitly"
+                };
+            case "FlowLayoutPanel":
+                return new LayoutAnalysisResult
+                {
+                    LayoutType = LayoutType.WrapPanel,
+                    ConfidenceScore = 100,
+                    Reason = "FlowLayoutPanel declares WrapPanel layout explicitly"
+                };
+            case "SplitContainer":
+                return new LayoutAnalysisResult
+                {
+                    LayoutType = LayoutType.Grid,
+                    ConfidenceScore = 100,
+                    Reason = "SplitContainer maps to a Grid with a GridSplitter"
+                };
+        }
+
         // Analyze children to detect patterns
         var children = root.Children.Where(c => IsVisibleControl(c)).ToList();
 
@@ -46,19 +75,23 @@ public class LayoutAnalyzer
 
         // Check for DockPanel pattern
         var dockResult = AnalyzeDockPattern(children, context);
-        
+
         // Check for Grid pattern
         var gridResult = AnalyzeGridPattern(children, context);
-        
+
         // Check for StackPanel pattern
         var stackResult = AnalyzeStackPattern(children, context);
 
-        // Select best pattern based on confidence
-        var results = new[] { dockResult, gridResult, stackResult }
-            .OrderByDescending(r => r.ConfidenceScore)
-            .ToList();
+        // Select best pattern based on confidence, weighted by the configured per-pattern
+        // preference (ConverterConfig.LayoutDetection's *DetectionWeight settings).
+        var weighted = new[]
+        {
+            (Result: dockResult, Score: dockResult.ConfidenceScore * context.DockWeight),
+            (Result: gridResult, Score: gridResult.ConfidenceScore * context.GridWeight),
+            (Result: stackResult, Score: stackResult.ConfidenceScore * context.StackWeight)
+        };
 
-        var bestResult = results.First();
+        var bestResult = weighted.OrderByDescending(w => w.Score).First().Result;
 
         // If confidence is below threshold, fallback to Canvas
         if (bestResult.ConfidenceScore < context.ConfidenceThreshold)
@@ -151,18 +184,41 @@ public class LayoutAnalyzer
         var columns = DetectGridLines(positions.Select(p => p.X).ToList(), context.AlignmentTolerance);
 
         var totalCells = rows.Count * columns.Count;
-        var alignedControls = positions.Count(p => 
+        var alignedControls = positions.Count(p =>
             IsAlignedToGrid(p.X, p.Y, columns, rows, context.AlignmentTolerance));
 
         var confidence = totalCells > 0
             ? (int)((alignedControls / (double)positions.Count) * 100)
             : 0;
 
+        var reasonSuffix = "";
+
+        // Overlapping bounding boxes contradict Grid semantics (cells shouldn't overlap) -
+        // more likely a Canvas with z-ordered/absolute-positioned controls. Applied before
+        // the anchor boost below so the boost isn't silently clamped away by an already-
+        // saturated (100%) base score before the penalty ever gets a chance to apply.
+        if (HasOverlappingControls(controls))
+        {
+            confidence = Math.Max(0, confidence - 30);
+            reasonSuffix += "; some controls overlap (penalized)";
+        }
+
+        // Controls with a multi-edge Anchor (e.g. "Top, Left, Right") signal an intent to
+        // stretch/resize with the parent, which Grid expresses naturally and Canvas (fixed
+        // pixel position) cannot - treat it as a supporting signal for Grid.
+        var anchoredControls = controls.Count(HasResizingAnchor);
+        if (anchoredControls > 0)
+        {
+            var anchorBoost = (int)((anchoredControls / (double)controls.Count) * 20);
+            confidence = Math.Min(100, confidence + anchorBoost);
+            reasonSuffix += $"; {anchoredControls}/{controls.Count} controls have a resizing Anchor";
+        }
+
         return new LayoutAnalysisResult
         {
             LayoutType = LayoutType.Grid,
             ConfidenceScore = confidence,
-            Reason = $"{alignedControls}/{positions.Count} controls aligned to {rows.Count}x{columns.Count} grid",
+            Reason = $"{alignedControls}/{positions.Count} controls aligned to {rows.Count}x{columns.Count} grid{reasonSuffix}",
             Metadata = new Dictionary<string, object>
             {
                 ["Rows"] = rows.Count,
@@ -227,14 +283,22 @@ public class LayoutAnalyzer
 
         var isVertical = verticalConfidence > horizontalConfidence;
         var confidence = Math.Max(verticalConfidence, horizontalConfidence);
+        var reasonSuffix = "";
+
+        // Overlapping bounding boxes contradict Stack semantics (items shouldn't overlap).
+        if (HasOverlappingControls(controls))
+        {
+            confidence = Math.Max(0, confidence - 30);
+            reasonSuffix = "; some controls overlap (penalized)";
+        }
 
         return new LayoutAnalysisResult
         {
             LayoutType = LayoutType.StackPanel,
             ConfidenceScore = confidence,
-            Reason = isVertical
+            Reason = (isVertical
                 ? $"Vertical stack: {verticallyStacked}/{positions.Count - 1} controls aligned"
-                : $"Horizontal stack: {horizontallyStacked}/{positions.Count - 1} controls aligned",
+                : $"Horizontal stack: {horizontallyStacked}/{positions.Count - 1} controls aligned") + reasonSuffix,
             Metadata = new Dictionary<string, object>
             {
                 ["Orientation"] = isVertical ? "Vertical" : "Horizontal",
@@ -266,20 +330,91 @@ public class LayoutAnalyzer
         return alignedX && alignedY;
     }
 
-    private int ParseCoordinate(string? location, int index)
+    private static readonly Regex TwoIntPairPattern = new(@"\(\s*(?<a>-?\d+)\s*,\s*(?<b>-?\d+)\s*\)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Extracts an (x, y) or (width, height) pair from a raw captured value such as
+    /// "new Point(10, 10)" or "new System.Drawing.Size(75, 23)". Matches the "(int, int)"
+    /// shape directly rather than string-replacing a specific "new Point(" prefix, since
+    /// real WinForms designer code emits the fully-qualified System.Drawing.Point/Size
+    /// type name, which a literal "new Point(" replace never matches.
+    /// </summary>
+    private int ParseCoordinate(string? value, int index)
     {
-        if (string.IsNullOrEmpty(location)) return 0;
+        if (string.IsNullOrEmpty(value)) return 0;
 
-        // Parse "new Point(x, y)" or "x, y"
-        var cleaned = location.Replace("new Point(", "").Replace(")", "").Trim();
-        var parts = cleaned.Split(',');
+        var match = TwoIntPairPattern.Match(value);
+        if (!match.Success) return 0;
 
-        if (parts.Length > index && int.TryParse(parts[index].Trim(), out var value))
+        var group = index == 0 ? "a" : "b";
+        return int.TryParse(match.Groups[group].Value, out var parsed) ? parsed : 0;
+    }
+
+    private readonly record struct BoundingBox(int X, int Y, int Width, int Height)
+    {
+        public bool Overlaps(BoundingBox other) =>
+            Width > 0 && Height > 0 && other.Width > 0 && other.Height > 0 &&
+            X < other.X + other.Width && X + Width > other.X &&
+            Y < other.Y + other.Height && Y + Height > other.Y;
+    }
+
+    private BoundingBox GetBoundingBox(ControlNode control)
+    {
+        var location = control.Properties.GetValueOrDefault("Location")?.Value?.ToString();
+        var size = control.Properties.GetValueOrDefault("Size")?.Value?.ToString();
+
+        return new BoundingBox(
+            X: ParseCoordinate(location, 0),
+            Y: ParseCoordinate(location, 1),
+            Width: ParseCoordinate(size, 0),
+            Height: ParseCoordinate(size, 1));
+    }
+
+    /// <summary>
+    /// True if any two controls' bounding boxes (Location + Size) intersect. Only
+    /// meaningful for controls that have both properties captured, so controls missing a
+    /// Size (Width/Height parse to 0) never register an overlap.
+    /// </summary>
+    private bool HasOverlappingControls(List<ControlNode> controls)
+    {
+        var boxes = controls
+            .Where(c => c.Properties.ContainsKey("Location") && c.Properties.ContainsKey("Size"))
+            .Select(GetBoundingBox)
+            .ToList();
+
+        for (var i = 0; i < boxes.Count; i++)
         {
-            return value;
+            for (var j = i + 1; j < boxes.Count; j++)
+            {
+                if (boxes[i].Overlaps(boxes[j]))
+                {
+                    return true;
+                }
+            }
         }
 
-        return 0;
+        return false;
+    }
+
+    private static readonly string[] AnchorEdges = ["Top", "Bottom", "Left", "Right"];
+
+    /// <summary>
+    /// True when a control's Anchor spans 3+ edges (e.g. "Top, Left, Right"), signaling an
+    /// intent to stretch/resize with its parent rather than stay a fixed size - the
+    /// WinForms default is Top+Left only (2 edges, no stretch), so 3+ is a meaningful
+    /// non-default signal.
+    /// </summary>
+    private bool HasResizingAnchor(ControlNode control)
+    {
+        if (!control.Properties.TryGetValue("Anchor", out var anchorValue))
+        {
+            return false;
+        }
+
+        var raw = anchorValue.Value?.ToString() ?? string.Empty;
+        var edgeCount = AnchorEdges.Count(edge => raw.Contains(edge, StringComparison.Ordinal));
+
+        return edgeCount >= 3;
     }
 
     private bool IsVisibleControl(ControlNode control)

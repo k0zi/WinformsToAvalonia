@@ -104,6 +104,21 @@ public class LayoutAnalysisContext
     public LayoutMode Mode { get; init; } = LayoutMode.Auto;
 
     /// <summary>
+    /// Weight applied to Grid pattern confidence when selecting the best-scoring layout.
+    /// </summary>
+    public double GridWeight { get; init; } = 1.0;
+
+    /// <summary>
+    /// Weight applied to StackPanel pattern confidence when selecting the best-scoring layout.
+    /// </summary>
+    public double StackWeight { get; init; } = 1.0;
+
+    /// <summary>
+    /// Weight applied to DockPanel pattern confidence when selecting the best-scoring layout.
+    /// </summary>
+    public double DockWeight { get; init; } = 1.0;
+
+    /// <summary>
     /// Additional options.
     /// </summary>
     public Dictionary<string, object> Options { get; init; } = [];

@@ -8,6 +8,16 @@ namespace Converter.Generator.Project;
 public class ProjectFileGenerator
 {
     /// <summary>
+    /// Centralized NuGet package versions for generated Avalonia projects, so bumping a
+    /// version is a one-line change instead of a find-replace across several literals.
+    /// </summary>
+    public static class PackageVersions
+    {
+        public const string Avalonia = "11.2.0";
+        public const string CommunityToolkitMvvm = "8.3.2";
+    }
+
+    /// <summary>
     /// Generate an Avalonia Desktop project file.
     /// </summary>
     public string GenerateAvaloniaProject(string projectName, string targetFramework = "net10.0")
@@ -32,12 +42,11 @@ public class ProjectFileGenerator
         sb.AppendLine();
 
         sb.AppendLine("  <ItemGroup>");
-        sb.AppendLine("    <PackageReference Include=\"Avalonia\" Version=\"11.2.0\" />");
-        sb.AppendLine("    <PackageReference Include=\"Avalonia.Desktop\" Version=\"11.2.0\" />");
-        sb.AppendLine("    <PackageReference Include=\"Avalonia.Themes.Fluent\" Version=\"11.2.0\" />");
-        sb.AppendLine("    <PackageReference Include=\"Avalonia.Fonts.Inter\" Version=\"11.2.0\" />");
-        sb.AppendLine("    <PackageReference Include=\"Avalonia.ReactiveUI\" Version=\"11.2.0\" />");
-        sb.AppendLine("    <PackageReference Include=\"CommunityToolkit.Mvvm\" Version=\"8.3.2\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia\" Version=\"{PackageVersions.Avalonia}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Desktop\" Version=\"{PackageVersions.Avalonia}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Themes.Fluent\" Version=\"{PackageVersions.Avalonia}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Fonts.Inter\" Version=\"{PackageVersions.Avalonia}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"CommunityToolkit.Mvvm\" Version=\"{PackageVersions.CommunityToolkitMvvm}\" />");
         sb.AppendLine("  </ItemGroup>");
         sb.AppendLine();
 

@@ -94,10 +94,61 @@ public static class ControlMappingRegistry
         { 
             Notes = "Requires platform-specific implementation"
         },
-        ["PrintPreviewControl"] = new("UserControl", "Avalonia.Controls.UserControl") 
-        { 
+        ["PrintPreviewControl"] = new("UserControl", "Avalonia.Controls.UserControl")
+        {
             RequiresCustomLogic = true,
             Notes = "No direct equivalent, needs custom implementation"
+        },
+
+        // Additional coverage: ToolStrip items, list/scroll variants, splitters
+        ["ToolStripSeparator"] = new("Separator", "Avalonia.Controls.Separator"),
+        ["ToolStripComboBox"] = new("ComboBox", "Avalonia.Controls.ComboBox"),
+        ["ToolStripTextBox"] = new("TextBox", "Avalonia.Controls.TextBox"),
+        ["ToolStripProgressBar"] = new("ProgressBar", "Avalonia.Controls.ProgressBar"),
+        ["CheckedListBox"] = new("ListBox", "Avalonia.Controls.ListBox")
+        {
+            RequiresCustomLogic = true,
+            Notes = "Requires a per-item CheckBox item template"
+        },
+        ["DomainUpDown"] = new("ComboBox", "Avalonia.Controls.ComboBox")
+        {
+            Notes = "No direct Avalonia equivalent; ComboBox with restricted items is the closest fit"
+        },
+        ["HScrollBar"] = new("ScrollBar", "Avalonia.Controls.Primitives.ScrollBar")
+        {
+            RequiresCustomLogic = true,
+            Notes = "Set Orientation=\"Horizontal\""
+        },
+        ["VScrollBar"] = new("ScrollBar", "Avalonia.Controls.Primitives.ScrollBar")
+        {
+            RequiresCustomLogic = true,
+            Notes = "Set Orientation=\"Vertical\""
+        },
+        ["Splitter"] = new("GridSplitter", "Avalonia.Controls.GridSplitter"),
+
+        // Lower-priority / rarer controls needing the heaviest custom-logic follow-up
+        ["PropertyGrid"] = new("UserControl", "Avalonia.Controls.UserControl")
+        {
+            RequiresCustomLogic = true,
+            Notes = "No built-in Avalonia PropertyGrid; consider a third-party control"
+        },
+        ["ErrorProvider"] = new("UserControl", "Avalonia.Controls.UserControl")
+        {
+            IsComponent = true,
+            RequiresCustomLogic = true,
+            Notes = "Map to DataAnnotations validation + Avalonia's DataValidationErrors"
+        },
+        ["BindingSource"] = new("UserControl", "Avalonia.Controls.UserControl")
+        {
+            IsComponent = true,
+            RequiresCustomLogic = true,
+            Notes = "Replace with an ObservableCollection<T> in the ViewModel"
+        },
+        ["ImageList"] = new("UserControl", "Avalonia.Controls.UserControl")
+        {
+            IsComponent = true,
+            RequiresCustomLogic = true,
+            Notes = "Convert to a Dictionary<string, IImage> resource in code-behind or ViewModel"
         }
     };
 

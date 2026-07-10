@@ -97,6 +97,11 @@ public static class PropertyMappingRegistry
             ["Value"] = new("Value") { DirectMapping = true },
             ["Minimum"] = new("Minimum") { DirectMapping = true },
             ["Maximum"] = new("Maximum") { DirectMapping = true }
+        },
+        ["TableLayoutPanel"] = new()
+        {
+            ["ColumnSpan"] = new("Grid.ColumnSpan") { DirectMapping = true },
+            ["RowSpan"] = new("Grid.RowSpan") { DirectMapping = true }
         }
     };
 

@@ -1,0 +1,61 @@
+namespace SampleApp
+{
+    partial class SampleForm
+    {
+        private System.ComponentModel.IContainer components = null;
+        private System.Windows.Forms.Button button1;
+        private System.Windows.Forms.TextBox textBox1;
+        private System.Windows.Forms.BindingSource customerBindingSource;
+        private SampleApp.Widgets.CustomerCard customerCard1;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        private void InitializeComponent()
+        {
+            this.button1 = new System.Windows.Forms.Button();
+            this.textBox1 = new System.Windows.Forms.TextBox();
+            this.customerBindingSource = new System.Windows.Forms.BindingSource();
+            this.customerCard1 = new SampleApp.Widgets.CustomerCard();
+            this.SuspendLayout();
+            //
+            // button1
+            //
+            this.button1.BackColor = System.Drawing.Color.FromArgb(0, 120, 215);
+            this.button1.Location = new System.Drawing.Point(10, 10);
+            this.button1.Name = "button1";
+            this.button1.Size = new System.Drawing.Size(75, 23);
+            this.button1.Text = "Click Me";
+            this.button1.Click += new System.EventHandler(this.button1_Click);
+            //
+            // textBox1
+            //
+            this.textBox1.Location = new System.Drawing.Point(10, 40);
+            this.textBox1.Name = "textBox1";
+            this.textBox1.DataBindings.Add(new System.Windows.Forms.Binding("Text", this.customerBindingSource, "CustomerName", true));
+            //
+            // customerCard1
+            //
+            this.customerCard1.Location = new System.Drawing.Point(10, 70);
+            this.customerCard1.Name = "customerCard1";
+            //
+            // SampleForm
+            //
+            this.Controls.Add(this.button1);
+            if (this.IsMdiContainer)
+            {
+                this.Controls.Add(this.textBox1);
+            }
+            this.Controls.Add(this.customerCard1);
+            this.Name = "SampleForm";
+            this.Text = "Sample Form";
+            this.ResumeLayout(false);
+        }
+    }
+}
