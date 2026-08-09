@@ -191,6 +191,14 @@ public class LayoutAnalyzer
             ? (int)((alignedControls / (double)positions.Count) * 100)
             : 0;
 
+        // Every control with a Location gets a best-effort cell assignment (nearest grid
+        // line), not just the ones counted as "aligned" above for scoring purposes - this is
+        // what lets AxamlGenerator actually place every child instead of defaulting them all
+        // to Grid.Row="0" Grid.Column="0".
+        var cellAssignments = positions.ToDictionary(
+            p => p.Control.Name,
+            p => new GridCellAssignment(FindNearestLineIndex(p.Y, rows), FindNearestLineIndex(p.X, columns)));
+
         var reasonSuffix = "";
 
         // Overlapping bounding boxes contradict Grid semantics (cells shouldn't overlap) -
@@ -224,7 +232,8 @@ public class LayoutAnalyzer
                 ["Rows"] = rows.Count,
                 ["Columns"] = columns.Count,
                 ["AlignedControls"] = alignedControls
-            }
+            },
+            GridCellAssignments = cellAssignments
         };
     }
 
@@ -285,6 +294,10 @@ public class LayoutAnalyzer
         var confidence = Math.Max(verticalConfidence, horizontalConfidence);
         var reasonSuffix = "";
 
+        // Persist whichever sort order actually won, so AxamlGenerator can emit children in
+        // true visual order instead of raw WinForms Controls.Add(...) declaration order.
+        var orderedNames = (isVertical ? positions : sortedByX).Select(p => p.Control.Name).ToList();
+
         // Overlapping bounding boxes contradict Stack semantics (items shouldn't overlap).
         if (HasOverlappingControls(controls))
         {
@@ -303,7 +316,8 @@ public class LayoutAnalyzer
             {
                 ["Orientation"] = isVertical ? "Vertical" : "Horizontal",
                 ["AlignedCount"] = isVertical ? verticallyStacked : horizontallyStacked
-            }
+            },
+            ChildOrder = orderedNames
         };
     }
 
@@ -328,6 +342,31 @@ public class LayoutAnalyzer
         var alignedX = columns.Any(col => Math.Abs(col - x) <= tolerance);
         var alignedY = rows.Any(row => Math.Abs(row - y) <= tolerance);
         return alignedX && alignedY;
+    }
+
+    /// <summary>
+    /// Finds the index of the closest detected grid line to a coordinate - used for cell
+    /// assignment, where every control needs *some* row/column even if it's not neatly
+    /// aligned (unlike IsAlignedToGrid's strict within-tolerance check, used only for scoring).
+    /// </summary>
+    private static int FindNearestLineIndex(int coordinate, List<int> lines)
+    {
+        if (lines.Count == 0) return 0;
+
+        var nearestIndex = 0;
+        var nearestDistance = Math.Abs(lines[0] - coordinate);
+
+        for (var i = 1; i < lines.Count; i++)
+        {
+            var distance = Math.Abs(lines[i] - coordinate);
+            if (distance < nearestDistance)
+            {
+                nearestIndex = i;
+                nearestDistance = distance;
+            }
+        }
+
+        return nearestIndex;
     }
 
     private static readonly Regex TwoIntPairPattern = new(@"\(\s*(?<a>-?\d+)\s*,\s*(?<b>-?\d+)\s*\)", RegexOptions.Compiled);

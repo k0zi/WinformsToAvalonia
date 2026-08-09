@@ -45,7 +45,30 @@ public class LayoutAnalysisResult
     /// Child layout analyses for nested containers.
     /// </summary>
     public Dictionary<string, LayoutAnalysisResult> ChildLayouts { get; init; } = [];
+
+    /// <summary>
+    /// Per-child (row, column) cell assignment for LayoutType.Grid results produced by
+    /// heuristic detection (LayoutAnalyzer.AnalyzeGridPattern), keyed by child control Name.
+    /// Empty for TableLayoutPanel-derived Grid results, which carry exact designer intent via
+    /// ControlNode.Properties["TableLayoutPanel.Column/Row"] instead - the two sources are
+    /// mutually exclusive by construction (AnalyzeGridPattern never runs for a TableLayoutPanel
+    /// root), so there's no double-source-of-truth risk.
+    /// </summary>
+    public Dictionary<string, GridCellAssignment> GridCellAssignments { get; init; } = [];
+
+    /// <summary>
+    /// Visual order (top-to-bottom or left-to-right, matching the winning orientation) of
+    /// child control Names, as computed by LayoutAnalyzer.AnalyzeStackPattern. Only populated
+    /// for LayoutType.StackPanel results. Controls without a Location are absent from this
+    /// list; consumers should fall back to declaration order for them.
+    /// </summary>
+    public List<string> ChildOrder { get; init; } = [];
 }
+
+/// <summary>
+/// A control's assigned cell within a detected Grid layout.
+/// </summary>
+public readonly record struct GridCellAssignment(int Row, int Column);
 
 /// <summary>
 /// Layout types supported by the converter.

@@ -36,6 +36,20 @@ public class ProjectFileGeneratorTests
     }
 
     [Fact]
+    public void GenerateAvaloniaProject_AlwaysReferencesAvaloniaControlsDataGrid()
+    {
+        // ControlMappingRegistry maps DataGridView -> Avalonia.Controls.DataGrid, but that
+        // control ships as a separate NuGet package, not part of core Avalonia/Avalonia.Desktop
+        // - any converted form using a DataGridView would fail to compile without this
+        // reference (this regressed a real WarehouseApp sample conversion).
+        var csproj = new ProjectFileGenerator().GenerateAvaloniaProject("SampleApp");
+
+        Assert.Contains(
+            $"Include=\"Avalonia.Controls.DataGrid\" Version=\"{ProjectFileGenerator.PackageVersions.Avalonia}\"",
+            csproj);
+    }
+
+    [Fact]
     public void GenerateAvaloniaProject_ExplicitVersions_OverrideDefaults()
     {
         var csproj = new ProjectFileGenerator().GenerateAvaloniaProject(

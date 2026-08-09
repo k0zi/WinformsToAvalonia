@@ -50,6 +50,12 @@ public class ProjectFileGenerator
         sb.AppendLine($"    <PackageReference Include=\"Avalonia.Desktop\" Version=\"{avaloniaVersion}\" />");
         sb.AppendLine($"    <PackageReference Include=\"Avalonia.Themes.Fluent\" Version=\"{avaloniaVersion}\" />");
         sb.AppendLine($"    <PackageReference Include=\"Avalonia.Fonts.Inter\" Version=\"{avaloniaVersion}\" />");
+        // DataGridView is a common-enough WinForms control (ControlMappingRegistry maps it to
+        // Avalonia.Controls.DataGrid) that the generated project must always carry this package -
+        // unlike the core controls above, DataGrid ships as a separate NuGet package, not part of
+        // the base Avalonia/Avalonia.Desktop set, so AXAML referencing <DataGrid> would otherwise
+        // fail to compile for any converted form that used a DataGridView.
+        sb.AppendLine($"    <PackageReference Include=\"Avalonia.Controls.DataGrid\" Version=\"{avaloniaVersion}\" />");
         sb.AppendLine($"    <PackageReference Include=\"CommunityToolkit.Mvvm\" Version=\"{communityToolkitMvvmVersion}\" />");
         sb.AppendLine("  </ItemGroup>");
         sb.AppendLine();

@@ -1,4 +1,5 @@
 using System.Text;
+using Converter.Core.Parsing;
 using Converter.Generator.Mapping;
 using Converter.Plugin.Abstractions;
 using Converter.Mappings.BuiltIn;
@@ -151,6 +152,13 @@ public class ViewModelGenerator
     {
         foreach (var eventHandler in control.EventHandlers)
         {
+            if (eventHandler.Value == WinFormsParser.InlineLambdaHandlerMarker)
+            {
+                // No stable method name to generate a [RelayCommand] for; surfaced as a manual
+                // step by ConversionOrchestrator.CollectManualSteps instead.
+                continue;
+            }
+
             if (overrides.EventMappings.TryGetValue((control, eventHandler.Key), out var pluginMapping))
             {
                 if (pluginMapping.ConvertToCommand)

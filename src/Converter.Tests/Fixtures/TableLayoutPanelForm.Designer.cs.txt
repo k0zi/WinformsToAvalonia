@@ -1,0 +1,70 @@
+namespace SampleApp
+{
+    partial class TableLayoutPanelForm
+    {
+        private System.ComponentModel.IContainer components = null;
+        private System.Windows.Forms.TableLayoutPanel tableLayoutPanel1;
+        private System.Windows.Forms.Label label1;
+        private System.Windows.Forms.TextBox textBox1;
+        private System.Windows.Forms.Label label2;
+        private System.Windows.Forms.TextBox textBox2;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        private void InitializeComponent()
+        {
+            this.tableLayoutPanel1 = new System.Windows.Forms.TableLayoutPanel();
+            this.label1 = new System.Windows.Forms.Label();
+            this.textBox1 = new System.Windows.Forms.TextBox();
+            this.label2 = new System.Windows.Forms.Label();
+            this.textBox2 = new System.Windows.Forms.TextBox();
+            this.tableLayoutPanel1.SuspendLayout();
+            this.SuspendLayout();
+            //
+            // tableLayoutPanel1
+            //
+            this.tableLayoutPanel1.ColumnCount = 2;
+            this.tableLayoutPanel1.RowCount = 2;
+            this.tableLayoutPanel1.Name = "tableLayoutPanel1";
+            this.tableLayoutPanel1.Controls.Add(this.label1, 0, 0);
+            this.tableLayoutPanel1.Controls.Add(this.textBox1, 1, 0);
+            this.tableLayoutPanel1.Controls.Add(this.label2, 0, 1);
+            this.tableLayoutPanel1.Controls.Add(this.textBox2, 1, 1);
+            this.tableLayoutPanel1.SetColumnSpan(this.textBox2, 1);
+            this.tableLayoutPanel1.SetRowSpan(this.label2, 1);
+            //
+            // label1
+            //
+            this.label1.Name = "label1";
+            this.label1.Text = "First Name";
+            //
+            // textBox1
+            //
+            this.textBox1.Name = "textBox1";
+            //
+            // label2
+            //
+            this.label2.Name = "label2";
+            this.label2.Text = "Last Name";
+            //
+            // textBox2
+            //
+            this.textBox2.Name = "textBox2";
+            //
+            // TableLayoutPanelForm
+            //
+            this.Controls.Add(this.tableLayoutPanel1);
+            this.Name = "TableLayoutPanelForm";
+            this.Text = "Table Layout Panel Form";
+            this.tableLayoutPanel1.ResumeLayout(false);
+            this.ResumeLayout(false);
+        }
+    }
+}

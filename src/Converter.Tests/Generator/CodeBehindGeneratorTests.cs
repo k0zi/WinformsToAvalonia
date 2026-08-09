@@ -1,3 +1,4 @@
+using Converter.Core.Parsing;
 using Converter.Generator.CodeBehind;
 using Converter.Generator.Mapping;
 using Converter.Plugin.Abstractions;
@@ -38,6 +39,18 @@ public class CodeBehindGeneratorTests
 
         Assert.Contains(
             "private void button1_MouseDown(object? sender, Avalonia.Input.PointerPressedEventArgs e)", content);
+    }
+
+    [Fact]
+    public void Generate_PreserveEventHandlerViaInlineLambda_SkipsStubInsteadOfEmittingInvalidIdentifier()
+    {
+        // Same defect class as ViewModelGenerator's inline-lambda handling: the sentinel
+        // marker is not a valid C# identifier and must never be emitted as a method name.
+        var root = BuildFormWithButtonHandler("MouseDown", WinFormsParser.InlineLambdaHandlerMarker);
+
+        var content = new CodeBehindGenerator().Generate("SampleApp", "SampleForm", root);
+
+        Assert.DoesNotContain("inline lambda", content);
     }
 
     [Fact]

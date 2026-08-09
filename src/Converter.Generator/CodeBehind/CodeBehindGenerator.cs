@@ -1,4 +1,5 @@
 using System.Text;
+using Converter.Core.Parsing;
 using Converter.Generator.Mapping;
 using Converter.Mappings.BuiltIn;
 using Converter.Plugin.Abstractions;
@@ -86,6 +87,13 @@ public class CodeBehindGenerator
         {
             if (overrides.EventMappings.ContainsKey((control, eventName)))
             {
+                continue;
+            }
+
+            if (handlerName == WinFormsParser.InlineLambdaHandlerMarker)
+            {
+                // No stable method name to emit a stub under; surfaced as a manual step by
+                // ConversionOrchestrator.CollectManualSteps instead.
                 continue;
             }
 

@@ -50,6 +50,15 @@ public class WinFormsParser
     };
 
     /// <summary>
+    /// TableLayoutPanel cell-placement setter methods (e.g. `tableLayoutPanel1.SetColumn(control1, 0);`)
+    /// called directly on the panel rather than through the Controls.Add 3-arg overload.
+    /// </summary>
+    private static readonly HashSet<string> TableLayoutPanelCellSetters = new(StringComparer.Ordinal)
+    {
+        "SetColumn", "SetRow", "SetColumnSpan", "SetRowSpan"
+    };
+
+    /// <summary>
     /// Dictionary key used to resolve "this" references (e.g. this.Controls.Add(...)) back
     /// to the root form's ControlNode.
     /// </summary>
@@ -326,7 +335,7 @@ public class WinFormsParser
         // e.g. button1.Click += (s, e) => { ... }; (inline lambda - no stable name to extract)
         if (right is LambdaExpressionSyntax)
         {
-            return "<inline lambda - manual review required>";
+            return InlineLambdaHandlerMarker;
         }
 
         return GetControlNameFromExpression(right);
@@ -347,6 +356,12 @@ public class WinFormsParser
             memberAccess.Expression.ToString() == ResourceManagerVariableName)
         {
             ParseApplyResourcesInvocation(invocation, controls, resources);
+            return;
+        }
+
+        if (TableLayoutPanelCellSetters.Contains(methodName))
+        {
+            ParseTableLayoutPanelSetterInvocation(invocation, methodName, memberAccess, controls);
             return;
         }
 
@@ -378,7 +393,8 @@ public class WinFormsParser
     private void ParseControlsAddInvocation(InvocationExpressionSyntax invocation, string ownerControlName,
         Dictionary<string, ControlNode> controls)
     {
-        var childArgument = invocation.ArgumentList.Arguments.FirstOrDefault();
+        var arguments = invocation.ArgumentList.Arguments;
+        var childArgument = arguments.FirstOrDefault();
         if (childArgument == null)
         {
             return;
@@ -393,6 +409,77 @@ public class WinFormsParser
         {
             child.Parent = parent;
             parent.Children.Add(child);
+
+            // TableLayoutPanel's Controls.Add has a 3-arg overload (control, column, row) that
+            // is the primary way WinForms designer code records cell placement - the 1-arg
+            // overload above still runs first to establish the parent/child relationship.
+            if (parent.ControlType == "TableLayoutPanel" && arguments.Count >= 3 &&
+                int.TryParse(arguments[1].Expression.ToString(), out var column) &&
+                int.TryParse(arguments[2].Expression.ToString(), out var row))
+            {
+                SetTableLayoutPanelCellProperty(child, "TableLayoutPanel.Column", column);
+                SetTableLayoutPanelCellProperty(child, "TableLayoutPanel.Row", row);
+            }
+        }
+    }
+
+    private static void SetTableLayoutPanelCellProperty(ControlNode control, string propertyKey, int value)
+    {
+        control.Properties[propertyKey] = new PropertyValue
+        {
+            Name = propertyKey,
+            Value = value.ToString(),
+            Type = "int"
+        };
+    }
+
+    /// <summary>
+    /// Parses `tableLayoutPanel1.SetColumn(control1, 0)` / `SetRow` / `SetColumnSpan` /
+    /// `SetRowSpan` - the alternative to the Controls.Add 3-arg overload for recording
+    /// TableLayoutPanel cell placement. Writes directly into the target control's
+    /// ControlNode.Properties (via the shared `controls` dictionary), so it works regardless
+    /// of statement order relative to the corresponding Controls.Add(...) call.
+    /// </summary>
+    private static void ParseTableLayoutPanelSetterInvocation(InvocationExpressionSyntax invocation,
+        string methodName, MemberAccessExpressionSyntax memberAccess, Dictionary<string, ControlNode> controls)
+    {
+        var panelName = GetControlNameFromExpression(memberAccess.Expression);
+        if (string.IsNullOrEmpty(panelName) ||
+            !controls.TryGetValue(panelName, out var panel) ||
+            panel.ControlType != "TableLayoutPanel")
+        {
+            return;
+        }
+
+        var arguments = invocation.ArgumentList.Arguments;
+        if (arguments.Count < 2)
+        {
+            return;
+        }
+
+        var targetControlName = GetControlNameFromExpression(arguments[0].Expression);
+        if (string.IsNullOrEmpty(targetControlName) || !controls.TryGetValue(targetControlName, out var target))
+        {
+            return;
+        }
+
+        if (!int.TryParse(arguments[1].Expression.ToString(), out var value))
+        {
+            return;
+        }
+
+        var propertyKey = methodName switch
+        {
+            "SetColumn" => "TableLayoutPanel.Column",
+            "SetRow" => "TableLayoutPanel.Row",
+            "SetColumnSpan" => "TableLayoutPanel.ColumnSpan",
+            "SetRowSpan" => "TableLayoutPanel.RowSpan",
+            _ => null
+        };
+
+        if (propertyKey != null)
+        {
+            SetTableLayoutPanelCellProperty(target, propertyKey, value);
         }
     }
 
@@ -603,6 +690,16 @@ public class WinFormsParser
 
         return exprString;
     }
+
+    /// <summary>
+    /// Sentinel handler "name" recorded in <see cref="ControlNode.EventHandlers"/> when a
+    /// subscription's right-hand side is an inline lambda (e.g. `button.Click += (s, e) =>
+    /// {...}`) with no stable method name to extract - not a valid C# identifier. Downstream
+    /// generators (ViewModelGenerator, CodeBehindGenerator, AxamlGenerator) must special-case
+    /// this value - skipping codegen for that event rather than emitting it as a method/attribute
+    /// name - and ConversionOrchestrator surfaces it as a manual step instead.
+    /// </summary>
+    public const string InlineLambdaHandlerMarker = "<inline lambda - manual review required>";
 
     private bool IsControlField(FieldDeclarationSyntax field)
     {

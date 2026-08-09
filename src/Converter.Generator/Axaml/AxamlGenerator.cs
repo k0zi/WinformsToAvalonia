@@ -1,4 +1,6 @@
+using System.Linq;
 using System.Text;
+using Converter.Core.Parsing;
 using Converter.Generator.Mapping;
 using Converter.Plugin.Abstractions;
 using Converter.Mappings.BuiltIn;
@@ -32,8 +34,10 @@ public class AxamlGenerator
         sb.AppendLine($"        x:Class=\"{namespaceName}.Views.{className}\"");
         sb.AppendLine($"        x:DataType=\"vm:{className}ViewModel\"");
 
-        // Add window properties
-        WriteControlProperties(sb, root, indent: "        ", namespaceName, overrides);
+        // Add window properties. LayoutType.Custom is used purely as a "not Canvas" sentinel
+        // here - the root <Window> has no container of its own, so Canvas.Left/Top must never
+        // leak onto it even if a Form.Location property happens to be present.
+        WriteControlProperties(sb, root, LayoutType.Custom, indent: "        ", namespaceName, overrides);
         WriteEventAttributes(sb, root, indent: "        ", overrides);
 
         sb.AppendLine("        >");
@@ -76,9 +80,8 @@ public class AxamlGenerator
     {
         sb.AppendLine($"{indent}<Grid>");
 
-        // Extract grid metadata
-        if (layoutInfo.Metadata.TryGetValue("Rows", out var rowsObj) && rowsObj is int rows &&
-            layoutInfo.Metadata.TryGetValue("Columns", out var colsObj) && colsObj is int cols)
+        var (rows, cols) = ResolveGridDimensions(control);
+        if (rows > 0 && cols > 0)
         {
             // Write row definitions
             sb.AppendLine($"{indent}    <Grid.RowDefinitions>");
@@ -102,7 +105,47 @@ public class AxamlGenerator
         WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides);
 
         sb.AppendLine($"{indent}</Grid>");
+
+        (int Rows, int Columns) ResolveGridDimensions(ControlNode gridControl)
+        {
+            if (gridControl.ControlType == "TableLayoutPanel")
+            {
+                // TableLayoutPanel declares its own dimensions (ColumnCount/RowCount, already
+                // captured as plain properties) rather than deriving them from the heuristic
+                // grid-line detection used for everything else - fall back to the highest
+                // captured child cell index when the panel doesn't set them explicitly (WinForms
+                // defaults to auto-grow).
+                var panelRows = ParseIntProperty(gridControl, "RowCount");
+                var panelCols = ParseIntProperty(gridControl, "ColumnCount");
+
+                if (panelRows == 0) panelRows = MaxChildCellIndex(gridControl, "TableLayoutPanel.Row") + 1;
+                if (panelCols == 0) panelCols = MaxChildCellIndex(gridControl, "TableLayoutPanel.Column") + 1;
+
+                return (panelRows, panelCols);
+            }
+
+            if (layoutInfo.Metadata.TryGetValue("Rows", out var rowsObj) && rowsObj is int r &&
+                layoutInfo.Metadata.TryGetValue("Columns", out var colsObj) && colsObj is int c)
+            {
+                return (r, c);
+            }
+
+            return (0, 0);
+        }
     }
+
+    private static int ParseIntProperty(ControlNode control, string propertyName) =>
+        control.Properties.TryGetValue(propertyName, out var pv) &&
+        int.TryParse(pv.Value?.ToString(), out var value)
+            ? value
+            : 0;
+
+    private static int MaxChildCellIndex(ControlNode control, string propertyKey) =>
+        control.Children
+            .Where(c => c.Properties.ContainsKey(propertyKey))
+            .Select(c => ParseIntProperty(c, propertyKey))
+            .DefaultIfEmpty(-1)
+            .Max();
 
     private void WriteStackPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides)
     {
@@ -130,10 +173,35 @@ public class AxamlGenerator
 
     private void WriteChildren(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides)
     {
-        foreach (var child in control.Children)
+        foreach (var child in OrderChildrenForStack(control.Children, layoutInfo))
         {
             WriteControl(sb, child, layoutInfo, indent, namespaceName, overrides);
         }
+    }
+
+    /// <summary>
+    /// For StackPanel containers, reorders children to match the visual top-to-bottom/
+    /// left-to-right order LayoutAnalyzer.AnalyzeStackPattern computed (ChildOrder), instead
+    /// of raw WinForms Controls.Add(...) declaration order. Children absent from ChildOrder
+    /// (e.g. no Location) sort to the end, preserving their original relative order. No-op for
+    /// every other layout type.
+    /// </summary>
+    private static List<ControlNode> OrderChildrenForStack(List<ControlNode> children, LayoutAnalysisResult layoutInfo)
+    {
+        if (layoutInfo.LayoutType != LayoutType.StackPanel || layoutInfo.ChildOrder.Count == 0)
+        {
+            return children;
+        }
+
+        var rank = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < layoutInfo.ChildOrder.Count; i++)
+        {
+            rank[layoutInfo.ChildOrder[i]] = i;
+        }
+
+        return children
+            .OrderBy(c => rank.TryGetValue(c.Name, out var idx) ? idx : int.MaxValue)
+            .ToList();
     }
 
     private void WriteControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides)
@@ -157,8 +225,13 @@ public class AxamlGenerator
         // Write Name
         sb.Append($" Name=\"{control.Name}\"");
 
+        // Write grid cell placement (heuristic Grid mode only - TableLayoutPanel cell
+        // placement flows through WriteControlProperties instead, via the
+        // TableLayoutPanel.Column/Row DirectMapping entries).
+        WriteGridPlacementAttributes(sb, control, layoutInfo, indent);
+
         // Write properties
-        WriteControlProperties(sb, control, indent, namespaceName, overrides);
+        WriteControlProperties(sb, control, layoutInfo.LayoutType, indent, namespaceName, overrides);
         WriteEventAttributes(sb, control, indent, overrides);
 
         if (control.Children.Count > 0)
@@ -207,6 +280,7 @@ public class AxamlGenerator
         var avaloniaType = pluginMapping.AvaloniaControlType;
         sb.Append($"{indent}<{avaloniaType}");
         sb.Append($" Name=\"{control.Name}\"");
+        WriteGridPlacementAttributes(sb, control, layoutInfo, indent);
 
         foreach (var (propName, propValue) in pluginMapping.Properties)
         {
@@ -248,7 +322,9 @@ public class AxamlGenerator
             return;
         }
 
-        sb.AppendLine($"{indent}<Panel Name=\"{control.Name}\">");
+        sb.Append($"{indent}<Panel Name=\"{control.Name}\"");
+        WriteGridPlacementAttributes(sb, control, layoutInfo, indent);
+        sb.AppendLine(">");
 
         if (layoutInfo.ChildLayouts.TryGetValue(control.Name, out var childLayout))
         {
@@ -262,13 +338,30 @@ public class AxamlGenerator
         sb.AppendLine($"{indent}</Panel>");
     }
 
-    private void WriteControlProperties(StringBuilder sb, ControlNode control, string indent, string namespaceName, PluginMappingOverrides overrides)
+    /// <summary>
+    /// Emits Grid.Row/Grid.Column for a child placed in a heuristically-detected Grid
+    /// container (LayoutAnalyzer.AnalyzeGridPattern's GridCellAssignments). No-op outside
+    /// Grid mode, and for children with no captured Location (the placement source).
+    /// TableLayoutPanel's exact cell assignment is unrelated to this - it flows through the
+    /// ordinary TableLayoutPanel.Column/Row property mappings in WriteControlProperties
+    /// instead, since AnalyzeGridPattern never runs for a TableLayoutPanel container.
+    /// </summary>
+    private void WriteGridPlacementAttributes(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent)
+    {
+        if (layoutInfo.LayoutType != LayoutType.Grid) return;
+        if (!layoutInfo.GridCellAssignments.TryGetValue(control.Name, out var cell)) return;
+
+        AppendAttribute(sb, indent, "Grid.Row", cell.Row.ToString());
+        AppendAttribute(sb, indent, "Grid.Column", cell.Column.ToString());
+    }
+
+    private void WriteControlProperties(StringBuilder sb, ControlNode control, LayoutType containerLayoutType, string indent, string namespaceName, PluginMappingOverrides overrides)
     {
         foreach (var prop in control.Properties)
         {
             if (overrides.PropertyTranslations.TryGetValue((control, prop.Key), out var pluginTranslation))
             {
-                AppendAttribute(sb, indent, pluginTranslation.AvaloniaPropertyName, pluginTranslation.Value?.ToString());
+                AppendPlacementAwareAttribute(sb, indent, pluginTranslation.AvaloniaPropertyName, pluginTranslation.Value?.ToString(), containerLayoutType);
                 continue;
             }
 
@@ -277,7 +370,7 @@ public class AxamlGenerator
 
             if (mapping.DirectMapping && !mapping.RequiresCustomLogic)
             {
-                AppendAttribute(sb, indent, mapping.AvaloniaProperty, prop.Value.Value?.ToString());
+                AppendPlacementAwareAttribute(sb, indent, mapping.AvaloniaProperty, prop.Value.Value?.ToString(), containerLayoutType);
                 continue;
             }
 
@@ -303,9 +396,26 @@ public class AxamlGenerator
                     ? $"avares://{namespaceName}/{value}"
                     : value;
 
-                AppendAttribute(sb, indent, attributeName, qualifiedValue);
+                AppendPlacementAwareAttribute(sb, indent, attributeName, qualifiedValue, containerLayoutType);
             }
         }
+    }
+
+    /// <summary>
+    /// Suppresses Canvas.Left/Canvas.Top (and any other Canvas.* attribute) unless the
+    /// immediate container is actually a Canvas - without this, every control got dead/no-op
+    /// Canvas.Left/Top attributes regardless of its real container (Grid/StackPanel/
+    /// DockPanel ignore them, since their parent isn't a Canvas), which both cluttered the
+    /// generated AXAML and had no bearing on the control's actual rendered position.
+    /// </summary>
+    private void AppendPlacementAwareAttribute(StringBuilder sb, string indent, string name, string? value, LayoutType containerLayoutType)
+    {
+        if (name.StartsWith("Canvas.", StringComparison.Ordinal) && containerLayoutType != LayoutType.Canvas)
+        {
+            return;
+        }
+
+        AppendAttribute(sb, indent, name, value);
     }
 
     /// <summary>
@@ -321,6 +431,13 @@ public class AxamlGenerator
         {
             if (overrides.EventMappings.ContainsKey((control, eventName)))
             {
+                continue;
+            }
+
+            if (handlerName == WinFormsParser.InlineLambdaHandlerMarker)
+            {
+                // No stable method name to reference from AXAML; surfaced as a manual step by
+                // ConversionOrchestrator.CollectManualSteps instead.
                 continue;
             }
 

@@ -380,7 +380,7 @@ public class ConversionOrchestrator
                 formsProcessed, filesGenerated, force: true);
 
             _logger?.LogInformation("Generating project files...");
-            await GenerateProjectFilesAsync(rollbackManager);
+            await GenerateProjectFilesAsync(rollbackManager, formReports);
             filesGenerated += 5; // Project files generated
 
             ReportProgress(OperationType.GeneratingProjectFiles, progress, statistics, totalForms, totalFilesToGenerate,
@@ -868,6 +868,20 @@ public class ConversionOrchestrator
                 continue;
             }
 
+            if (control.EventHandlers[eventName] == WinFormsParser.InlineLambdaHandlerMarker)
+            {
+                steps.Add(new ManualStepInfo
+                {
+                    Category = "Inline Lambda Event Handlers",
+                    Title = $"{control.Name}.{eventName} is subscribed with an inline lambda",
+                    Location = sourceFile,
+                    Description = "The original WinForms code subscribes this event with an inline lambda " +
+                        "(no stable method name to extract), so it was skipped entirely instead of emitting " +
+                        "broken generated code. Wire up the equivalent Avalonia event/command manually."
+                });
+                continue;
+            }
+
             var eventMapping = EventMappingRegistry.GetMapping(eventName);
             if (eventMapping?.PreserveEventHandler == true)
             {
@@ -1010,7 +1024,31 @@ public class ConversionOrchestrator
         return outcomes.Select(o => o!.Value).ToList();
     }
 
-    private async Task GenerateProjectFilesAsync(RollbackManager rollbackManager)
+    /// <summary>
+    /// Picks which converted form App.axaml.cs should open as the startup window. Prefers the
+    /// original WinForms entry point (EntryPointResolver's best-effort `Application.Run(new X())`
+    /// scan) when that form was actually converted; otherwise falls back to the first converted
+    /// form, so App.axaml.cs always references a type that actually exists - a hardcoded
+    /// "MainWindow" almost never matches a real WinForms class name and previously made every
+    /// conversion's generated project fail to compile.
+    /// </summary>
+    private string ResolveMainWindowName(List<FormReportInfo> formReports)
+    {
+        if (formReports.Count == 0)
+        {
+            return "MainWindow";
+        }
+
+        var startupForm = EntryPointResolver.FindStartupFormName(_sourcePath);
+        if (startupForm != null && formReports.Any(f => f.Name == startupForm))
+        {
+            return startupForm;
+        }
+
+        return formReports[0].Name;
+    }
+
+    private async Task GenerateProjectFilesAsync(RollbackManager rollbackManager, List<FormReportInfo> formReports)
     {
         var projectGenerator = new ProjectFileGenerator();
         var projectName = Path.GetFileName(_outputPath);
@@ -1021,7 +1059,7 @@ public class ConversionOrchestrator
             _config.ProjectGeneration.AvaloniaVersion,
             _config.ProjectGeneration.CommunityToolkitMvvmVersion);
         var appAxamlContent = projectGenerator.GenerateAppAxaml(projectName);
-        var appCodeBehindContent = projectGenerator.GenerateAppCodeBehind(projectName, "MainWindow");
+        var appCodeBehindContent = projectGenerator.GenerateAppCodeBehind(projectName, ResolveMainWindowName(formReports));
         var programContent = projectGenerator.GenerateProgramFile(projectName);
         var manifestContent = projectGenerator.GenerateAppManifest();
 

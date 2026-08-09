@@ -109,4 +109,50 @@ public class WinFormsParserTests
         Assert.True(customerCard!.IsCustomControl);
         Assert.Contains("customerCard1", result.RootControl!.Children.Select(c => c.Name));
     }
+
+    private static readonly string TableLayoutPanelFormPath = FixturePath.Get("TableLayoutPanelForm.Designer.cs.txt");
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_CapturesTableLayoutPanelCellFromThreeArgControlsAdd()
+    {
+        // this.tableLayoutPanel1.Controls.Add(this.label1, 0, 0) - the 3-arg overload used by
+        // the real WinForms designer to record cell placement.
+        var parser = new WinFormsParser();
+
+        var result = await parser.ParseDesignerFileAsync(TableLayoutPanelFormPath);
+
+        var textBox2 = result.AllControls.Single(c => c.Name == "textBox2");
+
+        Assert.Equal("1", textBox2.Properties["TableLayoutPanel.Column"].Value);
+        Assert.Equal("1", textBox2.Properties["TableLayoutPanel.Row"].Value);
+    }
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_CapturesTableLayoutPanelSpanFromSetterCalls()
+    {
+        // tableLayoutPanel1.SetColumnSpan(this.textBox2, 1) / SetRowSpan(this.label2, 1) -
+        // the standalone setter form, separate from the Controls.Add 3-arg overload.
+        var parser = new WinFormsParser();
+
+        var result = await parser.ParseDesignerFileAsync(TableLayoutPanelFormPath);
+
+        var textBox2 = result.AllControls.Single(c => c.Name == "textBox2");
+        var label2 = result.AllControls.Single(c => c.Name == "label2");
+
+        Assert.Equal("1", textBox2.Properties["TableLayoutPanel.ColumnSpan"].Value);
+        Assert.Equal("1", label2.Properties["TableLayoutPanel.RowSpan"].Value);
+    }
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_CapturesTableLayoutPanelColumnCountAndRowCount()
+    {
+        var parser = new WinFormsParser();
+
+        var result = await parser.ParseDesignerFileAsync(TableLayoutPanelFormPath);
+
+        var panel = result.AllControls.Single(c => c.Name == "tableLayoutPanel1");
+
+        Assert.Equal("2", panel.Properties["ColumnCount"].Value);
+        Assert.Equal("2", panel.Properties["RowCount"].Value);
+    }
 }

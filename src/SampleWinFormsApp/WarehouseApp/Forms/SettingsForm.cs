@@ -1,0 +1,115 @@
+using Microsoft.EntityFrameworkCore;
+using WarehouseApp.Common;
+using WarehouseApp.Data.Models;
+
+namespace WarehouseApp.Forms;
+
+public partial class SettingsForm : Form
+{
+    private AppSettings _settings = new();
+
+    public SettingsForm()
+    {
+        InitializeComponent();
+        Load += async (_, _) => await LoadSettingsAsync();
+        LoadAboutPage();
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        _settings = await Task.Run(() =>
+        {
+            using var ctx = Db.CreateContext();
+            return ctx.AppSettings.FirstOrDefault(s => s.Id == 1) ?? new AppSettings { Id = 1, CompanyName = "WarehouseApp" };
+        });
+
+        companyNameTextBox.Text = _settings.CompanyName;
+        darkModeToggle.Checked = _settings.ThemeDarkMode;
+        backupFolderTextBox.Text = _settings.BackupFolderPath ?? string.Empty;
+
+        var color = ColorTranslator.FromHtml(_settings.AccentColorHex);
+        colorPreviewPanel.BackColor = color;
+        customColorRadioButton.Checked = _settings.AccentColorHex != "#2D6CDF";
+        presetColorRadioButton.Checked = !customColorRadioButton.Checked;
+
+        advancedPropertyGrid.SelectedObject = _settings;
+    }
+
+    private void chooseColorButton_Click(object? sender, EventArgs e)
+    {
+        colorDialog.Color = colorPreviewPanel.BackColor;
+        if (colorDialog.ShowDialog(this) == DialogResult.OK)
+        {
+            colorPreviewPanel.BackColor = colorDialog.Color;
+            customColorRadioButton.Checked = true;
+        }
+    }
+
+    private void browseFolderButton_Click(object? sender, EventArgs e)
+    {
+        if (folderBrowserDialog.ShowDialog(this) == DialogResult.OK)
+        {
+            backupFolderTextBox.Text = folderBrowserDialog.SelectedPath;
+        }
+    }
+
+    private async Task SaveGeneralAsync()
+    {
+        _settings.CompanyName = companyNameTextBox.Text.Trim();
+        _settings.ThemeDarkMode = darkModeToggle.Checked;
+        _settings.AccentColorHex = customColorRadioButton.Checked
+            ? ColorTranslator.ToHtml(colorPreviewPanel.BackColor)
+            : "#2D6CDF";
+        _settings.BackupFolderPath = string.IsNullOrWhiteSpace(backupFolderTextBox.Text) ? null : backupFolderTextBox.Text;
+
+        await PersistSettingsAsync();
+        MessageBox.Show(this, "Settings saved.", "Settings", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private async Task SaveAdvancedAsync()
+    {
+        await PersistSettingsAsync();
+        MessageBox.Show(this, "Advanced settings saved.", "Settings", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private async Task PersistSettingsAsync()
+    {
+        using var ctx = Db.CreateContext();
+        var tracked = await ctx.AppSettings.FirstOrDefaultAsync(s => s.Id == 1);
+        if (tracked is null)
+        {
+            _settings.Id = 1;
+            ctx.AppSettings.Add(_settings);
+        }
+        else
+        {
+            ctx.Entry(tracked).CurrentValues.SetValues(_settings);
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    private void LoadAboutPage()
+    {
+        const string html = """
+            <html>
+            <head><style>
+                body { font-family: Segoe UI, sans-serif; margin: 16px; color: #222; }
+                h1 { color: #2D6CDF; font-size: 18px; }
+                h2 { font-size: 13px; margin-top: 16px; }
+                ul { margin: 4px 0; padding-left: 20px; }
+            </style></head>
+            <body>
+                <h1>WarehouseApp</h1>
+                <p>A sample warehouse inventory management showcase built with .NET 8 WinForms.</p>
+                <h2>Changelog</h2>
+                <ul>
+                    <li>1.0 — Initial release: products, stock movements, purchase &amp; sales orders, reporting.</li>
+                </ul>
+                <h2>Credits</h2>
+                <p>Built to demonstrate a broad range of WinForms built-in and custom controls.</p>
+            </body>
+            </html>
+            """;
+        aboutWebBrowser.DocumentText = html;
+    }
+}

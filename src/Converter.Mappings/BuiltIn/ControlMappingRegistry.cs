@@ -60,8 +60,21 @@ public static class ControlMappingRegistry
 
         // Menus and Toolbars
         ["MenuStrip"] = new("Menu", "Avalonia.Controls.Menu"),
-        ["ToolStrip"] = new("ToolBar", "Avalonia.Controls.ToolBar"),
-        ["StatusStrip"] = new("StatusBar", "Avalonia.Controls.Primitives.StatusBar"),
+        // Avalonia has no ToolBar/StatusBar control at all (unlike WPF) - mapping to those
+        // type names previously produced AXAML that could never compile. StackPanel is the
+        // closest built-in equivalent for a horizontal strip of items.
+        ["ToolStrip"] = new("StackPanel", "Avalonia.Controls.StackPanel")
+        {
+            RequiresCustomLogic = true,
+            Notes = "Avalonia has no ToolBar control; approximated as a horizontal StackPanel - " +
+                "add Orientation=\"Horizontal\" and review spacing/styling manually."
+        },
+        ["StatusStrip"] = new("StackPanel", "Avalonia.Controls.StackPanel")
+        {
+            RequiresCustomLogic = true,
+            Notes = "Avalonia has no StatusBar control; approximated as a horizontal StackPanel - " +
+                "add Orientation=\"Horizontal\" and review spacing/styling manually."
+        },
         ["ContextMenuStrip"] = new("ContextMenu", "Avalonia.Controls.ContextMenu"),
         ["ToolStripMenuItem"] = new("MenuItem", "Avalonia.Controls.MenuItem"),
         ["ToolStripButton"] = new("Button", "Avalonia.Controls.Button"),

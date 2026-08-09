@@ -31,7 +31,9 @@ public static class PropertyValueConverter
             {
                 "FontFamily,FontSize,FontWeight" => TryConvertFont(rawValue),
                 "Canvas.Left,Canvas.Top" => TryConvertLocation(rawValue),
+                "Width,Height" => TryConvertSize(rawValue),
                 "DockPanel.Dock" => TryConvertDock(rawValue),
+                "Padding" or "Margin" => TryConvertThickness(mapping, rawValue),
                 _ => null
             };
         }
@@ -153,6 +155,48 @@ public static class PropertyValueConverter
             ("Canvas.Left", match.Groups["x"].Value),
             ("Canvas.Top", match.Groups["y"].Value)
         ];
+    }
+
+    private static readonly Regex SizePattern = new(
+        @"new\s+(?:System\.Drawing\.)?Size\s*\(\s*(?<width>-?\d+)\s*,\s*(?<height>-?\d+)\s*\)",
+        RegexOptions.Compiled);
+
+    private static IReadOnlyList<(string, string)>? TryConvertSize(string rawValue)
+    {
+        var match = SizePattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return
+        [
+            ("Width", match.Groups["width"].Value),
+            ("Height", match.Groups["height"].Value)
+        ];
+    }
+
+    // WinForms Padding's 4-arg constructor is (left, top, right, bottom) - the exact order
+    // Avalonia's Thickness string form ("left,top,right,bottom") expects, so no reordering is
+    // needed. The 1-arg constructor sets all four sides equally.
+    private static readonly Regex ThicknessAllPattern = new(
+        @"new\s+(?:System\.Windows\.Forms\.)?Padding\s*\(\s*(?<all>-?\d+)\s*\)", RegexOptions.Compiled);
+    private static readonly Regex ThicknessLtrbPattern = new(
+        @"new\s+(?:System\.Windows\.Forms\.)?Padding\s*\(\s*(?<left>-?\d+)\s*,\s*(?<top>-?\d+)\s*,\s*" +
+        @"(?<right>-?\d+)\s*,\s*(?<bottom>-?\d+)\s*\)", RegexOptions.Compiled);
+
+    private static IReadOnlyList<(string, string)>? TryConvertThickness(PropertyMapping mapping, string rawValue)
+    {
+        var ltrbMatch = ThicknessLtrbPattern.Match(rawValue);
+        if (ltrbMatch.Success)
+        {
+            var thickness = $"{ltrbMatch.Groups["left"].Value},{ltrbMatch.Groups["top"].Value}," +
+                $"{ltrbMatch.Groups["right"].Value},{ltrbMatch.Groups["bottom"].Value}";
+            return [(mapping.AvaloniaProperty, thickness)];
+        }
+
+        var allMatch = ThicknessAllPattern.Match(rawValue);
+        return allMatch.Success ? [(mapping.AvaloniaProperty, allMatch.Groups["all"].Value)] : null;
     }
 
     private static readonly Regex DockStylePattern = new(@"DockStyle\.(?<value>[A-Za-z]+)", RegexOptions.Compiled);

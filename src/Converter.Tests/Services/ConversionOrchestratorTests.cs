@@ -633,6 +633,113 @@ public class ConversionOrchestratorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ProgramCsHasApplicationRunEntryPoint_AppCodeBehindReferencesActualStartupForm()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            // Two forms, neither literally named "MainWindow" - App.axaml.cs previously
+            // hardcoded that name regardless of what actually got converted, so it referenced
+            // a type that never existed and failed to compile for every real-world app (found
+            // via a real WarehouseApp sample conversion).
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "LoginForm.Designer.cs"), MinimalDesignerFile("LoginForm"));
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "DashboardForm.Designer.cs"), MinimalDesignerFile("DashboardForm"));
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "Program.cs"), """
+                namespace SampleApp
+                {
+                    static class Program
+                    {
+                        static void Main()
+                        {
+                            Application.Run(new LoginForm());
+                        }
+                    }
+                }
+                """);
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = false }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config).ExecuteAsync();
+
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var appCodeBehind = await File.ReadAllTextAsync(Path.Combine(outputDir, "App.axaml.cs"));
+            Assert.Contains("new LoginForm", appCodeBehind);
+            // desktop.MainWindow (the Avalonia lifetime property) is expected here - what
+            // must never appear is a reference to a "MainWindow" type/instance, since no
+            // converted form is actually named that.
+            Assert.DoesNotContain("new MainWindow", appCodeBehind);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EventSubscribedViaInlineLambda_FlagsManualStepInMigrationGuide()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            const string designerContent = """
+                namespace SampleApp
+                {
+                    partial class Form1
+                    {
+                        private System.Windows.Forms.Button button1;
+
+                        private void InitializeComponent()
+                        {
+                            this.button1 = new System.Windows.Forms.Button();
+                            this.SuspendLayout();
+                            this.button1.Name = "button1";
+                            this.button1.Click += (sender, args) => { };
+                            this.Controls.Add(this.button1);
+                            this.Name = "Form1";
+                            this.ResumeLayout(false);
+                        }
+                    }
+                }
+                """;
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "Form1.Designer.cs"), designerContent);
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = true }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config).ExecuteAsync();
+
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var viewModelContent = await File.ReadAllTextAsync(
+                Path.Combine(outputDir, "ViewModels", "Form1ViewModel.g.cs"));
+            Assert.DoesNotContain("inline lambda", viewModelContent);
+
+            var migrationGuide = await File.ReadAllTextAsync(Path.Combine(outputDir, "MIGRATION_GUIDE.md"));
+            Assert.Contains("Inline Lambda Event Handlers", migrationGuide);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WithResumeAndParallelEnabled_ForcesSequentialProcessing()
     {
         var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;

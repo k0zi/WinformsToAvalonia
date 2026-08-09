@@ -22,8 +22,22 @@ public static class PropertyMappingRegistry
         // Layout Properties
         ["Dock"] = new("DockPanel.Dock") { RequiresCustomLogic = true },
         ["Anchor"] = new("Grid.Row,Grid.Column") { RequiresCustomLogic = true, Notes = "Anchor converts to Grid positioning" },
-        ["Padding"] = new("Padding") { DirectMapping = true },
-        ["Margin"] = new("Margin") { DirectMapping = true },
+
+        // TableLayoutPanel cell placement - captured by WinFormsParser from the
+        // Controls.Add(control, column, row) 3-arg overload or SetColumn/SetRow/
+        // SetColumnSpan/SetRowSpan calls, and written onto the *child* control (not the
+        // panel itself, hence the distinct keys from _controlSpecificMappings["TableLayoutPanel"]
+        // below, which apply to a TableLayoutPanel's own ColumnSpan/RowSpan properties).
+        ["TableLayoutPanel.Column"] = new("Grid.Column") { DirectMapping = true },
+        ["TableLayoutPanel.Row"] = new("Grid.Row") { DirectMapping = true },
+        ["TableLayoutPanel.ColumnSpan"] = new("Grid.ColumnSpan") { DirectMapping = true },
+        ["TableLayoutPanel.RowSpan"] = new("Grid.RowSpan") { DirectMapping = true },
+        // WinForms Padding/Margin are `new Padding(l, t, r, b)` (or single-int all-sides)
+        // expressions, not literal values - RequiresCustomLogic routes them through
+        // PropertyValueConverter.TryConvertThickness instead of emitting the raw C# source
+        // text as the attribute value (which Avalonia's Thickness parser can't read).
+        ["Padding"] = new("Padding") { RequiresCustomLogic = true },
+        ["Margin"] = new("Margin") { RequiresCustomLogic = true },
 
         // Appearance
         ["BackColor"] = new("Background") { RequiresConversion = true, ConversionType = "ColorToBrush" },
@@ -68,7 +82,7 @@ public static class PropertyMappingRegistry
         ["ValueMember"] = new("SelectedValuePath") { DirectMapping = true }
     };
 
-    private static readonly Dictionary<string, Dictionary<string, PropertyMapping>> _controlSpecificMappings = new()
+    private static readonly Dictionary<string, Dictionary<string, PropertyMapping?>> _controlSpecificMappings = new()
     {
         ["Form"] = new()
         {
@@ -101,19 +115,47 @@ public static class PropertyMappingRegistry
         ["TableLayoutPanel"] = new()
         {
             ["ColumnSpan"] = new("Grid.ColumnSpan") { DirectMapping = true },
-            ["RowSpan"] = new("Grid.RowSpan") { DirectMapping = true }
-        }
+            ["RowSpan"] = new("Grid.RowSpan") { DirectMapping = true },
+            // Grid (Avalonia's Panel-derived TableLayoutPanel target) has no Padding property.
+            ["Padding"] = null
+        },
+
+        // Button/CheckBox/RadioButton map to Avalonia ContentControl/ToggleButton-derived
+        // types, which expose their caption via Content, not Text (Avalonia's Text property
+        // only exists on TextBlock/TextBox-like controls) - reusing the common "Text" mapping
+        // for these previously emitted an attribute Avalonia's compiler rejects outright.
+        ["Button"] = new() { ["Text"] = new("Content") { DirectMapping = true } },
+        ["CheckBox"] = new() { ["Text"] = new("Content") { DirectMapping = true } },
+        ["RadioButton"] = new() { ["Text"] = new("Content") { DirectMapping = true } },
+
+        // GroupBox maps to a plain Border (no wrapper support is wired up in AxamlGenerator
+        // yet, despite ControlMapping.RequiresWrapper/WrapperType existing on the record), and
+        // Border has no Text/Header equivalent - dropped rather than emitted as a broken
+        // attribute; recovering the caption needs the (currently unimplemented) wrapper.
+        ["GroupBox"] = new() { ["Text"] = null },
+
+        // Every Avalonia target below is Panel-derived (Panel/WrapPanel/Grid/StackPanel) and,
+        // unlike Border/ContentControl-derived controls, none of them expose a Padding
+        // property at all - so WinForms Padding is dropped instead of emitted as a broken
+        // attribute for any of the WinForms control types that map to one of these.
+        ["Panel"] = new() { ["Padding"] = null },
+        ["FlowLayoutPanel"] = new() { ["Padding"] = null },
+        ["SplitContainer"] = new() { ["Padding"] = null },
+        ["ToolStrip"] = new() { ["Padding"] = null },
+        ["StatusStrip"] = new() { ["Padding"] = null }
     };
 
     public static PropertyMapping? GetMapping(string propertyName, string? controlType = null)
     {
-        // Check control-specific mappings first
-        if (controlType != null && _controlSpecificMappings.TryGetValue(controlType, out var controlMappings))
+        // Check control-specific mappings first. A control type present in this dictionary
+        // short-circuits the lookup even when its value is an explicit `null` override (e.g.
+        // "Panel"/"Padding") - that null means "this control has no mapping for this
+        // property", distinct from "no control-specific override exists", which instead falls
+        // through to the common mappings below.
+        if (controlType != null && _controlSpecificMappings.TryGetValue(controlType, out var controlMappings) &&
+            controlMappings.TryGetValue(propertyName, out var specificMapping))
         {
-            if (controlMappings.TryGetValue(propertyName, out var specificMapping))
-            {
-                return specificMapping;
-            }
+            return specificMapping;
         }
 
         // Fallback to common mappings

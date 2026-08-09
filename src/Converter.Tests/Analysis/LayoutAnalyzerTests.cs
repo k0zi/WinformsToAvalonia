@@ -153,4 +153,46 @@ public class LayoutAnalyzerTests
         var weightedResult = await new LayoutAnalyzer().AnalyzeAsync(root, stackFavored);
         Assert.Equal(LayoutType.StackPanel, weightedResult.LayoutType);
     }
+
+    [Fact]
+    public async Task AnalyzeAsync_GridLayout_PopulatesPerControlCellAssignments()
+    {
+        // A clean 2x2 grid: two rows (Y=0, Y=50), two columns (X=0, X=100).
+        var root = BuildControl("panel1", "Panel");
+        BuildControl("label1", "Label", root, location: "new System.Drawing.Point(0, 0)");
+        BuildControl("textBox1", "TextBox", root, location: "new System.Drawing.Point(100, 0)");
+        BuildControl("label2", "Label", root, location: "new System.Drawing.Point(0, 50)");
+        BuildControl("textBox2", "TextBox", root, location: "new System.Drawing.Point(100, 50)");
+
+        var result = await new LayoutAnalyzer().AnalyzeAsync(root, new LayoutAnalysisContext { ConfidenceThreshold = 40 });
+
+        Assert.Equal(LayoutType.Grid, result.LayoutType);
+        Assert.Equal(new GridCellAssignment(0, 0), result.GridCellAssignments["label1"]);
+        Assert.Equal(new GridCellAssignment(0, 1), result.GridCellAssignments["textBox1"]);
+        Assert.Equal(new GridCellAssignment(1, 0), result.GridCellAssignments["label2"]);
+        Assert.Equal(new GridCellAssignment(1, 1), result.GridCellAssignments["textBox2"]);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_StackPanelLayout_PopulatesChildOrderInVisualOrder()
+    {
+        // Declared out of visual order (c2 before c1's expected top-to-bottom position isn't
+        // the point here - the point is ChildOrder reflects Y position, not declaration order).
+        var root = BuildControl("panel1", "Panel");
+        BuildControl("second", "Label", root, location: "new System.Drawing.Point(0, 50)");
+        BuildControl("first", "Label", root, location: "new System.Drawing.Point(0, 0)");
+        BuildControl("third", "Label", root, location: "new System.Drawing.Point(0, 100)");
+
+        var context = new LayoutAnalysisContext
+        {
+            ConfidenceThreshold = 40,
+            StackWeight = 3.0,
+            GridWeight = 0.3
+        };
+
+        var result = await new LayoutAnalyzer().AnalyzeAsync(root, context);
+
+        Assert.Equal(LayoutType.StackPanel, result.LayoutType);
+        Assert.Equal(["first", "second", "third"], result.ChildOrder);
+    }
 }
