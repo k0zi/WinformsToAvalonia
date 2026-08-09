@@ -24,55 +24,99 @@
         </Grid.ColumnDefinitions>
 
         <Grid Name="headerTableLayoutPanel"
-        Canvas.Left="12"
-        Canvas.Top="12">
+        Grid.Row="0"
+        Grid.Column="1"
+        Width="560"
+        Height="220">
             <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
                 <TextBlock Name="orderNumberLabel"
-                Text="&quot;Order #:&quot;" />
+                Text="&quot;Order #:&quot;"
+                Grid.Column="0"
+                Grid.Row="0" />
                 <TextBlock Name="orderNumberValueLabel"
                 Text="&quot;(new)&quot;"
                 FontFamily="Segoe UI"
-                FontSize="9" />
+                FontSize="9"
+                Grid.Column="1"
+                Grid.Row="0" />
                 <TextBlock Name="customerLabel"
-                Text="&quot;Customer:&quot;" />
+                Text="&quot;Customer:&quot;"
+                Grid.Column="0"
+                Grid.Row="1" />
                 <ComboBox Name="customerComboBox"
-                Margin="new System.Windows.Forms.Padding(3, 3, 3, 3)" />
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="1" />
                 <TextBlock Name="warehouseLabel"
-                Text="&quot;Warehouse:&quot;" />
+                Text="&quot;Warehouse:&quot;"
+                Grid.Column="0"
+                Grid.Row="2" />
                 <ComboBox Name="warehouseComboBox"
-                Margin="new System.Windows.Forms.Padding(3, 3, 3, 3)" />
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="2" />
                 <TextBlock Name="orderDateLabel"
-                Text="&quot;Order Date:&quot;" />
+                Text="&quot;Order Date:&quot;"
+                Grid.Column="0"
+                Grid.Row="3" />
                 <DatePicker Name="orderDatePicker"
-                Margin="new System.Windows.Forms.Padding(3, 3, 3, 3)" />
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="3" />
                 <TextBlock Name="requiredDateLabel"
-                Text="&quot;Required:&quot;" />
+                Text="&quot;Required:&quot;"
+                Grid.Column="0"
+                Grid.Row="4" />
                 <DatePicker Name="requiredDatePicker"
-                Margin="new System.Windows.Forms.Padding(3, 3, 3, 3)" />
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="4" />
                 <TextBlock Name="statusLabel"
-                Text="&quot;Status:&quot;" />
+                Text="&quot;Status:&quot;"
+                Grid.Column="0"
+                Grid.Row="5" />
                 <ComboBox Name="statusComboBox"
-                Margin="new System.Windows.Forms.Padding(3, 3, 3, 3)" />
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="5" />
                 <TextBlock Name="satisfactionLabel"
-                Text="&quot;Satisfaction:&quot;" />
+                Text="&quot;Satisfaction:&quot;"
+                Grid.Column="0"
+                Grid.Row="6" />
                 <!-- TODO: Unmapped control: StarRatingControl (satisfactionRatingControl) -->
             </Grid>
         </Grid>
         <TextBlock Name="notesLabel"
-        Text="&quot;Notes:&quot;"
-        Canvas.Left="12"
-        Canvas.Top="244" />
+        Grid.Row="1"
+        Grid.Column="1"
+        Text="&quot;Notes:&quot;" />
         <TextBox Name="notesTextBox"
-        Margin="new System.Windows.Forms.Padding(3, 3, 3, 3)"
+        Grid.Row="1"
+        Grid.Column="2"
+        Margin="3,3,3,3"
         AcceptsReturn="true"
         Height="40"
-        Canvas.Left="120"
-        Canvas.Top="240"
         Width="450" />
         <!-- TODO: Unmapped control: StatusBadgeControl (statusBadge) -->
         <Panel Name="lineEntryPanel"
-        Canvas.Left="0"
-        Canvas.Top="282">
+        Grid.Row="2"
+        Grid.Column="0"
+        Width="700"
+        Height="60">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -86,40 +130,44 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Name="productLabel"
-                Text="&quot;Product:&quot;"
-                Canvas.Left="12"
-                Canvas.Top="292" />
+                Grid.Row="0"
+                Grid.Column="0"
+                Text="&quot;Product:&quot;" />
                 <!-- TODO: Unmapped control: AutocompleteSearchBox (productSearchBox) -->
                 <TextBlock Name="qtyLabel"
-                Text="&quot;Qty:&quot;"
-                Canvas.Left="272"
-                Canvas.Top="292" />
+                Grid.Row="0"
+                Grid.Column="1"
+                Text="&quot;Qty:&quot;" />
                 <NumericUpDown Name="qtyNumericUpDown"
-                Canvas.Left="272"
-                Canvas.Top="309"
+                Grid.Row="1"
+                Grid.Column="1"
                 Width="70"
                 Minimum="1"
                 Maximum="10000"
                 Value="1" />
                 <TextBlock Name="priceLabel"
-                Text="&quot;Unit Price:&quot;"
-                Canvas.Left="352"
-                Canvas.Top="292" />
+                Grid.Row="0"
+                Grid.Column="2"
+                Text="&quot;Unit Price:&quot;" />
                 <NumericUpDown Name="unitPriceNumericUpDown"
-                Canvas.Left="352"
-                Canvas.Top="309"
+                Grid.Row="1"
+                Grid.Column="2"
                 Width="90"
                 Minimum="0"
                 Maximum="100000" />
                 <Button Name="addLineButton"
-                Text="&quot;Add Line&quot;"
-                Canvas.Left="452"
-                Canvas.Top="307" />
+                Grid.Row="1"
+                Grid.Column="3"
+                Content="&quot;Add Line&quot;"
+                Width="90"
+                Height="28" />
             </Grid>
         </Panel>
         <DataGrid Name="linesGrid"
-        Canvas.Left="12"
-        Canvas.Top="348"
+        Grid.Row="3"
+        Grid.Column="1"
+        Width="680"
+        Height="180"
         AutoGenerateColumns="false"
         IsReadOnly="true" />
     </Grid>

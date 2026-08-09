@@ -11,7 +11,6 @@
 
     <DockPanel>
         <WrapPanel Name="tilesFlowPanel"
-        Padding="new System.Windows.Forms.Padding(16)"
         Background="#F5F7FA">
             <Canvas>
                 <!-- TODO: Unmapped control: CardTileControl (productsTile) -->
@@ -36,8 +35,7 @@
         </WrapPanel>
         <Panel Name="sidePanel"
         DockPanel.Dock="Right"
-        Width="200"
-        Padding="new System.Windows.Forms.Padding(12)">
+        Width="200">
             <DockPanel>
                 <!-- TODO: Unmapped control: GaugeControl (capacityGauge) -->
                 <TextBlock Name="capacityLabel"
@@ -47,10 +45,10 @@
                 FontSize="9" />
             </DockPanel>
         </Panel>
-        <ToolBar Name="mainToolStrip"
+        <StackPanel Name="mainToolStrip"
         DockPanel.Dock="Top" />
         <Menu Name="menuStrip"
         DockPanel.Dock="Top" />
-        <StatusBar Name="statusStrip" />
+        <StackPanel Name="statusStrip" />
     </DockPanel>
 </Window>

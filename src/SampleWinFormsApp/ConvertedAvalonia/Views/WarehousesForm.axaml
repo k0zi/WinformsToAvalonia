@@ -25,8 +25,7 @@
                 <ListBox Name="shelfContentsListView" />
                 <Panel Name="gaugePanel"
                 DockPanel.Dock="Top"
-                Height="170"
-                Padding="new System.Windows.Forms.Padding(12)">
+                Height="170">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -39,22 +38,22 @@
                         </Grid.ColumnDefinitions>
 
                         <TextBlock Name="selectedNameLabel"
+                        Grid.Row="0"
+                        Grid.Column="0"
                         Text="&quot;Select a warehouse or location&quot;"
                         FontFamily="Segoe UI"
-                        FontSize="11"
-                        Canvas.Left="12"
-                        Canvas.Top="8" />
+                        FontSize="11" />
                         <!-- TODO: Unmapped control: GaugeControl (capacityGauge) -->
                         <TextBlock Name="capacityDetailLabel"
-                        Canvas.Left="180"
-                        Canvas.Top="60"
+                        Grid.Row="2"
+                        Grid.Column="1"
                         Foreground="Gray" />
                     </Grid>
                 </Panel>
             </DockPanel>
         </Panel>
-        <ToolBar Name="mainToolStrip"
+        <StackPanel Name="mainToolStrip"
         DockPanel.Dock="Top" />
-        <StatusBar Name="statusStrip" />
+        <StackPanel Name="statusStrip" />
     </DockPanel>
 </Window>

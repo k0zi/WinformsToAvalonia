@@ -10,18 +10,6 @@ namespace ConvertedAvalonia.ViewModels;
 public partial class StockOutFormViewModel : ObservableObject
 {
     [RelayCommand]
-    private void <inline lambda - manual review required>()
-    {
-        // TODO: Implement Click logic
-    }
-
-    [RelayCommand]
-    private void <inline lambda - manual review required>()
-    {
-        // TODO: Implement Click logic
-    }
-
-    [RelayCommand]
     private void addLineButtonClick()
     {
         // Original WinForms handler "addLineButton_Click", preserved for reference - review and adapt:

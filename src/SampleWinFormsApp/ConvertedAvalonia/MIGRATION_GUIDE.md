@@ -1,6 +1,6 @@
 # Migration Guide: ConvertedAvalonia
 
-**Generated**: 2026-08-09 15:53:27
+**Generated**: 2026-08-09 19:00:14
 **Converter Version**: 1.0.0
 
 ---
@@ -238,6 +238,78 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **productsTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **productDetailTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **categoriesTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **suppliersTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **customersTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **warehousesTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **stockOverviewTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **stockInTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **stockOutTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **stockTransferTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **stockAdjustmentTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **purchaseOrdersTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **purchaseOrderDetailTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **salesOrdersTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **salesOrderDetailTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **usersTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **reportsTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **settingsTile.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **sidePanel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -334,6 +406,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **customerComboBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **warehouseLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -345,6 +421,10 @@ The following items require manual attention:
 - **warehouseComboBox.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **warehouseComboBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **orderDateLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
@@ -358,6 +438,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **orderDatePicker.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **requiredDateLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -369,6 +453,10 @@ The following items require manual attention:
 - **requiredDatePicker.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **requiredDatePicker.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **statusLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
@@ -382,6 +470,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **statusComboBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **satisfactionLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -393,6 +485,10 @@ The following items require manual attention:
 - **satisfactionRatingControl.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **satisfactionRatingControl.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **notesLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
@@ -413,6 +509,10 @@ The following items require manual attention:
 - **notesTextBox.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **notesTextBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **notesTextBox.Location requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
@@ -510,6 +610,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **skuTextBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **nameLabel.TextAlign requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'HorizontalContentAlignment,VerticalContentAlignment' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -521,6 +625,10 @@ The following items require manual attention:
 - **nameTextBox.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **nameTextBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **descriptionLabel.TextAlign requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
@@ -534,6 +642,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **descriptionTextBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **categoryLabel.TextAlign requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'HorizontalContentAlignment,VerticalContentAlignment' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -545,6 +657,10 @@ The following items require manual attention:
 - **categoryComboBox.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **categoryComboBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **supplierLabel.TextAlign requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
@@ -558,6 +674,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **supplierComboBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **unitOfMeasureLabel.TextAlign requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'HorizontalContentAlignment,VerticalContentAlignment' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -569,6 +689,10 @@ The following items require manual attention:
 - **unitOfMeasureDomainUpDown.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **unitOfMeasureDomainUpDown.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **unitPriceLabel.TextAlign requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
@@ -582,6 +706,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **unitPriceNumericUpDown.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **reorderLevelLabel.TextAlign requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'HorizontalContentAlignment,VerticalContentAlignment' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -593,6 +721,10 @@ The following items require manual attention:
 - **reorderLevelNumericUpDown.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **reorderLevelNumericUpDown.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **isActiveCheckBox.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
@@ -818,6 +950,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **supplierComboBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **orderDateLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -829,6 +965,10 @@ The following items require manual attention:
 - **orderDatePicker.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **orderDatePicker.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **expectedDateLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
@@ -842,6 +982,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **expectedDatePicker.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **statusLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -854,6 +998,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **statusComboBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **notesLabel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -865,6 +1013,10 @@ The following items require manual attention:
 - **notesTextBox.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **notesTextBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **statusBadge.Location requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
@@ -1198,6 +1350,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **usernameTextBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **passwordLabel.TextAlign requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
   - Description: Maps toward 'HorizontalContentAlignment,VerticalContentAlignment' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -1209,6 +1365,10 @@ The following items require manual attention:
 - **passwordTextBox.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **passwordTextBox.Margin requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
+  - Description: Maps toward 'Margin' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **rememberMeCheckBox.AutoSize requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
@@ -1367,6 +1527,108 @@ The following items require manual attention:
 - **LoadingSpinnerControl "loadingSpinner" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
   - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+
+### Inline Lambda Event Handlers
+
+- **productsTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **productDetailTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **categoriesTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **suppliersTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **customersTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **warehousesTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **stockOverviewTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **stockInTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **stockOutTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **stockTransferTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **stockAdjustmentTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **purchaseOrdersTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **purchaseOrderDetailTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **salesOrdersTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **salesOrderDetailTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **usersTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **reportsTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **settingsTile.TileClicked is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **removeLineButton.Click is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **postButton.Click is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **removeLineButton.Click is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **postButton.Click is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **swapButton.Click is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **removeLineButton.Click is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
+
+- **postButton.Click is subscribed with an inline lambda**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
+  - Description: The original WinForms code subscribes this event with an inline lambda (no stable method name to extract), so it was skipped entirely instead of emitting broken generated code. Wire up the equivalent Avalonia event/command manually.
 
 ## Recommendations
 

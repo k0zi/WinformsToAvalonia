@@ -11,8 +11,8 @@
 
     <Canvas>
         <Grid Name="mainSplitContainer" />
-        <ToolBar Name="mainToolStrip"
+        <StackPanel Name="mainToolStrip"
         DockPanel.Dock="Top" />
-        <StatusBar Name="statusStrip" />
+        <StackPanel Name="statusStrip" />
     </Canvas>
 </Window>

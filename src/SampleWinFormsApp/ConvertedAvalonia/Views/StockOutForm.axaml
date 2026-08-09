@@ -28,18 +28,22 @@
                 </Grid.ColumnDefinitions>
 
                 <Button Name="removeLineButton"
-                Text="&quot;Remove Line&quot;"
-                Canvas.Left="12"
-                Canvas.Top="10" />
+                Grid.Row="0"
+                Grid.Column="0"
+                Content="&quot;Remove Line&quot;"
+                Width="110"
+                Height="28" />
                 <Button Name="postButton"
-                Text="&quot;Post Issue&quot;"
-                Canvas.Left="600"
-                Canvas.Top="10"
+                Grid.Row="0"
+                Grid.Column="2"
+                Content="&quot;Post Issue&quot;"
+                Width="120"
+                Height="32"
                 FontFamily="Segoe UI"
                 FontSize="9" />
                 <TextBlock Name="statusLabel"
-                Canvas.Left="140"
-                Canvas.Top="16"
+                Grid.Row="1"
+                Grid.Column="1"
                 Foreground="SeaGreen" />
             </Grid>
         </Panel>
@@ -61,30 +65,32 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Name="warehouseLabel"
-                Text="&quot;Warehouse:&quot;"
-                Canvas.Left="12"
-                Canvas.Top="15" />
+                Grid.Row="0"
+                Grid.Column="0"
+                Text="&quot;Warehouse:&quot;" />
                 <ComboBox Name="warehouseComboBox"
-                Canvas.Left="100"
-                Canvas.Top="12"
+                Grid.Row="0"
+                Grid.Column="1"
                 Width="180" />
                 <TextBlock Name="productLabel"
-                Text="&quot;Product:&quot;"
-                Canvas.Left="300"
-                Canvas.Top="15" />
+                Grid.Row="0"
+                Grid.Column="3"
+                Text="&quot;Product:&quot;" />
                 <ComboBox Name="productComboBox"
-                Canvas.Left="370"
-                Canvas.Top="12"
+                Grid.Row="0"
+                Grid.Column="4"
                 Width="220" />
                 <TextBlock Name="quantityLabel"
-                Text="&quot;Quantity:&quot;"
-                Canvas.Left="12"
-                Canvas.Top="50" />
+                Grid.Row="2"
+                Grid.Column="0"
+                Text="&quot;Quantity:&quot;" />
                 <!-- TODO: Unmapped control: NumericStepperControl (quantityStepper) -->
                 <Button Name="addLineButton"
-                Text="&quot;Add Line&quot;"
-                Canvas.Left="260"
-                Canvas.Top="44" />
+                Grid.Row="1"
+                Grid.Column="2"
+                Content="&quot;Add Line&quot;"
+                Width="100"
+                Height="28" />
             </Grid>
         </Panel>
     </DockPanel>
