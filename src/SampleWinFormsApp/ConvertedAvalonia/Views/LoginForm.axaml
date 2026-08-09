@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ConvertedAvalonia.ViewModels"
+        x:Class="ConvertedAvalonia.Views.LoginForm"
+        x:DataType="vm:LoginFormViewModel"
+
+        Title="&quot;Sign In — WarehouseApp&quot;"        >
+    <Design.DataContext>
+        <vm:LoginFormViewModel/>
+    </Design.DataContext>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <Image Name="logoPictureBox"
+        Canvas.Left="164"
+        Canvas.Top="24" />
+        <TextBlock Name="titleLabel"
+        Text="&quot;Warehouse Management System&quot;"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        Canvas.Left="60"
+        Canvas.Top="104" />
+        <TextBlock Name="subtitleLabel"
+        Text="&quot;Sign in to continue&quot;"
+        Foreground="Gray"
+        Canvas.Left="160"
+        Canvas.Top="132" />
+        <Grid Name="layoutPanel"
+        Canvas.Left="70"
+        Canvas.Top="170">
+            <Grid>
+                <TextBlock Name="usernameLabel"
+                Text="&quot;Username:&quot;" />
+                <TextBox Name="usernameTextBox"
+                Margin="new System.Windows.Forms.Padding(3, 4, 3, 4)" />
+                <TextBlock Name="passwordLabel"
+                Text="&quot;Password:&quot;" />
+                <TextBox Name="passwordTextBox"
+                Margin="new System.Windows.Forms.Padding(3, 4, 3, 4)" />
+            </Grid>
+        </Grid>
+        <CheckBox Name="rememberMeCheckBox"
+        Text="&quot;Remember me&quot;"
+        Canvas.Left="70"
+        Canvas.Top="240" />
+        <Button Name="loginButton"
+        Text="&quot;Log In&quot;"
+        Canvas.Left="230"
+        Canvas.Top="236" />
+        <ProgressBar Name="loginProgressBar"
+        Canvas.Left="70"
+        Canvas.Top="280"
+        IsVisible="false" />
+        <!-- TODO: Unmapped control: LoadingSpinnerControl (loadingSpinner) -->
+        <TextBlock Name="statusLabel"
+        Foreground="Firebrick"
+        Canvas.Left="70"
+        Canvas.Top="296" />
+    </Grid>
+</Window>
