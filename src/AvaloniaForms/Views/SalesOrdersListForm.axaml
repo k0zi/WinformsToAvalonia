@@ -1,0 +1,14 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AvaloniaForms.ViewModels"
+        x:Class="AvaloniaForms.Views.SalesOrdersListForm"
+        x:DataType="vm:SalesOrdersListFormViewModel"
+
+        Title="&quot;Sales Orders — WarehouseApp&quot;"        >
+    <Design.DataContext>
+        <vm:SalesOrdersListFormViewModel/>
+    </Design.DataContext>
+
+    <Canvas>
+    </Canvas>
+</Window>

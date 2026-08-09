@@ -1,0 +1,99 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AvaloniaForms.ViewModels"
+        x:Class="AvaloniaForms.Views.StockInForm"
+        x:DataType="vm:StockInFormViewModel"
+
+        Title="&quot;Stock In — Goods Receipt — WarehouseApp&quot;"        >
+    <Design.DataContext>
+        <vm:StockInFormViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+        <DataGrid Name="linesGrid"
+        AutoGenerateColumns="false"
+        IsReadOnly="true" />
+        <Panel Name="actionPanel"
+        DockPanel.Dock="Bottom"
+        Height="52">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Name="removeLineButton"
+                Text="&quot;Remove Line&quot;"
+                Canvas.Left="12"
+                Canvas.Top="10" />
+                <Button Name="postButton"
+                Text="&quot;Post Receipt&quot;"
+                Canvas.Left="600"
+                Canvas.Top="10"
+                FontFamily="Segoe UI"
+                FontSize="9" />
+                <TextBlock Name="statusLabel"
+                Canvas.Left="140"
+                Canvas.Top="16"
+                Foreground="SeaGreen" />
+            </Grid>
+        </Panel>
+        <Panel Name="entryPanel"
+        DockPanel.Dock="Top"
+        Height="90">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Name="warehouseLabel"
+                Text="&quot;Warehouse:&quot;"
+                Canvas.Left="12"
+                Canvas.Top="15" />
+                <ComboBox Name="warehouseComboBox"
+                Canvas.Left="100"
+                Canvas.Top="12"
+                Width="180" />
+                <TextBlock Name="productLabel"
+                Text="&quot;Product:&quot;"
+                Canvas.Left="300"
+                Canvas.Top="15" />
+                <ComboBox Name="productComboBox"
+                Canvas.Left="370"
+                Canvas.Top="12"
+                Width="220" />
+                <TextBlock Name="dateLabel"
+                Text="&quot;Date:&quot;"
+                Canvas.Left="12"
+                Canvas.Top="50" />
+                <DatePicker Name="receiptDatePicker"
+                Canvas.Left="100"
+                Canvas.Top="46"
+                Width="180" />
+                <TextBlock Name="quantityLabel"
+                Text="&quot;Quantity:&quot;"
+                Canvas.Left="300"
+                Canvas.Top="50" />
+                <!-- TODO: Unmapped control: NumericStepperControl (quantityStepper) -->
+                <Button Name="addLineButton"
+                Text="&quot;Add Line&quot;"
+                Canvas.Left="520"
+                Canvas.Top="44" />
+            </Grid>
+        </Panel>
+    </DockPanel>
+</Window>
