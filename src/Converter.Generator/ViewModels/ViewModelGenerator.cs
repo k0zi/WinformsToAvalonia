@@ -88,6 +88,12 @@ public class ViewModelGenerator
         var memberNames = new List<string>();
         var sb = new StringBuilder();
 
+        foreach (var usingNamespace in BuildUsingDirectives(codeBehindMembers))
+        {
+            sb.AppendLine($"using {usingNamespace};");
+        }
+        sb.AppendLine();
+
         sb.AppendLine($"namespace {namespaceName}.ViewModels;");
         sb.AppendLine();
         sb.AppendLine("/// <summary>");
@@ -281,6 +287,62 @@ public class ViewModelGenerator
     {
         if (string.IsNullOrEmpty(text)) return text;
         return char.ToLowerInvariant(text[0]) + text.Substring(1);
+    }
+
+    /// <summary>
+    /// Namespaces every "ImplicitUsings"-enabled non-web .NET SDK project gets for free
+    /// (System, System.Collections.Generic, ...). The generated .csproj does not enable that
+    /// SDK feature, and migrated code commonly relies on it (e.g. List&lt;T&gt;, Task,
+    /// Environment.NewLine) without any explicit "using" in the original WinForms file to copy
+    /// forward - unlike a genuinely custom namespace, there's nothing to extract, so this list
+    /// is emitted unconditionally instead.
+    /// </summary>
+    private static readonly string[] BaselineImplicitUsings =
+    [
+        "System",
+        "System.Collections.Generic",
+        "System.IO",
+        "System.Linq",
+        "System.Threading",
+        "System.Threading.Tasks",
+    ];
+
+    /// <summary>
+    /// Namespace prefixes that are pointless to carry over from the code-behind file's own
+    /// "using" directives: WinForms/GDI+ types they exist for (System.Windows.Forms,
+    /// System.Drawing.*) have no Avalonia equivalent and no reference in the generated project,
+    /// so keeping the "using" just trades one CS0246 (unresolved type) for another (unresolved
+    /// namespace) - the underlying manual-porting need is already surfaced separately via the
+    /// "Preserved Event Handlers"/"Skipped Override Methods" manual steps.
+    /// </summary>
+    private static readonly string[] UnusableUsingPrefixes = ["System.Windows.Forms", "System.Drawing"];
+
+    /// <summary>
+    /// Combines BaselineImplicitUsings with whatever the sibling code-behind file itself
+    /// imported (typically the app's own domain-model namespaces, e.g.
+    /// "WarehouseApp.Data.Models") - filtered through UnusableUsingPrefixes and deduplicated,
+    /// baseline first, then in the order the original file declared them.
+    /// </summary>
+    private static IEnumerable<string> BuildUsingDirectives(CodeBehindMembers codeBehindMembers)
+    {
+        var seen = new HashSet<string>(BaselineImplicitUsings);
+        foreach (var ns in BaselineImplicitUsings)
+        {
+            yield return ns;
+        }
+
+        foreach (var ns in codeBehindMembers.UsingDirectives)
+        {
+            if (UnusableUsingPrefixes.Any(prefix => ns == prefix || ns.StartsWith(prefix + ".", StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            if (seen.Add(ns))
+            {
+                yield return ns;
+            }
+        }
     }
 
     /// <summary>

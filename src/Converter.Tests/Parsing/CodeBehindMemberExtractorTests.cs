@@ -122,6 +122,97 @@ public class CodeBehindMemberExtractorTests
         }
     }
 
+    private const string FileScopedNamespaceWithUsings = """
+        using WarehouseApp.Common;
+        using WarehouseApp.Data.Models;
+        using System.Windows.Forms;
+
+        namespace SampleApp;
+
+        partial class SampleForm
+        {
+            private void button1_Click(object sender, System.EventArgs e)
+            {
+            }
+        }
+        """;
+
+    private const string BlockScopedNamespaceWithUsings = """
+        using WarehouseApp.Data.Models;
+
+        namespace SampleApp
+        {
+            using WarehouseApp.Common;
+
+            partial class SampleForm
+            {
+                private void button1_Click(object sender, System.EventArgs e)
+                {
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExtractAsync_FileScopedNamespace_CapturesTopLevelUsings()
+    {
+        var path = await WriteTempFileAsync(FileScopedNamespaceWithUsings);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string> { "button1_Click" });
+
+            Assert.Contains("WarehouseApp.Common", result.UsingDirectives);
+            Assert.Contains("WarehouseApp.Data.Models", result.UsingDirectives);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractAsync_BlockScopedNamespace_CapturesUsingsInsideAndOutsideNamespace()
+    {
+        var path = await WriteTempFileAsync(BlockScopedNamespaceWithUsings);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string> { "button1_Click" });
+
+            Assert.Contains("WarehouseApp.Data.Models", result.UsingDirectives);
+            Assert.Contains("WarehouseApp.Common", result.UsingDirectives);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractAsync_UsingDirectives_AreDeduplicated()
+    {
+        const string content = """
+            using WarehouseApp.Common;
+            using WarehouseApp.Common;
+
+            namespace SampleApp;
+
+            partial class SampleForm
+            {
+            }
+            """;
+        var path = await WriteTempFileAsync(content);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string>());
+
+            Assert.Single(result.UsingDirectives, ns => ns == "WarehouseApp.Common");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task ExtractAsync_MissingFile_ReturnsEmptyWithoutThrowing()
     {

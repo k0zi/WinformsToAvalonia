@@ -4,6 +4,7 @@ using Converter.Core.Git;
 using Converter.Core.Models;
 using Converter.Core.Parsing;
 using Converter.Core.Plugins;
+using Converter.Core.Project;
 using Converter.Core.Services;
 using Converter.Documentation.Generators;
 using Converter.Generator.Axaml;
@@ -17,7 +18,6 @@ using Converter.Plugin.Abstractions;
 using Converter.Reporting.Builders;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 using Converter.Cli.Models;
 
 namespace Converter.Cli.Services;
@@ -141,9 +141,26 @@ public class ConversionOrchestrator
             var parseResults = new List<ParseResult>();
 
             var designerFiles = Directory.GetFiles(_sourcePath, "*.Designer.cs", SearchOption.AllDirectories)
-                .Where(f => !IsExcluded(f, _config.ExcludePatterns))
+                .Where(f => !ExcludePatternMatcher.IsExcluded(f, _config.ExcludePatterns))
                 .ToArray();
             _logger?.LogInformation("Found {Count} designer files", designerFiles.Length);
+
+            // Full set of files the Views/ViewModels pipeline already owns - every designer
+            // file discovered this run (regardless of incremental/resume filtering below,
+            // which only affects *this run's* reparse, not whether the file conceptually
+            // belongs to a Form) plus each one's sibling code-behind, if any. SupportFileScanner
+            // uses this to find the source project's *other* .cs files (a "Common"/"Controls"
+            // folder of utility classes, typically) that nothing else in the pipeline ever
+            // looks at.
+            var handledFilePaths = new HashSet<string>(designerFiles);
+            foreach (var file in designerFiles)
+            {
+                var siblingCodeBehind = SiblingFileResolver.ResolveCodeBehind(file);
+                if (siblingCodeBehind != null)
+                {
+                    handledFilePaths.Add(siblingCodeBehind);
+                }
+            }
 
             // Incremental conversion: skip files whose hash hasn't changed since they were
             // last converted, unless the user forced a full reconversion.
@@ -383,8 +400,11 @@ public class ConversionOrchestrator
                 formsProcessed, filesGenerated, force: true);
 
             _logger?.LogInformation("Generating project files...");
-            await GenerateProjectFilesAsync(rollbackManager, formReports);
+            await GenerateProjectFilesAsync(rollbackManager, formReports, manualSteps);
             filesGenerated += 5; // Project files generated
+
+            _logger?.LogInformation("Copying non-Form support files...");
+            await CopySupportFilesAsync(rollbackManager, handledFilePaths, manualSteps);
 
             ReportProgress(OperationType.GeneratingProjectFiles, progress, statistics, totalForms, totalFilesToGenerate,
                 formsProcessed, filesGenerated);
@@ -1129,16 +1149,35 @@ public class ConversionOrchestrator
         return formReports[0].Name;
     }
 
-    private async Task GenerateProjectFilesAsync(RollbackManager rollbackManager, List<FormReportInfo> formReports)
+    private async Task GenerateProjectFilesAsync(
+        RollbackManager rollbackManager, List<FormReportInfo> formReports, List<ManualStepInfo> manualSteps)
     {
         var projectGenerator = new ProjectFileGenerator();
         var projectName = Path.GetFileName(_outputPath);
+
+        var projectReferences = ProjectReferenceResolver.Resolve(_sourcePath);
+        var relativeReferencePaths = projectReferences.Referenceable
+            .Select(r => Path.GetRelativePath(_outputPath, r.AbsolutePath))
+            .ToList();
+        foreach (var skippedName in projectReferences.SkippedWinFormsProjectNames)
+        {
+            manualSteps.Add(new ManualStepInfo
+            {
+                Category = "Sibling WinForms Projects",
+                Title = $"\"{skippedName}\" was not automatically referenced",
+                Location = _sourcePath,
+                Description = "This project is referenced by the source WinForms project but appears to be " +
+                    "a WinForms project itself (UseWindowsForms=true) - it needs to be converted separately " +
+                    "before the generated Avalonia project can reference it."
+            });
+        }
 
         var csprojContent = projectGenerator.GenerateAvaloniaProject(
             projectName,
             _config.ProjectGeneration.TargetFramework,
             _config.ProjectGeneration.AvaloniaVersion,
-            _config.ProjectGeneration.CommunityToolkitMvvmVersion);
+            _config.ProjectGeneration.CommunityToolkitMvvmVersion,
+            relativeReferencePaths);
         var appAxamlContent = projectGenerator.GenerateAppAxaml(projectName);
         var appCodeBehindContent = projectGenerator.GenerateAppCodeBehind(projectName, ResolveMainWindowName(formReports));
         var programContent = projectGenerator.GenerateProgramFile(projectName);
@@ -1163,6 +1202,46 @@ public class ConversionOrchestrator
         var manifestPath = Path.Combine(_outputPath, "app.manifest");
         await File.WriteAllTextAsync(manifestPath, manifestContent);
         rollbackManager.TrackFileCreation(manifestPath);
+    }
+
+    /// <summary>
+    /// Copies the source project's own non-Form .cs files (a "Common"/"Controls" folder of
+    /// utility classes and custom controls, typically - see SupportFileScanner) into the
+    /// generated project, preserving their relative path and original namespace verbatim so
+    /// any "using" migrated from a form's code-behind (via CodeBehindMemberExtractor) still
+    /// resolves. Files SupportFileScanner determined derive from a WinForms UI base type
+    /// (Form/Control/UserControl/...) are left alone and surfaced as a manual step instead -
+    /// copying them as-is would just fail to compile (no System.Windows.Forms in the generated
+    /// project), and porting a custom control to Avalonia's rendering model isn't a file copy.
+    /// </summary>
+    private async Task CopySupportFilesAsync(
+        RollbackManager rollbackManager, IReadOnlySet<string> handledFilePaths, List<ManualStepInfo> manualSteps)
+    {
+        var scanResult = await SupportFileScanner.ScanAsync(_sourcePath, handledFilePaths, _config.ExcludePatterns);
+
+        foreach (var file in scanResult.CopyableFiles)
+        {
+            var destinationPath = Path.Combine(_outputPath, file.RelativePath);
+            var destinationDir = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrEmpty(destinationDir))
+            {
+                Directory.CreateDirectory(destinationDir);
+            }
+
+            File.Copy(file.AbsolutePath, destinationPath, overwrite: true);
+            rollbackManager.TrackFileCreation(destinationPath);
+        }
+
+        foreach (var skipped in scanResult.SkippedFiles)
+        {
+            manualSteps.Add(new ManualStepInfo
+            {
+                Category = "Unconverted Support Files",
+                Title = $"\"{skipped.RelativePath}\" was not copied",
+                Location = Path.Combine(_sourcePath, skipped.RelativePath),
+                Description = skipped.Reason
+            });
+        }
     }
 
     private async Task GenerateMigrationGuideAsync(
@@ -1200,50 +1279,6 @@ public class ConversionOrchestrator
     private int CountControls(ControlNode node)
     {
         return 1 + node.Children.Sum(c => CountControls(c));
-    }
-
-    /// <summary>
-    /// Checks a file path against ConverterConfig.ExcludePatterns using simple wildcard
-    /// matching (`*`/`?`) plus a plain substring fallback, so patterns like "*.Designer.cs"
-    /// or a bare folder name ("Legacy") both work without pulling in a full glob library.
-    /// </summary>
-    private static bool IsExcluded(string filePath, IReadOnlyList<string> excludePatterns)
-    {
-        if (excludePatterns.Count == 0)
-        {
-            return false;
-        }
-
-        var normalizedPath = filePath.Replace('\\', '/');
-
-        foreach (var pattern in excludePatterns)
-        {
-            if (string.IsNullOrWhiteSpace(pattern))
-            {
-                continue;
-            }
-
-            var normalizedPattern = pattern.Replace('\\', '/');
-
-            if (normalizedPattern.Contains('*') || normalizedPattern.Contains('?'))
-            {
-                var regexPattern = "^" + Regex.Escape(normalizedPattern)
-                    .Replace("\\*", ".*")
-                    .Replace("\\?", ".") + "$";
-
-                if (Regex.IsMatch(Path.GetFileName(normalizedPath), regexPattern, RegexOptions.IgnoreCase) ||
-                    Regex.IsMatch(normalizedPath, regexPattern, RegexOptions.IgnoreCase))
-                {
-                    return true;
-                }
-            }
-            else if (normalizedPath.Contains(normalizedPattern, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
 

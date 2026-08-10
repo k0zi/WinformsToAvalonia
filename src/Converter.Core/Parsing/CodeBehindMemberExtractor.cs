@@ -17,22 +17,31 @@ public record CodeBehindField(IReadOnlyList<string> Names, string DeclarationTex
 public class CodeBehindMembers(
     IReadOnlyList<CodeBehindField>? fields = null,
     IReadOnlyDictionary<string, string>? helperMethods = null,
-    IReadOnlyList<string>? skippedOverrideMethodNames = null)
+    IReadOnlyList<string>? skippedOverrideMethodNames = null,
+    IReadOnlyList<string>? usingDirectives = null)
 {
     public IReadOnlyList<CodeBehindField> Fields { get; } = fields ?? [];
     public IReadOnlyDictionary<string, string> HelperMethods { get; } = helperMethods ?? new Dictionary<string, string>();
     public IReadOnlyList<string> SkippedOverrideMethodNames { get; } = skippedOverrideMethodNames ?? [];
 
+    /// <summary>
+    /// Namespaces the sibling code-behind file itself imports (e.g. "WarehouseApp.Data.Models"),
+    /// in source order, deduplicated. Migrated fields/methods/handler bodies commonly reference
+    /// types from these - without them, generated code referencing the app's own domain types
+    /// fails to compile with "type or namespace not found" even though the type itself is fine.
+    /// </summary>
+    public IReadOnlyList<string> UsingDirectives { get; } = usingDirectives ?? [];
+
     public static readonly CodeBehindMembers Empty = new();
 }
 
 /// <summary>
-/// Extracts private fields and non-handler helper methods (verbatim, unreformatted) from the
-/// sibling non-designer .cs file (resolved via SiblingFileResolver.ResolveCodeBehind) -
-/// alongside EventHandlerBodyParser, which owns the named event-handler methods themselves.
-/// Same best-effort philosophy: a code-behind file is arbitrary user code, so this is
-/// syntax-only and never throws - an unparseable/missing file simply yields
-/// CodeBehindMembers.Empty, never a hard failure of the whole conversion.
+/// Extracts private fields, non-handler helper methods (verbatim, unreformatted), and the
+/// file's own "using" directives from the sibling non-designer .cs file (resolved via
+/// SiblingFileResolver.ResolveCodeBehind) - alongside EventHandlerBodyParser, which owns the
+/// named event-handler methods themselves. Same best-effort philosophy: a code-behind file is
+/// arbitrary user code, so this is syntax-only and never throws - an unparseable/missing file
+/// simply yields CodeBehindMembers.Empty, never a hard failure of the whole conversion.
 /// </summary>
 public static class CodeBehindMemberExtractor
 {
@@ -50,12 +59,28 @@ public static class CodeBehindMemberExtractor
         var fields = new List<CodeBehindField>();
         var helperMethods = new Dictionary<string, string>();
         var skippedOverrides = new List<string>();
+        var usingDirectives = new List<string>();
 
         try
         {
             var sourceCode = await File.ReadAllTextAsync(codeBehindFilePath);
             var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
             var root = await syntaxTree.GetRootAsync();
+
+            // Usings can sit at file scope (CompilationUnitSyntax.Usings) or inside a
+            // block/file-scoped namespace (BaseNamespaceDeclarationSyntax.Usings) - collecting
+            // both covers every WinForms designer's common shape.
+            var usingNames = root.DescendantNodes(n => n is CompilationUnitSyntax or BaseNamespaceDeclarationSyntax)
+                .OfType<UsingDirectiveSyntax>()
+                .Where(u => u.Alias == null && !u.StaticKeyword.IsKind(SyntaxKind.StaticKeyword) && u.Name != null)
+                .Select(u => u.Name!.ToString());
+            foreach (var name in usingNames)
+            {
+                if (!usingDirectives.Contains(name))
+                {
+                    usingDirectives.Add(name);
+                }
+            }
 
             foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
             {
@@ -89,6 +114,6 @@ public static class CodeBehindMemberExtractor
             // extracted, not a failed conversion.
         }
 
-        return new CodeBehindMembers(fields, helperMethods, skippedOverrides);
+        return new CodeBehindMembers(fields, helperMethods, skippedOverrides, usingDirectives);
     }
 }

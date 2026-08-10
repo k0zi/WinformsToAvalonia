@@ -2,7 +2,6 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using ConvertedAvalonia.Views;
-using ConvertedAvalonia.ViewModels;
 
 namespace ConvertedAvalonia;
 
@@ -17,10 +16,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new LoginForm
-            {
-                DataContext = new LoginFormViewModel()
-            };
+            desktop.MainWindow = new LoginForm();
         }
 
         base.OnFrameworkInitializationCompleted();

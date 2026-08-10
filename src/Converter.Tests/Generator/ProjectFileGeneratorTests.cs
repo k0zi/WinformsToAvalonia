@@ -65,4 +65,21 @@ public class ProjectFileGeneratorTests
         Assert.Contains("Include=\"CommunityToolkit.Mvvm\" Version=\"9.9.9\"", csproj);
         Assert.DoesNotContain($"Version=\"{ProjectFileGenerator.PackageVersions.Avalonia}\"", csproj);
     }
+
+    [Fact]
+    public void GenerateAvaloniaProject_ProjectReferencePathsProvided_EmitsProjectReferenceItemGroup()
+    {
+        var csproj = new ProjectFileGenerator().GenerateAvaloniaProject(
+            "SampleApp", projectReferencePaths: ["../WarehouseApp.Data/WarehouseApp.Data.csproj"]);
+
+        Assert.Contains("<ProjectReference Include=\"../WarehouseApp.Data/WarehouseApp.Data.csproj\" />", csproj);
+    }
+
+    [Fact]
+    public void GenerateAvaloniaProject_NoProjectReferencePaths_EmitsNoProjectReferenceItemGroup()
+    {
+        var csproj = new ProjectFileGenerator().GenerateAvaloniaProject("SampleApp");
+
+        Assert.DoesNotContain("<ProjectReference", csproj);
+    }
 }

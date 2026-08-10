@@ -193,4 +193,60 @@ public class ViewModelGeneratorTests
         Assert.Contains("private void button1Click()", output);
         Assert.DoesNotContain("async void button1Click", output);
     }
+
+    [Fact]
+    public void BuildEditableClass_AlwaysEmitsBaselineImplicitUsings()
+    {
+        // The generated .csproj does not enable <ImplicitUsings>, so migrated code relying on
+        // List<T>/Task/etc. without an explicit "using" (as ImplicitUsings-enabled WinForms
+        // projects commonly do) needs these carried in explicitly.
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+
+        var output = new ViewModelGenerator().BuildEditableClass(root, "SampleApp", "Form1").Source;
+
+        Assert.Contains("using System;", output);
+        Assert.Contains("using System.Collections.Generic;", output);
+        Assert.Contains("using System.Linq;", output);
+        Assert.Contains("using System.Threading.Tasks;", output);
+    }
+
+    [Fact]
+    public void BuildEditableClass_CopiesDomainUsingsFromCodeBehind()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var codeBehindMembers = new CodeBehindMembers(usingDirectives: ["WarehouseApp.Data.Models"]);
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", codeBehindMembers: codeBehindMembers).Source;
+
+        Assert.Contains("using WarehouseApp.Data.Models;", output);
+    }
+
+    [Fact]
+    public void BuildEditableClass_FiltersOutWinFormsAndDrawingUsings()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var codeBehindMembers = new CodeBehindMembers(
+            usingDirectives: ["System.Windows.Forms", "System.Drawing", "System.Drawing.Printing", "WarehouseApp.Common"]);
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", codeBehindMembers: codeBehindMembers).Source;
+
+        Assert.DoesNotContain("using System.Windows.Forms;", output);
+        Assert.DoesNotContain("using System.Drawing;", output);
+        Assert.DoesNotContain("using System.Drawing.Printing;", output);
+        Assert.Contains("using WarehouseApp.Common;", output);
+    }
+
+    [Fact]
+    public void BuildEditableClass_DoesNotDuplicateUsingAlreadyInBaseline()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var codeBehindMembers = new CodeBehindMembers(usingDirectives: ["System.Linq"]);
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", codeBehindMembers: codeBehindMembers).Source;
+
+        Assert.Single(output.Split('\n'), line => line.Trim() == "using System.Linq;");
+    }
 }

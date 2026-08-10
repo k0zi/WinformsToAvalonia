@@ -18,13 +18,19 @@ public class ProjectFileGenerator
     }
 
     /// <summary>
-    /// Generate an Avalonia Desktop project file.
+    /// Generate an Avalonia Desktop project file. <paramref name="projectReferencePaths"/> -
+    /// paths (relative to the output directory, MSBuild-style separators not required - both
+    /// work) to sibling projects the source WinForms project itself referenced and that
+    /// ProjectReferenceResolver determined are safe to reference as-is (a non-WinForms class
+    /// library, typically a data/domain layer) - null/empty emits no extra ItemGroup, same
+    /// output as before this parameter existed.
     /// </summary>
     public string GenerateAvaloniaProject(
         string projectName,
         string targetFramework = "net10.0",
         string avaloniaVersion = PackageVersions.Avalonia,
-        string communityToolkitMvvmVersion = PackageVersions.CommunityToolkitMvvm)
+        string communityToolkitMvvmVersion = PackageVersions.CommunityToolkitMvvm,
+        IReadOnlyList<string>? projectReferencePaths = null)
     {
         var sb = new StringBuilder();
 
@@ -44,6 +50,17 @@ public class ProjectFileGenerator
         sb.AppendLine("    <AvaloniaResource Include=\"Assets\\**\" />");
         sb.AppendLine("  </ItemGroup>");
         sb.AppendLine();
+
+        if (projectReferencePaths is { Count: > 0 })
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var path in projectReferencePaths)
+            {
+                sb.AppendLine($"    <ProjectReference Include=\"{path}\" />");
+            }
+            sb.AppendLine("  </ItemGroup>");
+            sb.AppendLine();
+        }
 
         sb.AppendLine("  <ItemGroup>");
         sb.AppendLine($"    <PackageReference Include=\"Avalonia\" Version=\"{avaloniaVersion}\" />");
