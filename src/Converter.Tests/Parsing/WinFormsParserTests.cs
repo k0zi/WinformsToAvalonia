@@ -1,3 +1,4 @@
+using System.IO;
 using Converter.Core.Parsing;
 using Converter.Tests.TestSupport;
 
@@ -154,5 +155,59 @@ public class WinFormsParserTests
 
         Assert.Equal("2", panel.Properties["ColumnCount"].Value);
         Assert.Equal("2", panel.Properties["RowCount"].Value);
+    }
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_StringLiteralPropertyValue_DoesNotIncludeSurroundingQuotes()
+    {
+        // this.Text = "Sample Form"; used to be captured via Roslyn's raw ToString(), which
+        // includes the source-text quote characters - producing Title="&quot;Sample
+        // Form&quot;" once written out as AXAML.
+        var parser = new WinFormsParser();
+
+        var result = await parser.ParseDesignerFileAsync(SampleFormPath);
+
+        Assert.Equal("Sample Form", result.RootControl!.Properties["Text"].Value);
+    }
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_StringLiteralWithEscapedQuote_ResolvesToUnescapedValue()
+    {
+        const string Content = """
+            namespace SampleApp
+            {
+                partial class EscapedQuoteForm
+                {
+                    private System.ComponentModel.IContainer components = null;
+
+                    protected override void Dispose(bool disposing)
+                    {
+                        base.Dispose(disposing);
+                    }
+
+                    private void InitializeComponent()
+                    {
+                        this.SuspendLayout();
+                        this.Text = "Say \"Hi\"";
+                        this.ResumeLayout(false);
+                    }
+                }
+            }
+            """;
+        var path = Path.Combine(Path.GetTempPath(), $"wf2av-escapedquote-{Path.GetRandomFileName()}.cs");
+        await File.WriteAllTextAsync(path, Content);
+
+        try
+        {
+            var parser = new WinFormsParser();
+
+            var result = await parser.ParseDesignerFileAsync(path);
+
+            Assert.Equal("Say \"Hi\"", result.RootControl!.Properties["Text"].Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

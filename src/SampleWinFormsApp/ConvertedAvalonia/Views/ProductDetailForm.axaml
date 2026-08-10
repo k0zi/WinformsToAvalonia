@@ -4,7 +4,9 @@
         x:Class="ConvertedAvalonia.Views.ProductDetailForm"
         x:DataType="vm:ProductDetailFormViewModel"
 
-        Title="&quot;Product Detail — WarehouseApp&quot;"        >
+        Width="600"
+        Height="380"
+        Title="Product Detail — WarehouseApp"        >
     <Design.DataContext>
         <vm:ProductDetailFormViewModel/>
     </Design.DataContext>
@@ -55,7 +57,7 @@
                         </Grid.ColumnDefinitions>
 
                         <TextBlock Name="skuLabel"
-                        Text="&quot;SKU:&quot;"
+                        Text="SKU:"
                         Grid.Column="0"
                         Grid.Row="0" />
                         <TextBox Name="skuTextBox"
@@ -63,7 +65,7 @@
                         Grid.Column="1"
                         Grid.Row="0" />
                         <TextBlock Name="nameLabel"
-                        Text="&quot;Name:&quot;"
+                        Text="Name:"
                         Grid.Column="0"
                         Grid.Row="1" />
                         <TextBox Name="nameTextBox"
@@ -71,7 +73,7 @@
                         Grid.Column="1"
                         Grid.Row="1" />
                         <TextBlock Name="descriptionLabel"
-                        Text="&quot;Description:&quot;"
+                        Text="Description:"
                         Grid.Column="0"
                         Grid.Row="2" />
                         <TextBox Name="descriptionTextBox"
@@ -79,7 +81,7 @@
                         Grid.Column="1"
                         Grid.Row="2" />
                         <TextBlock Name="categoryLabel"
-                        Text="&quot;Category:&quot;"
+                        Text="Category:"
                         Grid.Column="0"
                         Grid.Row="3" />
                         <ComboBox Name="categoryComboBox"
@@ -87,7 +89,7 @@
                         Grid.Column="1"
                         Grid.Row="3" />
                         <TextBlock Name="supplierLabel"
-                        Text="&quot;Supplier:&quot;"
+                        Text="Supplier:"
                         Grid.Column="0"
                         Grid.Row="4" />
                         <ComboBox Name="supplierComboBox"
@@ -95,7 +97,7 @@
                         Grid.Column="1"
                         Grid.Row="4" />
                         <TextBlock Name="unitOfMeasureLabel"
-                        Text="&quot;Unit:&quot;"
+                        Text="Unit:"
                         Grid.Column="0"
                         Grid.Row="5" />
                         <ComboBox Name="unitOfMeasureDomainUpDown"
@@ -104,7 +106,7 @@
                         Grid.Column="1"
                         Grid.Row="5" />
                         <TextBlock Name="unitPriceLabel"
-                        Text="&quot;Unit Price ($):&quot;"
+                        Text="Unit Price ($):"
                         Grid.Column="0"
                         Grid.Row="6" />
                         <NumericUpDown Name="unitPriceNumericUpDown"
@@ -114,7 +116,7 @@
                         Grid.Column="1"
                         Grid.Row="6" />
                         <TextBlock Name="reorderLevelLabel"
-                        Text="&quot;Reorder Level:&quot;"
+                        Text="Reorder Level:"
                         Grid.Column="0"
                         Grid.Row="7" />
                         <NumericUpDown Name="reorderLevelNumericUpDown"
@@ -128,7 +130,7 @@
                 <CheckBox Name="isActiveCheckBox"
                 Grid.Row="1"
                 Grid.Column="0"
-                Content="&quot;Active&quot;"
+                Content="Active"
                 IsChecked="true" />
             </Grid>
         </Border>
@@ -140,7 +142,7 @@
         <Button Name="chooseImageButton"
         Grid.Row="1"
         Grid.Column="1"
-        Content="&quot;Choose Image...&quot;"
+        Content="Choose Image..."
         Width="120"
         Height="28" />
     </Grid>

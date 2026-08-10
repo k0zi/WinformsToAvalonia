@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.WarehousesForm"
         x:DataType="vm:WarehousesFormViewModel"
 
-        Title="&quot;Warehouses &amp; Locations — WarehouseApp&quot;"        >
+        Width="880"
+        Height="560"
+        Title="Warehouses &amp; Locations — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:WarehousesFormViewModel/>
     </Design.DataContext>
@@ -40,7 +43,7 @@
                         <TextBlock Name="selectedNameLabel"
                         Grid.Row="0"
                         Grid.Column="0"
-                        Text="&quot;Select a warehouse or location&quot;"
+                        Text="Select a warehouse or location"
                         FontFamily="Segoe UI"
                         FontSize="11" />
                         <!-- TODO: Unmapped control: GaugeControl (capacityGauge) -->

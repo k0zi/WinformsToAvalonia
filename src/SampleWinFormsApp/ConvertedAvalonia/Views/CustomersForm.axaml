@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.CustomersForm"
         x:DataType="vm:CustomersFormViewModel"
 
-        Title="&quot;Customers — WarehouseApp&quot;"        >
+        Width="860"
+        Height="540"
+        Title="Customers — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:CustomersFormViewModel/>
     </Design.DataContext>

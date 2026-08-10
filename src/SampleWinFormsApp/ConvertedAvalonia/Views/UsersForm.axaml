@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.UsersForm"
         x:DataType="vm:UsersFormViewModel"
 
-        Title="&quot;Users &amp; Roles — WarehouseApp&quot;"        >
+        Width="820"
+        Height="520"
+        Title="Users &amp; Roles — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:UsersFormViewModel/>
     </Design.DataContext>

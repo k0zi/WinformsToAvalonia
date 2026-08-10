@@ -4,7 +4,9 @@
         x:Class="ConvertedAvalonia.Views.SalesOrderDetailForm"
         x:DataType="vm:SalesOrderDetailFormViewModel"
 
-        Title="&quot;Sales Order Detail — WarehouseApp&quot;"        >
+        Width="704"
+        Height="590"
+        Title="Sales Order Detail — WarehouseApp"        >
     <Design.DataContext>
         <vm:SalesOrderDetailFormViewModel/>
     </Design.DataContext>
@@ -44,17 +46,17 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Name="orderNumberLabel"
-                Text="&quot;Order #:&quot;"
+                Text="Order #:"
                 Grid.Column="0"
                 Grid.Row="0" />
                 <TextBlock Name="orderNumberValueLabel"
-                Text="&quot;(new)&quot;"
+                Text="(new)"
                 FontFamily="Segoe UI"
                 FontSize="9"
                 Grid.Column="1"
                 Grid.Row="0" />
                 <TextBlock Name="customerLabel"
-                Text="&quot;Customer:&quot;"
+                Text="Customer:"
                 Grid.Column="0"
                 Grid.Row="1" />
                 <ComboBox Name="customerComboBox"
@@ -62,7 +64,7 @@
                 Grid.Column="1"
                 Grid.Row="1" />
                 <TextBlock Name="warehouseLabel"
-                Text="&quot;Warehouse:&quot;"
+                Text="Warehouse:"
                 Grid.Column="0"
                 Grid.Row="2" />
                 <ComboBox Name="warehouseComboBox"
@@ -70,7 +72,7 @@
                 Grid.Column="1"
                 Grid.Row="2" />
                 <TextBlock Name="orderDateLabel"
-                Text="&quot;Order Date:&quot;"
+                Text="Order Date:"
                 Grid.Column="0"
                 Grid.Row="3" />
                 <DatePicker Name="orderDatePicker"
@@ -78,7 +80,7 @@
                 Grid.Column="1"
                 Grid.Row="3" />
                 <TextBlock Name="requiredDateLabel"
-                Text="&quot;Required:&quot;"
+                Text="Required:"
                 Grid.Column="0"
                 Grid.Row="4" />
                 <DatePicker Name="requiredDatePicker"
@@ -86,7 +88,7 @@
                 Grid.Column="1"
                 Grid.Row="4" />
                 <TextBlock Name="statusLabel"
-                Text="&quot;Status:&quot;"
+                Text="Status:"
                 Grid.Column="0"
                 Grid.Row="5" />
                 <ComboBox Name="statusComboBox"
@@ -94,7 +96,7 @@
                 Grid.Column="1"
                 Grid.Row="5" />
                 <TextBlock Name="satisfactionLabel"
-                Text="&quot;Satisfaction:&quot;"
+                Text="Satisfaction:"
                 Grid.Column="0"
                 Grid.Row="6" />
                 <!-- TODO: Unmapped control: StarRatingControl (satisfactionRatingControl) -->
@@ -103,7 +105,7 @@
         <TextBlock Name="notesLabel"
         Grid.Row="1"
         Grid.Column="1"
-        Text="&quot;Notes:&quot;" />
+        Text="Notes:" />
         <TextBox Name="notesTextBox"
         Grid.Row="1"
         Grid.Column="2"
@@ -132,12 +134,12 @@
                 <TextBlock Name="productLabel"
                 Grid.Row="0"
                 Grid.Column="0"
-                Text="&quot;Product:&quot;" />
+                Text="Product:" />
                 <!-- TODO: Unmapped control: AutocompleteSearchBox (productSearchBox) -->
                 <TextBlock Name="qtyLabel"
                 Grid.Row="0"
                 Grid.Column="1"
-                Text="&quot;Qty:&quot;" />
+                Text="Qty:" />
                 <NumericUpDown Name="qtyNumericUpDown"
                 Grid.Row="1"
                 Grid.Column="1"
@@ -148,7 +150,7 @@
                 <TextBlock Name="priceLabel"
                 Grid.Row="0"
                 Grid.Column="2"
-                Text="&quot;Unit Price:&quot;" />
+                Text="Unit Price:" />
                 <NumericUpDown Name="unitPriceNumericUpDown"
                 Grid.Row="1"
                 Grid.Column="2"
@@ -158,7 +160,7 @@
                 <Button Name="addLineButton"
                 Grid.Row="1"
                 Grid.Column="3"
-                Content="&quot;Add Line&quot;"
+                Content="Add Line"
                 Width="90"
                 Height="28" />
             </Grid>

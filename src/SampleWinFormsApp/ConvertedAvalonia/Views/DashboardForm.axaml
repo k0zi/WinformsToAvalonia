@@ -4,7 +4,11 @@
         x:Class="ConvertedAvalonia.Views.DashboardForm"
         x:DataType="vm:DashboardFormViewModel"
 
-        Title="&quot;Dashboard — WarehouseApp&quot;"        >
+        Width="1100"
+        Height="700"
+        WindowStartupLocation="CenterScreen"
+        Title="Dashboard — WarehouseApp"
+        WindowState="Maximized"        >
     <Design.DataContext>
         <vm:DashboardFormViewModel/>
     </Design.DataContext>
@@ -39,7 +43,7 @@
             <DockPanel>
                 <!-- TODO: Unmapped control: GaugeControl (capacityGauge) -->
                 <TextBlock Name="capacityLabel"
-                Text="&quot;Overall Capacity&quot;"
+                Text="Overall Capacity"
                 DockPanel.Dock="Top"
                 FontFamily="Segoe UI"
                 FontSize="9" />

@@ -1,6 +1,6 @@
 # Migration Guide: ConvertedAvalonia
 
-**Generated**: 2026-08-09 19:00:14
+**Generated**: 2026-08-10 06:37:18
 **Converter Version**: 1.0.0
 
 ---
@@ -222,6 +222,10 @@ The following items require manual attention:
 
 ### Custom Property Logic
 
+- **StockOverviewForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOverviewForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **mainSplitContainer.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOverviewForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -230,9 +234,17 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOverviewForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **DashboardForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **DashboardForm.MinimumSize requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
   - Description: Maps toward 'MinWidth,MinHeight' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **DashboardForm.WindowState requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps toward 'WindowState' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **tilesFlowPanel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
@@ -342,14 +354,26 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **StockAdjustmentForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockAdjustmentForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **mainSplitContainer.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockAdjustmentForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **ReportsForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ReportsForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **mainTabControl.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ReportsForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **CategoriesForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CategoriesForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **mainSplitContainer.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CategoriesForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -358,6 +382,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CategoriesForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **CustomersForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CustomersForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **mainSplitContainer.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CustomersForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -365,6 +393,10 @@ The following items require manual attention:
 - **mainToolStrip.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CustomersForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **SalesOrderDetailForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **headerTableLayoutPanel.Location requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
@@ -582,6 +614,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **ProductDetailForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **detailsGroupBox.Location requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'Canvas.Left,Canvas.Top' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -758,9 +794,17 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **SettingsForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SettingsForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **mainTabControl.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SettingsForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **UsersForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/UsersForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **mainSplitContainer.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/UsersForm.Designer.cs`
@@ -769,6 +813,10 @@ The following items require manual attention:
 - **mainToolStrip.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/UsersForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **StockOutForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **linesGrid.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
@@ -854,6 +902,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
   - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **WarehousesForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **treeViewPanel.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -909,6 +961,10 @@ The following items require manual attention:
 - **mainToolStrip.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
+
+- **PurchaseOrderDetailForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **headerTableLayoutPanel.Location requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
@@ -1090,6 +1146,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **StockTransferForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **linesGrid.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -1194,6 +1254,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
   - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **StockInForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **linesGrid.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -1290,6 +1354,10 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
   - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **SuppliersForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SuppliersForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **mainSplitContainer.Dock requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SuppliersForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
@@ -1298,9 +1366,13 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SuppliersForm.Designer.cs`
   - Description: Maps toward 'DockPanel.Dock' but the automatic converter could not fully translate this property; review the generated AXAML.
 
+- **LoginForm.ClientSize requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
+  - Description: Maps toward 'Width,Height' but the automatic converter could not fully translate this property; review the generated AXAML.
+
 - **LoginForm.FormBorderStyle requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
-  - Description: Maps toward 'WindowState,CanResize' but the automatic converter could not fully translate this property; review the generated AXAML.
+  - Description: Maps toward 'CanResize' but the automatic converter could not fully translate this property; review the generated AXAML.
 
 - **logoPictureBox.Size requires custom conversion logic**
   - Location: `/home/k0zi/Develop/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`

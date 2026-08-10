@@ -34,6 +34,8 @@ public static class PropertyValueConverter
                 "Width,Height" => TryConvertSize(rawValue),
                 "DockPanel.Dock" => TryConvertDock(rawValue),
                 "Padding" or "Margin" => TryConvertThickness(mapping, rawValue),
+                "CanResize" => TryConvertFormBorderStyle(rawValue),
+                "WindowState" => TryConvertWindowState(mapping, rawValue),
                 _ => null
             };
         }
@@ -44,6 +46,7 @@ public static class PropertyValueConverter
             {
                 "ColorToBrush" => TryConvertColorToBrush(mapping, rawValue),
                 "ImageToBitmap" => TryConvertImagePath(mapping, rawValue),
+                "FormStartPosition" => TryConvertStartPosition(rawValue),
                 _ => null
             };
         }
@@ -220,5 +223,63 @@ public static class PropertyValueConverter
         }
 
         return [("DockPanel.Dock", value)];
+    }
+
+    private static readonly Regex FormBorderStylePattern = new(@"FormBorderStyle\.(?<value>[A-Za-z0-9]+)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// WinForms FormBorderStyle controls both resizability and (for None) whether the window
+    /// chrome is drawn at all - Avalonia splits those into CanResize and SystemDecorations.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertFormBorderStyle(string rawValue)
+    {
+        var match = FormBorderStylePattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return match.Groups["value"].Value switch
+        {
+            "FixedSingle" or "FixedDialog" or "Fixed3D" or "FixedToolWindow" => [("CanResize", "False")],
+            "Sizable" or "SizableToolWindow" => [("CanResize", "True")],
+            "None" => [("CanResize", "False"), ("SystemDecorations", "None")],
+            _ => null
+        };
+    }
+
+    private static readonly Regex FormWindowStatePattern = new(@"FormWindowState\.(?<value>[A-Za-z0-9]+)", RegexOptions.Compiled);
+
+    // WinForms FormWindowState (Normal/Minimized/Maximized) maps 1:1 by name onto Avalonia's
+    // WindowState enum (which also has FullScreen, unused by WinForms).
+    private static IReadOnlyList<(string, string)>? TryConvertWindowState(PropertyMapping mapping, string rawValue)
+    {
+        var match = FormWindowStatePattern.Match(rawValue);
+        return match.Success ? [(mapping.AvaloniaProperty, match.Groups["value"].Value)] : null;
+    }
+
+    private static readonly Regex FormStartPositionPattern = new(@"FormStartPosition\.(?<value>[A-Za-z0-9]+)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// CenterParent maps to Avalonia's CenterOwner (only meaningful once an Owner is actually
+    /// set before showing the window - same caveat WinForms itself has). Manual/
+    /// WindowsDefaultLocation/WindowsDefaultBounds all fall back to Avalonia's own default
+    /// (Manual), so no attribute needs to be emitted for those.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertStartPosition(string rawValue)
+    {
+        var match = FormStartPositionPattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return match.Groups["value"].Value switch
+        {
+            "CenterScreen" => [("WindowStartupLocation", "CenterScreen")],
+            "CenterParent" => [("WindowStartupLocation", "CenterOwner")],
+            "Manual" or "WindowsDefaultLocation" or "WindowsDefaultBounds" => [],
+            _ => null
+        };
     }
 }

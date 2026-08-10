@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.StockInForm"
         x:DataType="vm:StockInFormViewModel"
 
-        Title="&quot;Stock In — Goods Receipt — WarehouseApp&quot;"        >
+        Width="740"
+        Height="480"
+        Title="Stock In — Goods Receipt — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:StockInFormViewModel/>
     </Design.DataContext>
@@ -30,13 +33,13 @@
                 <Button Name="removeLineButton"
                 Grid.Row="0"
                 Grid.Column="0"
-                Content="&quot;Remove Line&quot;"
+                Content="Remove Line"
                 Width="110"
                 Height="28" />
                 <Button Name="postButton"
                 Grid.Row="0"
                 Grid.Column="2"
-                Content="&quot;Post Receipt&quot;"
+                Content="Post Receipt"
                 Width="120"
                 Height="32"
                 FontFamily="Segoe UI"
@@ -67,7 +70,7 @@
                 <TextBlock Name="warehouseLabel"
                 Grid.Row="0"
                 Grid.Column="0"
-                Text="&quot;Warehouse:&quot;" />
+                Text="Warehouse:" />
                 <ComboBox Name="warehouseComboBox"
                 Grid.Row="0"
                 Grid.Column="1"
@@ -75,7 +78,7 @@
                 <TextBlock Name="productLabel"
                 Grid.Row="0"
                 Grid.Column="2"
-                Text="&quot;Product:&quot;" />
+                Text="Product:" />
                 <ComboBox Name="productComboBox"
                 Grid.Row="0"
                 Grid.Column="3"
@@ -83,7 +86,7 @@
                 <TextBlock Name="dateLabel"
                 Grid.Row="2"
                 Grid.Column="0"
-                Text="&quot;Date:&quot;" />
+                Text="Date:" />
                 <DatePicker Name="receiptDatePicker"
                 Grid.Row="1"
                 Grid.Column="1"
@@ -91,12 +94,12 @@
                 <TextBlock Name="quantityLabel"
                 Grid.Row="2"
                 Grid.Column="2"
-                Text="&quot;Quantity:&quot;" />
+                Text="Quantity:" />
                 <!-- TODO: Unmapped control: NumericStepperControl (quantityStepper) -->
                 <Button Name="addLineButton"
                 Grid.Row="1"
                 Grid.Column="4"
-                Content="&quot;Add Line&quot;"
+                Content="Add Line"
                 Width="100"
                 Height="28" />
             </Grid>

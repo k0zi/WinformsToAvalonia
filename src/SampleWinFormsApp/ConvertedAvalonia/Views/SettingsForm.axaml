@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.SettingsForm"
         x:DataType="vm:SettingsFormViewModel"
 
-        Title="&quot;Settings — WarehouseApp&quot;"        >
+        Width="460"
+        Height="460"
+        Title="Settings — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:SettingsFormViewModel/>
     </Design.DataContext>

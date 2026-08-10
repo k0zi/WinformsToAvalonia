@@ -284,7 +284,7 @@ public class WinFormsParser
                     return;
                 }
 
-                var value = assignment.Right.ToString();
+                var value = GetPropertyAssignmentValue(assignment.Right);
                 control.Properties[propertyName] = new PropertyValue
                 {
                     Name = propertyName,
@@ -665,6 +665,28 @@ public class WinFormsParser
             IsResource = true,
             ResourceKey = entry.Name
         };
+    }
+
+    /// <summary>
+    /// Returns the raw C# source text of a property assignment's right-hand side, except for
+    /// string/char literals, where Roslyn's <c>ToString()</c> would otherwise include the
+    /// surrounding quote characters verbatim (e.g. <c>this.Text = "Sign In";</c> would yield
+    /// <c>"Sign In"</c> quotes and all) - those instead use <see cref="LiteralExpressionSyntax.Token"/>'s
+    /// <c>ValueText</c>, Roslyn's already-unescaped value (also correctly resolves escape
+    /// sequences and verbatim-string prefixes, which a naive quote-strip would not). Every
+    /// other expression shape (member access like <c>Color.Gray</c>, <c>new Point(...)</c>,
+    /// <c>DockStyle.Fill</c>, concatenation, interpolation) keeps the raw source text, since
+    /// PropertyValueConverter's regex-based converters parse that shape directly.
+    /// </summary>
+    private static string GetPropertyAssignmentValue(ExpressionSyntax expression)
+    {
+        if (expression is LiteralExpressionSyntax literal &&
+            (literal.IsKind(SyntaxKind.StringLiteralExpression) || literal.IsKind(SyntaxKind.CharacterLiteralExpression)))
+        {
+            return literal.Token.ValueText;
+        }
+
+        return expression.ToString();
     }
 
     private static string UnquoteStringLiteral(string text)

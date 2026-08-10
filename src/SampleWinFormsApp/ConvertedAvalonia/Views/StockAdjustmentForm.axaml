@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.StockAdjustmentForm"
         x:DataType="vm:StockAdjustmentFormViewModel"
 
-        Title="&quot;Stock Adjustment — Physical Count — WarehouseApp&quot;"        >
+        Width="760"
+        Height="500"
+        Title="Stock Adjustment — Physical Count — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:StockAdjustmentFormViewModel/>
     </Design.DataContext>

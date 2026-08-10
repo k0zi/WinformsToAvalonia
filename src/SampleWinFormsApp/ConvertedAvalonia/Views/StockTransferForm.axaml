@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.StockTransferForm"
         x:DataType="vm:StockTransferFormViewModel"
 
-        Title="&quot;Stock Transfer — WarehouseApp&quot;"        >
+        Width="760"
+        Height="460"
+        Title="Stock Transfer — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:StockTransferFormViewModel/>
     </Design.DataContext>
@@ -30,13 +33,13 @@
                 <Button Name="removeLineButton"
                 Grid.Row="0"
                 Grid.Column="0"
-                Content="&quot;Remove Line&quot;"
+                Content="Remove Line"
                 Width="110"
                 Height="28" />
                 <Button Name="postButton"
                 Grid.Row="0"
                 Grid.Column="2"
-                Content="&quot;Post Transfer&quot;"
+                Content="Post Transfer"
                 Width="120"
                 Height="32"
                 FontFamily="Segoe UI"
@@ -71,7 +74,7 @@
                 <TextBlock Name="fromLabel"
                 Grid.Row="0"
                 Grid.Column="0"
-                Text="&quot;From:&quot;" />
+                Text="From:" />
                 <ComboBox Name="fromWarehouseComboBox"
                 Grid.Row="0"
                 Grid.Column="1"
@@ -79,13 +82,13 @@
                 <Button Name="swapButton"
                 Grid.Row="0"
                 Grid.Column="3"
-                Content="&quot;⇄&quot;"
+                Content="⇄"
                 Width="32"
                 Height="24" />
                 <TextBlock Name="toLabel"
                 Grid.Row="0"
                 Grid.Column="4"
-                Text="&quot;To:&quot;" />
+                Text="To:" />
                 <ComboBox Name="toWarehouseComboBox"
                 Grid.Row="0"
                 Grid.Column="5"
@@ -93,7 +96,7 @@
                 <TextBlock Name="productLabel"
                 Grid.Row="2"
                 Grid.Column="0"
-                Text="&quot;Product:&quot;" />
+                Text="Product:" />
                 <ComboBox Name="productComboBox"
                 Grid.Row="1"
                 Grid.Column="2"
@@ -101,7 +104,7 @@
                 <TextBlock Name="quantityLabel"
                 Grid.Row="2"
                 Grid.Column="6"
-                Text="&quot;Quantity:&quot;" />
+                Text="Quantity:" />
                 <NumericUpDown Name="quantityNumericUpDown"
                 Grid.Row="1"
                 Grid.Column="7"
@@ -112,7 +115,7 @@
                 <Button Name="addLineButton"
                 Grid.Row="1"
                 Grid.Column="8"
-                Content="&quot;Add Line&quot;"
+                Content="Add Line"
                 Width="100"
                 Height="28" />
             </Grid>

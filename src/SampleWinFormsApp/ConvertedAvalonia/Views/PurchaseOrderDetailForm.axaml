@@ -4,7 +4,9 @@
         x:Class="ConvertedAvalonia.Views.PurchaseOrderDetailForm"
         x:DataType="vm:PurchaseOrderDetailFormViewModel"
 
-        Title="&quot;Purchase Order Detail — WarehouseApp&quot;"        >
+        Width="704"
+        Height="560"
+        Title="Purchase Order Detail — WarehouseApp"        >
     <Design.DataContext>
         <vm:PurchaseOrderDetailFormViewModel/>
     </Design.DataContext>
@@ -42,17 +44,17 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Name="orderNumberLabel"
-                Text="&quot;Order #:&quot;"
+                Text="Order #:"
                 Grid.Column="0"
                 Grid.Row="0" />
                 <TextBlock Name="orderNumberValueLabel"
-                Text="&quot;(new)&quot;"
+                Text="(new)"
                 FontFamily="Segoe UI"
                 FontSize="9"
                 Grid.Column="1"
                 Grid.Row="0" />
                 <TextBlock Name="supplierLabel"
-                Text="&quot;Supplier:&quot;"
+                Text="Supplier:"
                 Grid.Column="0"
                 Grid.Row="1" />
                 <ComboBox Name="supplierComboBox"
@@ -60,7 +62,7 @@
                 Grid.Column="1"
                 Grid.Row="1" />
                 <TextBlock Name="orderDateLabel"
-                Text="&quot;Order Date:&quot;"
+                Text="Order Date:"
                 Grid.Column="0"
                 Grid.Row="2" />
                 <DatePicker Name="orderDatePicker"
@@ -68,7 +70,7 @@
                 Grid.Column="1"
                 Grid.Row="2" />
                 <TextBlock Name="expectedDateLabel"
-                Text="&quot;Expected:&quot;"
+                Text="Expected:"
                 Grid.Column="0"
                 Grid.Row="3" />
                 <DatePicker Name="expectedDatePicker"
@@ -76,7 +78,7 @@
                 Grid.Column="1"
                 Grid.Row="3" />
                 <TextBlock Name="statusLabel"
-                Text="&quot;Status:&quot;"
+                Text="Status:"
                 Grid.Column="0"
                 Grid.Row="4" />
                 <ComboBox Name="statusComboBox"
@@ -84,7 +86,7 @@
                 Grid.Column="1"
                 Grid.Row="4" />
                 <TextBlock Name="notesLabel"
-                Text="&quot;Notes:&quot;"
+                Text="Notes:"
                 Grid.Column="0"
                 Grid.Row="5" />
                 <TextBox Name="notesTextBox"
@@ -116,12 +118,12 @@
                 <TextBlock Name="productLabel"
                 Grid.Row="0"
                 Grid.Column="0"
-                Text="&quot;Product:&quot;" />
+                Text="Product:" />
                 <!-- TODO: Unmapped control: AutocompleteSearchBox (productSearchBox) -->
                 <TextBlock Name="qtyLabel"
                 Grid.Row="0"
                 Grid.Column="1"
-                Text="&quot;Qty:&quot;" />
+                Text="Qty:" />
                 <NumericUpDown Name="qtyNumericUpDown"
                 Grid.Row="1"
                 Grid.Column="1"
@@ -132,7 +134,7 @@
                 <TextBlock Name="priceLabel"
                 Grid.Row="0"
                 Grid.Column="2"
-                Text="&quot;Unit Price:&quot;" />
+                Text="Unit Price:" />
                 <NumericUpDown Name="unitPriceNumericUpDown"
                 Grid.Row="1"
                 Grid.Column="2"
@@ -142,7 +144,7 @@
                 <Button Name="addLineButton"
                 Grid.Row="1"
                 Grid.Column="3"
-                Content="&quot;Add Line&quot;"
+                Content="Add Line"
                 Width="90"
                 Height="28" />
             </Grid>
@@ -157,7 +159,7 @@
         <Button Name="printButton"
         Grid.Row="3"
         Grid.Column="1"
-        Content="&quot;Print...&quot;"
+        Content="Print..."
         Width="100"
         Height="28" />
     </Grid>

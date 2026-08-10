@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.StockOverviewForm"
         x:DataType="vm:StockOverviewFormViewModel"
 
-        Title="&quot;Stock Overview — WarehouseApp&quot;"        >
+        Width="900"
+        Height="560"
+        Title="Stock Overview — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:StockOverviewFormViewModel/>
     </Design.DataContext>

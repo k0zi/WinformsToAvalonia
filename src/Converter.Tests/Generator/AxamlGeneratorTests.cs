@@ -38,6 +38,23 @@ public class AxamlGeneratorTests
         ConfidenceScore = 100
     };
 
+    private static ControlNode BuildFormWithRootProperties(params (string Name, string Value)[] formProperties)
+    {
+        var root = new ControlNode
+        {
+            ControlType = "Form",
+            FullTypeName = "System.Windows.Forms.Form",
+            Name = "SampleForm"
+        };
+
+        foreach (var (name, value) in formProperties)
+        {
+            root.Properties[name] = new PropertyValue { Name = name, Value = value, Type = "object" };
+        }
+
+        return root;
+    }
+
     [Fact]
     public void Generate_EmitsBackground_FromBackColor()
     {
@@ -317,5 +334,86 @@ public class AxamlGeneratorTests
         Assert.Contains("Grid.Column=\"1\"", axaml);
         Assert.Contains("<RowDefinition", axaml);
         Assert.Contains("<ColumnDefinition", axaml);
+    }
+
+    [Fact]
+    public void Generate_UnquotedFormText_EmitsTitle_WithoutEscapedQuotes()
+    {
+        // Simulates post-fix WinFormsParser output (the raw C# literal's surrounding quote
+        // characters already stripped) - regression coverage for the Title="&quot;...&quot;"
+        // bug distinct from Generate_ButtonText_MapsToContent_NotText above, which
+        // deliberately still feeds pre-quoted input to pin the Text->Content mapping itself.
+        var root = BuildFormWithRootProperties(("Text", "Sign In"));
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains("Title=\"Sign In\"", axaml);
+        Assert.DoesNotContain("&quot;", axaml);
+    }
+
+    [Fact]
+    public void Generate_FormClientSize_EmitsWidthAndHeight_OnWindow()
+    {
+        var root = BuildFormWithRootProperties(("ClientSize", "new System.Drawing.Size(400, 340)"));
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains("Width=\"400\"", axaml);
+        Assert.Contains("Height=\"340\"", axaml);
+    }
+
+    [Theory]
+    [InlineData("System.Windows.Forms.FormBorderStyle.FixedSingle", "False")]
+    [InlineData("System.Windows.Forms.FormBorderStyle.Sizable", "True")]
+    public void Generate_FormBorderStyle_EmitsCanResize(string rawValue, string expectedCanResize)
+    {
+        var root = BuildFormWithRootProperties(("FormBorderStyle", rawValue));
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains($"CanResize=\"{expectedCanResize}\"", axaml);
+    }
+
+    [Fact]
+    public void Generate_FormBorderStyleNone_EmitsCanResizeFalse_AndNoSystemDecorations()
+    {
+        var root = BuildFormWithRootProperties(("FormBorderStyle", "System.Windows.Forms.FormBorderStyle.None"));
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains("CanResize=\"False\"", axaml);
+        Assert.Contains("SystemDecorations=\"None\"", axaml);
+    }
+
+    [Theory]
+    [InlineData("System.Windows.Forms.FormStartPosition.CenterScreen", "CenterScreen")]
+    [InlineData("System.Windows.Forms.FormStartPosition.CenterParent", "CenterOwner")]
+    public void Generate_FormStartPosition_EmitsWindowStartupLocation(string rawValue, string expectedLocation)
+    {
+        var root = BuildFormWithRootProperties(("StartPosition", rawValue));
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains($"WindowStartupLocation=\"{expectedLocation}\"", axaml);
+    }
+
+    [Fact]
+    public void Generate_FormStartPositionManual_EmitsNoWindowStartupLocation()
+    {
+        var root = BuildFormWithRootProperties(("StartPosition", "System.Windows.Forms.FormStartPosition.Manual"));
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.DoesNotContain("WindowStartupLocation", axaml);
+    }
+
+    [Fact]
+    public void Generate_FormWindowState_EmitsWindowState()
+    {
+        var root = BuildFormWithRootProperties(("WindowState", "System.Windows.Forms.FormWindowState.Maximized"));
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains("WindowState=\"Maximized\"", axaml);
     }
 }

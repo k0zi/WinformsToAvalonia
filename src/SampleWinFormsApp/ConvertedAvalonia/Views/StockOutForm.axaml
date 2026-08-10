@@ -4,7 +4,10 @@
         x:Class="ConvertedAvalonia.Views.StockOutForm"
         x:DataType="vm:StockOutFormViewModel"
 
-        Title="&quot;Stock Out — Goods Issue — WarehouseApp&quot;"        >
+        Width="740"
+        Height="460"
+        Title="Stock Out — Goods Issue — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
     <Design.DataContext>
         <vm:StockOutFormViewModel/>
     </Design.DataContext>
@@ -30,13 +33,13 @@
                 <Button Name="removeLineButton"
                 Grid.Row="0"
                 Grid.Column="0"
-                Content="&quot;Remove Line&quot;"
+                Content="Remove Line"
                 Width="110"
                 Height="28" />
                 <Button Name="postButton"
                 Grid.Row="0"
                 Grid.Column="2"
-                Content="&quot;Post Issue&quot;"
+                Content="Post Issue"
                 Width="120"
                 Height="32"
                 FontFamily="Segoe UI"
@@ -67,7 +70,7 @@
                 <TextBlock Name="warehouseLabel"
                 Grid.Row="0"
                 Grid.Column="0"
-                Text="&quot;Warehouse:&quot;" />
+                Text="Warehouse:" />
                 <ComboBox Name="warehouseComboBox"
                 Grid.Row="0"
                 Grid.Column="1"
@@ -75,7 +78,7 @@
                 <TextBlock Name="productLabel"
                 Grid.Row="0"
                 Grid.Column="3"
-                Text="&quot;Product:&quot;" />
+                Text="Product:" />
                 <ComboBox Name="productComboBox"
                 Grid.Row="0"
                 Grid.Column="4"
@@ -83,12 +86,12 @@
                 <TextBlock Name="quantityLabel"
                 Grid.Row="2"
                 Grid.Column="0"
-                Text="&quot;Quantity:&quot;" />
+                Text="Quantity:" />
                 <!-- TODO: Unmapped control: NumericStepperControl (quantityStepper) -->
                 <Button Name="addLineButton"
                 Grid.Row="1"
                 Grid.Column="2"
-                Content="&quot;Add Line&quot;"
+                Content="Add Line"
                 Width="100"
                 Height="28" />
             </Grid>

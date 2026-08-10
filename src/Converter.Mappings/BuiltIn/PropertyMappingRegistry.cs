@@ -87,8 +87,10 @@ public static class PropertyMappingRegistry
         ["Form"] = new()
         {
             ["Text"] = new("Title") { DirectMapping = true },
-            ["FormBorderStyle"] = new("WindowState,CanResize") { RequiresCustomLogic = true },
-            ["StartPosition"] = new("WindowStartupLocation") { RequiresConversion = true },
+            ["ClientSize"] = new("Width,Height") { RequiresCustomLogic = true },
+            ["FormBorderStyle"] = new("CanResize") { RequiresCustomLogic = true },
+            ["WindowState"] = new("WindowState") { RequiresCustomLogic = true },
+            ["StartPosition"] = new("WindowStartupLocation") { RequiresConversion = true, ConversionType = "FormStartPosition" },
             ["Icon"] = new("Icon") { RequiresConversion = true, ConversionType = "IconToWindowIcon" },
             ["TopMost"] = new("Topmost") { DirectMapping = true },
             ["ShowInTaskbar"] = new("ShowInTaskbar") { DirectMapping = true }
