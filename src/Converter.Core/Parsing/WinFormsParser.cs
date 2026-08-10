@@ -776,4 +776,11 @@ public class ParseResult
     /// ParseResult construction/test keeps compiling and behaving identically.
     /// </summary>
     public Dictionary<string, string> EventHandlerBodies { get; set; } = [];
+
+    /// <summary>
+    /// Non-handler members (private fields, helper methods) discovered in the sibling
+    /// non-designer .cs file by CodeBehindMemberExtractor. Populated by the orchestrator
+    /// alongside EventHandlerBodies, same gating and empty-default rationale.
+    /// </summary>
+    public CodeBehindMembers CodeBehindMembers { get; set; } = CodeBehindMembers.Empty;
 }

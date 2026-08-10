@@ -69,7 +69,11 @@ public class WarehouseAppConversionTests
             {
                 Assert.True(File.Exists(Path.Combine(viewsDir, $"{form}.axaml")), $"Missing AXAML for {form}");
                 Assert.True(File.Exists(Path.Combine(viewsDir, $"{form}.axaml.cs")), $"Missing code-behind for {form}");
-                Assert.True(File.Exists(Path.Combine(viewModelsDir, $"{form}ViewModel.g.cs")), $"Missing ViewModel for {form}");
+                // None of the WarehouseApp fixtures use DataBindings.Add, so the
+                // auto-regenerated, properties-only .g.cs is never written; the hand-editable
+                // ViewModel file is always created.
+                Assert.False(File.Exists(Path.Combine(viewModelsDir, $"{form}ViewModel.g.cs")), $"Unexpected .g.cs for {form}");
+                Assert.True(File.Exists(Path.Combine(viewModelsDir, $"{form}ViewModel.cs")), $"Missing ViewModel for {form}");
             }
 
             // Project skeleton (ProjectFileGenerator output), generated once per run alongside the forms.
@@ -89,8 +93,8 @@ public class WarehouseAppConversionTests
             Assert.Contains("loginButton", loginAxaml);
 
             var loginViewModel = await File.ReadAllTextAsync(
-                Path.Combine(viewModelsDir, "LoginFormViewModel.g.cs"));
-            Assert.Contains("[RelayCommand]", loginViewModel);
+                Path.Combine(viewModelsDir, "LoginFormViewModel.cs"));
+            Assert.Contains("RelayCommand", loginViewModel);
         }
         finally
         {

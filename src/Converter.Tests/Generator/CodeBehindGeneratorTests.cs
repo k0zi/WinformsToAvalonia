@@ -54,7 +54,7 @@ public class CodeBehindGeneratorTests
     }
 
     [Fact]
-    public void Generate_HandlerBodyFound_EmbedsOriginalSourceAsIndividuallyCommentedLines()
+    public void Generate_HandlerBodyFound_EmbedsOriginalSourceAsLiveCode()
     {
         var root = BuildFormWithButtonHandler("MouseDown", "button1_MouseDown");
         var handlerBodies = new Dictionary<string, string>
@@ -65,9 +65,83 @@ public class CodeBehindGeneratorTests
         var content = new CodeBehindGenerator().Generate("SampleApp", "SampleForm", root, handlerBodies);
 
         Assert.Contains("MessageBox.Show(\"Hi\");", content);
-        Assert.Contains("// private void button1_MouseDown(object sender, MouseEventArgs e)", content);
-        Assert.Matches(@"//\s*MessageBox\.Show\(""Hi""\);", content);
+        Assert.DoesNotContain("// MessageBox.Show", content);
+        Assert.DoesNotContain("private void button1_MouseDown(object sender, MouseEventArgs e)", content);
         Assert.DoesNotContain("TODO: original", content);
+    }
+
+    [Fact]
+    public void Generate_ConstructorWiresDataContext()
+    {
+        var root = BuildFormWithButtonHandler("Click", "button1_Click");
+
+        var content = new CodeBehindGenerator().Generate("SampleApp", "SampleForm", root);
+
+        Assert.Contains("DataContext = new SampleApp.ViewModels.SampleFormViewModel();", content);
+    }
+
+    [Fact]
+    public void Generate_EmitsViewModelAccessorProperty()
+    {
+        var root = BuildFormWithButtonHandler("Click", "button1_Click");
+
+        var content = new CodeBehindGenerator().Generate("SampleApp", "SampleForm", root);
+
+        Assert.Contains(
+            "private SampleApp.ViewModels.SampleFormViewModel ViewModel => (SampleApp.ViewModels.SampleFormViewModel)DataContext!;",
+            content);
+    }
+
+    [Fact]
+    public void Generate_PreserveEventHandlerBody_RewritesMigratedFieldToViewModelAccessor()
+    {
+        var root = BuildFormWithButtonHandler("MouseDown", "button1_MouseDown");
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["button1_MouseDown"] = "private void button1_MouseDown(object sender, MouseEventArgs e)\n{\n    _counter++;\n}"
+        };
+        var codeBehindMembers = new CodeBehindMembers(
+            fields: [new CodeBehindField(["_counter"], "private int _counter;")]);
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "SampleForm", root, handlerBodies, codeBehindMembers: codeBehindMembers);
+
+        Assert.Contains("ViewModel._counter++;", content);
+    }
+
+    [Fact]
+    public void Generate_PreserveEventHandlerBody_RewritesMigratedHelperMethodCallToViewModelAccessor()
+    {
+        var root = BuildFormWithButtonHandler("MouseDown", "button1_MouseDown");
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["button1_MouseDown"] = "private void button1_MouseDown(object sender, MouseEventArgs e)\n{\n    DoSomething();\n}"
+        };
+        var codeBehindMembers = new CodeBehindMembers(
+            helperMethods: new Dictionary<string, string> { ["DoSomething"] = "private void DoSomething() { }" });
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "SampleForm", root, handlerBodies, codeBehindMembers: codeBehindMembers);
+
+        Assert.Contains("ViewModel.DoSomething();", content);
+    }
+
+    [Fact]
+    public void Generate_PreserveEventHandlerBody_DoesNotRewriteUnrelatedIdentifiers()
+    {
+        var root = BuildFormWithButtonHandler("MouseDown", "button1_MouseDown");
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["button1_MouseDown"] = "private void button1_MouseDown(object sender, MouseEventArgs e)\n{\n    var localValue = 1;\n}"
+        };
+        var codeBehindMembers = new CodeBehindMembers(
+            fields: [new CodeBehindField(["_counter"], "private int _counter;")]);
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "SampleForm", root, handlerBodies, codeBehindMembers: codeBehindMembers);
+
+        Assert.Contains("var localValue = 1;", content);
+        Assert.DoesNotContain("ViewModel.localValue", content);
     }
 
     [Fact]
@@ -130,7 +204,24 @@ public class CodeBehindGeneratorTests
     }
 
     [Fact]
-    public void Generate_WithEmbeddedHandlerBodyComment_ProducesSyntacticallyValidCSharp()
+    public void Generate_PreservedHandlerOriginalWasAsyncVoid_PreservesAsyncModifier()
+    {
+        var root = BuildFormWithButtonHandler("MouseDown", "button1_MouseDown");
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["button1_MouseDown"] =
+                "private async void button1_MouseDown(object sender, MouseEventArgs e)\n{\n    await Task.Delay(1);\n}"
+        };
+
+        var content = new CodeBehindGenerator().Generate("SampleApp", "SampleForm", root, handlerBodies);
+
+        Assert.Contains(
+            "private async void button1_MouseDown(object? sender, Avalonia.Input.PointerPressedEventArgs e)", content);
+        Assert.Contains("await Task.Delay(1);", content);
+    }
+
+    [Fact]
+    public void Generate_WithEmbeddedLiveHandlerBody_ProducesSyntacticallyValidCSharp()
     {
         var root = BuildFormWithButtonHandler("KeyDown", "textBox1_KeyDown");
         var handlerBodies = new Dictionary<string, string>

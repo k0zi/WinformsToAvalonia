@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -54,5 +56,63 @@ public static class EventHandlerBodyParser
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Re-parses a full method-source string previously produced by ExtractAsync (signature +
+    /// body, exactly as written) and returns just its statement block ("{ ... }"), suitable for
+    /// pasting directly into a differently-signed generated stub as live code. An expression-
+    /// bodied method ("=> Foo();") is rewritten into an equivalent block. Best-effort: if
+    /// re-parsing somehow fails (shouldn't normally happen, since this text was itself produced
+    /// by a prior successful parse), falls back to wrapping the original text as an inert
+    /// `//`-commented block instead of throwing or emitting nothing.
+    /// </summary>
+    public static string ExtractBodyText(string fullMethodSource)
+    {
+        try
+        {
+            var wrapper = $"class __Wrapper {{ {fullMethodSource} }}";
+            var method = CSharpSyntaxTree.ParseText(wrapper).GetRoot()
+                .DescendantNodes().OfType<MethodDeclarationSyntax>().FirstOrDefault();
+
+            if (method?.Body != null)
+            {
+                return method.Body.ToString();
+            }
+
+            if (method?.ExpressionBody != null)
+            {
+                return "{\n    " + method.ExpressionBody.Expression + ";\n}";
+            }
+        }
+        catch
+        {
+            // Fall through to the comment-wrap fallback below.
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("{");
+        sb.AppendLine("    // Original body could not be re-parsed as live code - preserved for reference:");
+        foreach (var line in fullMethodSource.Replace("\r\n", "\n").Split('\n'))
+        {
+            sb.AppendLine(string.IsNullOrWhiteSpace(line) ? "    //" : $"    // {line}");
+        }
+        sb.Append('}');
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Detects "async" in a full method-source string's signature line (everything before the
+    /// first "{"). A freshly-constructed generated stub (a different signature than the
+    /// original - different name, different parameter list, whatever) has no way to know the
+    /// original was "async" otherwise; ExtractBodyText only returns the body, and a body
+    /// containing "await" without an "async" modifier on the enclosing method doesn't compile.
+    /// WinForms event handlers are commonly declared "async void" (fire-and-forget), so this
+    /// matters in practice, not just in theory.
+    /// </summary>
+    public static bool IsAsyncMethodSignature(string fullMethodSource)
+    {
+        var signaturePart = fullMethodSource.Split('{', 2)[0];
+        return Regex.IsMatch(signaturePart, @"\basync\b");
     }
 }

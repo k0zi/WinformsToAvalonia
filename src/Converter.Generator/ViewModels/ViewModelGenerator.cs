@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Converter.Core.Parsing;
 using Converter.Generator.Mapping;
 using Converter.Plugin.Abstractions;
@@ -7,79 +8,54 @@ using Converter.Mappings.BuiltIn;
 namespace Converter.Generator.ViewModels;
 
 /// <summary>
+/// Flat manifest of every member name BuildEditableClass seeded into the hand-editable
+/// ViewModel file this run, alongside its full source. Used by the caller both to decide
+/// whether to write the file at all (only on first creation - never touched again after) and,
+/// on later runs where the file already exists, to detect drift (a name discovered this run
+/// that isn't present in the existing hand-edited file yet) without recomputing anything twice.
+/// </summary>
+public record EditableClassContent(string Source, IReadOnlyList<string> MemberNames);
+
+/// <summary>
 /// Generates ViewModel classes using CommunityToolkit.Mvvm.
 /// </summary>
 public class ViewModelGenerator
 {
     /// <summary>
-    /// Generate a ViewModel class (generated partial class .g.cs). <paramref name="overrides"/>
-    /// - resolved once per form by MappingResolver before generation starts - lets a plugin
-    /// IEventMapper override which events convert to commands; default null (normalized to
-    /// Empty) preserves this method's behavior for every existing caller. <paramref
-    /// name="handlerBodies"/> - the original WinForms handler source, keyed by method name,
-    /// from ParseResult.EventHandlerBodies - lets a converted-to-command stub embed the
-    /// original body as an inert reference comment instead of a bare TODO, when found.
+    /// Generate the auto-regenerated partial class (.g.cs) - properties only, mechanically
+    /// derived from ControlNode.DataBindings, safe to regenerate every run since none of it is
+    /// migrated user logic. Returns string.Empty when there are zero bound properties; callers
+    /// should skip writing (or delete a stale) .g.cs in that case rather than emit an empty
+    /// shell. Declares no base type - ObservableObject is declared once, on the always-present
+    /// hand-editable partial (see BuildEditableClass), since this file may or may not exist.
     /// </summary>
-    public string GeneratePartialClass(
-        ControlNode root, string namespaceName, string className,
-        PluginMappingOverrides? overrides = null, IReadOnlyDictionary<string, string>? handlerBodies = null)
+    public string GeneratePartialClass(ControlNode root, string namespaceName, string className)
     {
-        overrides ??= PluginMappingOverrides.Empty;
+        var properties = ExtractBoundProperties(root);
+        if (properties.Count == 0)
+        {
+            return string.Empty;
+        }
+
         var sb = new StringBuilder();
 
-        // Using statements
         sb.AppendLine("using CommunityToolkit.Mvvm.ComponentModel;");
-        sb.AppendLine("using CommunityToolkit.Mvvm.Input;");
         sb.AppendLine("using System.Collections.ObjectModel;");
         sb.AppendLine();
 
-        // Namespace
         sb.AppendLine($"namespace {namespaceName}.ViewModels;");
         sb.AppendLine();
 
-        // Class declaration
         sb.AppendLine("/// <summary>");
-        sb.AppendLine($"/// ViewModel for {className} (auto-generated).");
+        sb.AppendLine($"/// ViewModel for {className} (auto-generated - observable properties only).");
         sb.AppendLine("/// </summary>");
-        sb.AppendLine($"public partial class {className}ViewModel : ObservableObject");
+        sb.AppendLine($"public partial class {className}ViewModel");
         sb.AppendLine("{");
 
-        // Generate properties from data bindings
-        var properties = ExtractBoundProperties(root);
         foreach (var prop in properties)
         {
             sb.AppendLine($"    [ObservableProperty]");
             sb.AppendLine($"    private {prop.Type} {prop.FieldName} = {prop.DefaultValue};");
-            sb.AppendLine();
-        }
-
-        // Generate commands from events
-        var commands = ExtractCommands(root, overrides);
-        foreach (var command in commands)
-        {
-            sb.AppendLine($"    [RelayCommand]");
-            if (command.HasParameter)
-            {
-                sb.AppendLine($"    private void {command.MethodName}({command.ParameterType} parameter)");
-            }
-            else
-            {
-                sb.AppendLine($"    private void {command.MethodName}()");
-            }
-            sb.AppendLine("    {");
-            if (handlerBodies != null && handlerBodies.TryGetValue(command.OriginalHandlerMethodName, out var originalSource))
-            {
-                sb.AppendLine($"        // Original WinForms handler \"{command.OriginalHandlerMethodName}\", preserved for reference - review and adapt:");
-                foreach (var line in originalSource.Replace("\r\n", "\n").Split('\n'))
-                {
-                    sb.AppendLine(string.IsNullOrWhiteSpace(line) ? "        //" : $"        // {line}");
-                }
-            }
-            else
-            {
-                sb.AppendLine($"        // TODO: Implement {command.OriginalEvent} logic");
-            }
-            sb.AppendLine("    }");
             sb.AppendLine();
         }
 
@@ -89,10 +65,27 @@ public class ViewModelGenerator
     }
 
     /// <summary>
-    /// Generate user-editable partial class (.cs) - only created once.
+    /// Builds the hand-editable partial class (className + ViewModelSuffix + ".cs", no ".g."
+    /// infix) - written only once by the caller (skipped entirely on subsequent runs if it
+    /// already exists on disk), so user edits survive reconversion. Declares
+    /// ": ObservableObject" (this file always exists, unlike the conditional .g.cs, so the
+    /// base type lives here). Seeds it with everything CodeBehindMemberExtractor/
+    /// EventHandlerBodyParser found in the sibling WinForms code-behind: migrated fields and
+    /// helper methods (accessibility upgraded to "internal" so CodeBehindGenerator's
+    /// ViewModel-accessor rewrite can reach them from a different class/file), and
+    /// [RelayCommand] methods for ConvertToCommand-bucket events with their real bodies as
+    /// live code (falling back to a TODO when no original body was found).
     /// </summary>
-    public string GenerateUserClass(string namespaceName, string className)
+    public EditableClassContent BuildEditableClass(
+        ControlNode root, string namespaceName, string className,
+        PluginMappingOverrides? overrides = null,
+        IReadOnlyDictionary<string, string>? handlerBodies = null,
+        CodeBehindMembers? codeBehindMembers = null)
     {
+        overrides ??= PluginMappingOverrides.Empty;
+        codeBehindMembers ??= CodeBehindMembers.Empty;
+
+        var memberNames = new List<string>();
         var sb = new StringBuilder();
 
         sb.AppendLine($"namespace {namespaceName}.ViewModels;");
@@ -101,13 +94,63 @@ public class ViewModelGenerator
         sb.AppendLine($"/// ViewModel for {className} (user customizations).");
         sb.AppendLine("/// This file is preserved during reconversion - add your custom code here.");
         sb.AppendLine("/// </summary>");
-        sb.AppendLine($"public partial class {className}ViewModel");
+        sb.AppendLine($"public partial class {className}ViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObject");
         sb.AppendLine("{");
-        sb.AppendLine("    // Add your custom properties and methods here");
-        sb.AppendLine("    // This file will not be regenerated");
+
+        foreach (var field in codeBehindMembers.Fields)
+        {
+            sb.AppendLine("    " + IndentContinuationLines(EnsureInternalAccessibility(field.DeclarationText)));
+            sb.AppendLine();
+            memberNames.AddRange(field.Names);
+        }
+
+        foreach (var (name, source) in codeBehindMembers.HelperMethods)
+        {
+            sb.AppendLine("    " + IndentContinuationLines(EnsureInternalAccessibility(source)));
+            sb.AppendLine();
+            memberNames.Add(name);
+        }
+
+        var commands = ExtractCommands(root, overrides);
+        foreach (var command in commands)
+        {
+            string? originalSource = null;
+            var hasOriginalSource = handlerBodies != null &&
+                handlerBodies.TryGetValue(command.OriginalHandlerMethodName, out originalSource);
+            // The original handler is commonly "async void" (WinForms event handlers are
+            // fire-and-forget by nature); the body carries "await" regardless of whether we
+            // preserve that modifier, so dropping it would emit code that doesn't compile.
+            var asyncModifier = hasOriginalSource && EventHandlerBodyParser.IsAsyncMethodSignature(originalSource!) ? "async " : "";
+
+            sb.AppendLine($"    [CommunityToolkit.Mvvm.Input.RelayCommand]");
+            if (command.HasParameter)
+            {
+                sb.AppendLine($"    private {asyncModifier}void {command.MethodName}({command.ParameterType} parameter)");
+            }
+            else
+            {
+                sb.AppendLine($"    private {asyncModifier}void {command.MethodName}()");
+            }
+
+            if (hasOriginalSource)
+            {
+                var body = EventHandlerBodyParser.ExtractBodyText(originalSource!);
+                sb.AppendLine("    " + IndentContinuationLines(body));
+            }
+            else
+            {
+                sb.AppendLine("    {");
+                sb.AppendLine($"        // TODO: Implement {command.OriginalEvent} logic");
+                sb.AppendLine("    }");
+            }
+
+            sb.AppendLine();
+            memberNames.Add(command.MethodName);
+        }
+
         sb.AppendLine("}");
 
-        return sb.ToString();
+        return new EditableClassContent(sb.ToString(), memberNames);
     }
 
     private List<PropertyInfo> ExtractBoundProperties(ControlNode root)
@@ -239,6 +282,39 @@ public class ViewModelGenerator
         if (string.IsNullOrEmpty(text)) return text;
         return char.ToLowerInvariant(text[0]) + text.Substring(1);
     }
+
+    /// <summary>
+    /// Migrated fields/helper methods are "private" (explicit or implicit) in the original
+    /// WinForms code-behind class. Re-emitted verbatim as "private" here, CodeBehindGenerator's
+    /// "ViewModel.someField" accessor rewrite (a different class, in a different file) would
+    /// not compile - private members aren't visible cross-class even through a typed property.
+    /// Upgrading to "internal" (same assembly, so still safely reachable) fixes that. Only ever
+    /// applied to migrated fields/helper methods - freshly generated [RelayCommand] methods
+    /// stay "private" exactly as before, since code-behind never calls them directly (AXAML
+    /// binds through the source-generator's ICommand property instead).
+    /// </summary>
+    private static string EnsureInternalAccessibility(string declarationText)
+    {
+        if (Regex.IsMatch(declarationText, @"^\s*private\b"))
+        {
+            return Regex.Replace(declarationText, @"^\s*private\b", "internal");
+        }
+
+        if (Regex.IsMatch(declarationText, @"^\s*(public|protected|internal)\b"))
+        {
+            return declarationText;
+        }
+
+        return "internal " + declarationText;
+    }
+
+    /// <summary>
+    /// The generator writes source line-by-line via StringBuilder.AppendLine, each new entry
+    /// starting flush at column 0; multi-line text (a field declaration spanning lines, a
+    /// method body) needs every line after the first indented to match, or the emitted file
+    /// looks malformed (still compiles - C# doesn't care about whitespace - but is unreadable).
+    /// </summary>
+    private static string IndentContinuationLines(string text) => text.Replace("\n", "\n    ");
 
     private record PropertyInfo
     {

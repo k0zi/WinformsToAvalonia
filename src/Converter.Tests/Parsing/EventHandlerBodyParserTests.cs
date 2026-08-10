@@ -115,4 +115,62 @@ public class EventHandlerBodyParserTests
 
         Assert.Empty(result);
     }
+
+    [Fact]
+    public void ExtractBodyText_BlockBodiedMethod_ReturnsJustTheBlock()
+    {
+        const string fullSource = """
+            private void button1_Click(object sender, System.EventArgs e)
+            {
+                System.Windows.Forms.MessageBox.Show("Hello");
+            }
+            """;
+
+        var body = EventHandlerBodyParser.ExtractBodyText(fullSource);
+
+        Assert.DoesNotContain("button1_Click", body);
+        Assert.Contains("MessageBox.Show(\"Hello\");", body);
+        Assert.StartsWith("{", body.TrimStart());
+        Assert.EndsWith("}", body.TrimEnd());
+    }
+
+    [Fact]
+    public void ExtractBodyText_ExpressionBodiedMethod_WrapsIntoBlock()
+    {
+        const string fullSource = "private void button2_Click(object sender, System.EventArgs e) => DoSomething();";
+
+        var body = EventHandlerBodyParser.ExtractBodyText(fullSource);
+
+        Assert.Contains("DoSomething();", body);
+        Assert.StartsWith("{", body.TrimStart());
+        Assert.EndsWith("}", body.TrimEnd());
+    }
+
+    [Fact]
+    public void ExtractBodyText_UnparseableInput_FallsBackToCommentWrap()
+    {
+        const string garbage = "this is not a method at all {{{ !!";
+
+        var body = EventHandlerBodyParser.ExtractBodyText(garbage);
+
+        Assert.Contains("// this is not a method at all", body);
+        Assert.StartsWith("{", body.TrimStart());
+        Assert.EndsWith("}", body.TrimEnd());
+    }
+
+    [Fact]
+    public void IsAsyncMethodSignature_AsyncVoidMethod_ReturnsTrue()
+    {
+        const string source = "private async void button1_Click(object sender, System.EventArgs e)\n{\n    await Foo();\n}";
+
+        Assert.True(EventHandlerBodyParser.IsAsyncMethodSignature(source));
+    }
+
+    [Fact]
+    public void IsAsyncMethodSignature_SynchronousMethod_ReturnsFalse()
+    {
+        const string source = "private void button1_Click(object sender, System.EventArgs e)\n{\n    Foo();\n}";
+
+        Assert.False(EventHandlerBodyParser.IsAsyncMethodSignature(source));
+    }
 }

@@ -355,11 +355,13 @@ public class ResourceConversionConfig
 }
 
 /// <summary>
-/// WinForms event-handler body migration configuration. Extraction is always best-effort
-/// (a missing/unparseable sibling code-behind file simply yields no bodies, never a hard
-/// failure) and the extracted body is always emitted as an inert comment block inside a
-/// compiling stub - never live/compiled code - so enabling this by default carries no
-/// correctness risk, only a chance of "body not found".
+/// WinForms event-handler body/field/helper-method migration configuration. Extraction is
+/// always best-effort (a missing/unparseable sibling code-behind file simply yields nothing,
+/// never a hard failure), but the extracted code IS emitted as live, compiling code moved
+/// into the generated ViewModel/code-behind - not an inert comment. That carries real risk:
+/// the original code may call WinForms-only APIs that don't exist in Avalonia and fail to
+/// compile. This is the only escape hatch from that risk - disabling it falls back to
+/// TODO-stub generation with no code migrated at all.
 /// </summary>
 public class EventHandlerMigrationConfig
 {

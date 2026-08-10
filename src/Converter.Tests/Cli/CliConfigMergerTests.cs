@@ -70,4 +70,36 @@ public class CliConfigMergerTests
 
         Assert.Equal("feature/from-config", merged.GitIntegration.BranchNamePattern);
     }
+
+    [Fact]
+    public void Merge_EventHandlerMigrationDisabledInConfigFile_SurvivesMerge()
+    {
+        // Regression: Merge used to omit EventHandlerMigration/ProjectGeneration/
+        // ResourceConversion from its returned ConverterConfig entirely, silently resetting
+        // them to `new()` defaults (EventHandlerMigration.Enabled = true) on every CLI run -
+        // a user's explicit opt-out was discarded no matter what their .converterconfig said.
+        var baseConfig = new ConverterConfig
+        {
+            EventHandlerMigration = new EventHandlerMigrationConfig { Enabled = false }
+        };
+
+        var merged = CliConfigMerger.Merge(baseConfig, new CliOverrides());
+
+        Assert.False(merged.EventHandlerMigration.Enabled);
+    }
+
+    [Fact]
+    public void Merge_ProjectGenerationAndResourceConversion_SurviveMerge()
+    {
+        var baseConfig = new ConverterConfig
+        {
+            ProjectGeneration = new ProjectGenerationConfig { AvaloniaVersion = "11.0.0" },
+            ResourceConversion = new ResourceConversionConfig { Enabled = false }
+        };
+
+        var merged = CliConfigMerger.Merge(baseConfig, new CliOverrides());
+
+        Assert.Equal("11.0.0", merged.ProjectGeneration.AvaloniaVersion);
+        Assert.False(merged.ResourceConversion.Enabled);
+    }
 }

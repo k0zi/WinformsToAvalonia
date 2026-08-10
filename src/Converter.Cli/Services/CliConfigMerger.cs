@@ -65,7 +65,10 @@ public static class CliConfigMerger
             GitIntegration = gitIntegration,
             Documentation = baseConfig.Documentation,
             Plugins = baseConfig.Plugins,
-            DefaultOptions = baseConfig.DefaultOptions
+            DefaultOptions = baseConfig.DefaultOptions,
+            EventHandlerMigration = baseConfig.EventHandlerMigration,
+            ProjectGeneration = baseConfig.ProjectGeneration,
+            ResourceConversion = baseConfig.ResourceConversion
         };
     }
 }

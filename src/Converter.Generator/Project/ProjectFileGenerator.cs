@@ -100,7 +100,6 @@ public class ProjectFileGenerator
         sb.AppendLine("using Avalonia.Controls.ApplicationLifetimes;");
         sb.AppendLine("using Avalonia.Markup.Xaml;");
         sb.AppendLine($"using {namespaceName}.Views;");
-        sb.AppendLine($"using {namespaceName}.ViewModels;");
         sb.AppendLine();
         sb.AppendLine($"namespace {namespaceName};");
         sb.AppendLine();
@@ -115,10 +114,7 @@ public class ProjectFileGenerator
         sb.AppendLine("    {");
         sb.AppendLine("        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)");
         sb.AppendLine("        {");
-        sb.AppendLine($"            desktop.MainWindow = new {mainWindowName}");
-        sb.AppendLine("            {");
-        sb.AppendLine($"                DataContext = new {mainWindowName}ViewModel()");
-        sb.AppendLine("            };");
+        sb.AppendLine($"            desktop.MainWindow = new {mainWindowName}();");
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        base.OnFrameworkInitializationCompleted();");

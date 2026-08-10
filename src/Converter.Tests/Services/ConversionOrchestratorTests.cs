@@ -77,11 +77,15 @@ public class ConversionOrchestratorTests
             var viewModelsDir = Path.Combine(outputDir, "ViewModels");
             var generatedFiles = Directory.GetFiles(viewModelsDir);
 
-            Assert.Contains(generatedFiles, f => f.EndsWith("IncludedFormPresentationModel.g.cs"));
+            // IncludedForm has no data bindings and no ConvertToCommand handlers, so the
+            // auto-regenerated, properties-only .g.cs is skipped entirely; the hand-editable
+            // file is always created.
+            Assert.DoesNotContain(generatedFiles, f => f.EndsWith("IncludedFormPresentationModel.g.cs"));
+            Assert.Contains(generatedFiles, f => f.EndsWith("IncludedFormPresentationModel.cs"));
             Assert.DoesNotContain(generatedFiles, f => f.Contains("ExcludedForm"));
 
             var vmContent = await File.ReadAllTextAsync(
-                Path.Combine(viewModelsDir, "IncludedFormPresentationModel.g.cs"));
+                Path.Combine(viewModelsDir, "IncludedFormPresentationModel.cs"));
             Assert.Contains("namespace CustomNamespace.ViewModels;", vmContent);
         }
         finally
@@ -725,8 +729,11 @@ public class ConversionOrchestratorTests
 
             Assert.True(result.Success, result.ErrorMessage);
 
+            // Form1 has no data bindings, so the auto-regenerated .g.cs is skipped entirely.
+            Assert.False(File.Exists(Path.Combine(outputDir, "ViewModels", "Form1ViewModel.g.cs")));
+
             var viewModelContent = await File.ReadAllTextAsync(
-                Path.Combine(outputDir, "ViewModels", "Form1ViewModel.g.cs"));
+                Path.Combine(outputDir, "ViewModels", "Form1ViewModel.cs"));
             Assert.DoesNotContain("inline lambda", viewModelContent);
 
             var migrationGuide = await File.ReadAllTextAsync(Path.Combine(outputDir, "MIGRATION_GUIDE.md"));

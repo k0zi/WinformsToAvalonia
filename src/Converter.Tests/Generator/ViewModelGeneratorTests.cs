@@ -13,15 +13,15 @@ namespace Converter.Tests.Generator;
 public class ViewModelGeneratorTests
 {
     [Fact]
-    public async Task GeneratePartialClass_FromParsedFixture_EmitsRelayCommandForClickHandler()
+    public async Task BuildEditableClass_FromParsedFixture_EmitsRelayCommandForClickHandler()
     {
         var parser = new WinFormsParser();
         var parseResult = await parser.ParseDesignerFileAsync(FixturePath.Get("SampleForm.Designer.cs.txt"));
 
         var generator = new ViewModelGenerator();
-        var output = generator.GeneratePartialClass(parseResult.RootControl!, "SampleApp", "SampleForm");
+        var output = generator.BuildEditableClass(parseResult.RootControl!, "SampleApp", "SampleForm").Source;
 
-        Assert.Contains("[RelayCommand]", output);
+        Assert.Contains("[CommunityToolkit.Mvvm.Input.RelayCommand]", output);
         Assert.Contains("button1Click", output);
     }
 
@@ -39,7 +39,7 @@ public class ViewModelGeneratorTests
     }
 
     [Fact]
-    public void GeneratePartialClass_EventSubscribedViaInlineLambda_SkipsCommandInsteadOfEmittingInvalidIdentifier()
+    public void BuildEditableClass_EventSubscribedViaInlineLambda_SkipsCommandInsteadOfEmittingInvalidIdentifier()
     {
         // WinFormsParser.InlineLambdaHandlerMarker is not a valid C# identifier - it used to
         // flow straight through into `private void {MethodName}()`, producing a method
@@ -51,9 +51,146 @@ public class ViewModelGeneratorTests
         button.EventHandlers["Click"] = WinFormsParser.InlineLambdaHandlerMarker;
         root.Children.Add(button);
 
-        var output = new ViewModelGenerator().GeneratePartialClass(root, "SampleApp", "Form1");
+        var output = new ViewModelGenerator().BuildEditableClass(root, "SampleApp", "Form1").Source;
 
         Assert.DoesNotContain("inline lambda", output);
-        Assert.DoesNotContain("[RelayCommand]", output);
+        Assert.DoesNotContain("RelayCommand", output);
+    }
+
+    [Fact]
+    public void GeneratePartialClass_NoDataBindings_ReturnsEmptyString()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var button = new ControlNode { ControlType = "Button", FullTypeName = "System.Windows.Forms.Button", Name = "button1" };
+        button.EventHandlers["Click"] = "button1_Click";
+        root.Children.Add(button);
+
+        var output = new ViewModelGenerator().GeneratePartialClass(root, "SampleApp", "Form1");
+
+        Assert.Equal(string.Empty, output);
+    }
+
+    [Fact]
+    public void GeneratePartialClass_HasProperties_DeclaresNoBaseType()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var textBox = new ControlNode { ControlType = "TextBox", FullTypeName = "System.Windows.Forms.TextBox", Name = "textBox1" };
+        textBox.DataBindings.Add(new DataBinding { PropertyName = "Text", DataSource = "bindingSource1", DataMember = "CustomerName" });
+        root.Children.Add(textBox);
+
+        var output = new ViewModelGenerator().GeneratePartialClass(root, "SampleApp", "Form1");
+
+        Assert.Contains("[ObservableProperty]", output);
+        Assert.DoesNotContain(": ObservableObject", output);
+        Assert.DoesNotContain(": CommunityToolkit", output);
+    }
+
+    [Fact]
+    public void BuildEditableClass_MigratesFieldsWithInternalAccessibility()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var codeBehindMembers = new CodeBehindMembers(
+            fields: [new CodeBehindField(["_counter"], "private int _counter = 0;")]);
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", codeBehindMembers: codeBehindMembers).Source;
+
+        Assert.Contains("internal int _counter = 0;", output);
+        Assert.DoesNotContain("private int _counter", output);
+        Assert.Contains(": CommunityToolkit.Mvvm.ComponentModel.ObservableObject", output);
+    }
+
+    [Fact]
+    public void BuildEditableClass_MigratesHelperMethodBodyLive()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var codeBehindMembers = new CodeBehindMembers(
+            helperMethods: new Dictionary<string, string>
+            {
+                ["DoSomething"] = "private void DoSomething()\n{\n    _counter = 0;\n}"
+            });
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", codeBehindMembers: codeBehindMembers).Source;
+
+        Assert.Contains("internal void DoSomething()", output);
+        Assert.Contains("_counter = 0;", output);
+    }
+
+    [Fact]
+    public async Task BuildEditableClass_HandlerBodyFound_UsesLiveBodyNotComment()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var button = new ControlNode { ControlType = "Button", FullTypeName = "System.Windows.Forms.Button", Name = "button1" };
+        button.EventHandlers["Click"] = "button1_Click";
+        root.Children.Add(button);
+
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["button1_Click"] = "private void button1_Click(object sender, System.EventArgs e)\n{\n    DoWork();\n}"
+        };
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", handlerBodies: handlerBodies).Source;
+
+        Assert.Contains("DoWork();", output);
+        Assert.DoesNotContain("// DoWork();", output);
+        Assert.DoesNotContain("TODO", output);
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public void BuildEditableClass_NoHandlerBodyFound_EmitsTodo()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var button = new ControlNode { ControlType = "Button", FullTypeName = "System.Windows.Forms.Button", Name = "button1" };
+        button.EventHandlers["Click"] = "button1_Click";
+        root.Children.Add(button);
+
+        var output = new ViewModelGenerator().BuildEditableClass(root, "SampleApp", "Form1").Source;
+
+        Assert.Contains("TODO: Implement Click logic", output);
+    }
+
+    [Fact]
+    public void BuildEditableClass_OriginalHandlerWasAsyncVoid_PreservesAsyncModifier()
+    {
+        // WinForms event handlers are commonly "private async void Foo(...)" - a body
+        // containing "await" without the enclosing method staying "async" doesn't compile.
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var button = new ControlNode { ControlType = "Button", FullTypeName = "System.Windows.Forms.Button", Name = "button1" };
+        button.EventHandlers["Click"] = "button1_Click";
+        root.Children.Add(button);
+
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["button1_Click"] = "private async void button1_Click(object sender, System.EventArgs e)\n{\n    await DoWorkAsync();\n}"
+        };
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", handlerBodies: handlerBodies).Source;
+
+        Assert.Contains("private async void button1Click()", output);
+        Assert.Contains("await DoWorkAsync();", output);
+    }
+
+    [Fact]
+    public void BuildEditableClass_OriginalHandlerWasSynchronous_DoesNotAddAsyncModifier()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var button = new ControlNode { ControlType = "Button", FullTypeName = "System.Windows.Forms.Button", Name = "button1" };
+        button.EventHandlers["Click"] = "button1_Click";
+        root.Children.Add(button);
+
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["button1_Click"] = "private void button1_Click(object sender, System.EventArgs e)\n{\n    DoWork();\n}"
+        };
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", handlerBodies: handlerBodies).Source;
+
+        Assert.Contains("private void button1Click()", output);
+        Assert.DoesNotContain("async void button1Click", output);
     }
 }

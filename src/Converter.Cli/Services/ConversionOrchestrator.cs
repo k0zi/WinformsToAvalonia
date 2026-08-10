@@ -253,6 +253,9 @@ public class ConversionOrchestrator
                                     result.EventHandlerBodies =
                                         await EventHandlerBodyParser.ExtractAsync(codeBehindPath, handlerNames);
                                 }
+
+                                result.CodeBehindMembers =
+                                    await CodeBehindMemberExtractor.ExtractAsync(codeBehindPath, handlerNames);
                             }
                         }
                     }
@@ -623,15 +626,15 @@ public class ConversionOrchestrator
             var layoutResult = await layoutAnalyzer.AnalyzeAsync(rootControl, layoutContext);
             var layoutType = layoutResult.LayoutType;
 
+            var codeBehindMembers = parseResult.CodeBehindMembers;
+
             var axamlContent = axamlGenerator.Generate(rootControl, layoutResult, namespaceName, className, overrides);
-            var vmContent = vmGenerator.GeneratePartialClass(
-                rootControl, namespaceName, className, overrides, parseResult.EventHandlerBodies);
             var codeBehindContent = codeBehindGenerator.Generate(
-                namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides, avaloniaMajorVersion);
+                namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides,
+                avaloniaMajorVersion, codeBehindMembers, viewModelSuffix);
 
             var axamlPath = Path.Combine(viewsDir, $"{className}.axaml");
             var codeBehindPath = Path.Combine(viewsDir, $"{className}.axaml.cs");
-            var vmPath = Path.Combine(viewModelsDir, $"{className}{viewModelSuffix}.g.cs");
 
             await File.WriteAllTextAsync(axamlPath, axamlContent);
             TrackFileCreationSafe(rollbackManager, axamlPath);
@@ -639,8 +642,73 @@ public class ConversionOrchestrator
             await File.WriteAllTextAsync(codeBehindPath, codeBehindContent);
             TrackFileCreationSafe(rollbackManager, codeBehindPath);
 
-            await File.WriteAllTextAsync(vmPath, vmContent);
-            TrackFileCreationSafe(rollbackManager, vmPath);
+            var vmManualSteps = new List<ManualStepInfo>();
+
+            // Auto-regenerated, ObservableProperty-only, optional file - only written when it
+            // would have at least one property; a previously-written one whose bindings have
+            // since been removed is deleted rather than left stale.
+            var vmGenContent = vmGenerator.GeneratePartialClass(rootControl, namespaceName, className);
+            var vmGenPath = Path.Combine(viewModelsDir, $"{className}{viewModelSuffix}.g.cs");
+            if (!string.IsNullOrEmpty(vmGenContent))
+            {
+                await File.WriteAllTextAsync(vmGenPath, vmGenContent);
+                TrackFileCreationSafe(rollbackManager, vmGenPath);
+            }
+            else if (File.Exists(vmGenPath))
+            {
+                await rollbackManager.TrackFileModificationAsync(vmGenPath);
+                File.Delete(vmGenPath);
+            }
+
+            // Hand-editable file: written only once. If it already exists, it is never
+            // rewritten (user edits survive reconversion); any command/field/method this run
+            // would have seeded but isn't already present is instead surfaced as a manual step.
+            var editable = vmGenerator.BuildEditableClass(
+                rootControl, namespaceName, className, overrides, parseResult.EventHandlerBodies, codeBehindMembers);
+            var vmUserPath = Path.Combine(viewModelsDir, $"{className}{viewModelSuffix}.cs");
+
+            if (!File.Exists(vmUserPath))
+            {
+                await File.WriteAllTextAsync(vmUserPath, editable.Source);
+                TrackFileCreationSafe(rollbackManager, vmUserPath);
+            }
+            else
+            {
+                var existingContent = await File.ReadAllTextAsync(vmUserPath);
+                foreach (var name in editable.MemberNames.Distinct())
+                {
+                    if (!existingContent.Contains(name))
+                    {
+                        vmManualSteps.Add(new ManualStepInfo
+                        {
+                            Category = "ViewModel File Drift",
+                            Title = $"{className}: \"{name}\" is not present in {className}{viewModelSuffix}.cs",
+                            Location = parseResult.FilePath,
+                            Description = "The hand-editable ViewModel file already exists and was not " +
+                                "regenerated (edits are preserved across reconversion), but this run found a " +
+                                "command handler, field, or helper method in the WinForms code-behind that " +
+                                "isn't present in it yet. Add it manually - automatic merging into an " +
+                                "existing hand-edited file is not attempted."
+                        });
+                    }
+                }
+                // vmUserPath is intentionally not written - nothing tracked/backed up for it,
+                // since this run did not touch it.
+            }
+
+            foreach (var overrideName in codeBehindMembers.SkippedOverrideMethodNames)
+            {
+                vmManualSteps.Add(new ManualStepInfo
+                {
+                    Category = "Skipped Override Methods",
+                    Title = $"{className}.{overrideName} was not migrated (Form-lifecycle override)",
+                    Location = parseResult.FilePath,
+                    Description = "This method overrides a base Form/Control member (e.g. OnClosing, " +
+                        "OnLoad) and has no clean 1:1 ViewModel equivalent, so it was intentionally left " +
+                        "out of the generated ViewModel. Port its logic manually into the Window's own " +
+                        "lifecycle override or a suitable code-behind/ViewModel hook."
+                });
+            }
 
             if (_config.StyleExtraction.Enabled)
             {
@@ -663,8 +731,9 @@ public class ConversionOrchestrator
                 Status = "Converted"
             };
 
-            var manualSteps = CollectManualSteps(rootControl, parseResult.FilePath, overrides);
+            var manualSteps = CollectManualSteps(rootControl, parseResult.FilePath, overrides, parseResult.EventHandlerBodies);
             manualSteps.AddRange(resxManualSteps);
+            manualSteps.AddRange(vmManualSteps);
 
             return new FormConversionOutcome(report, controlCount, parseResult.FilePath, null, manualSteps);
         }
@@ -789,10 +858,12 @@ public class ConversionOrchestrator
     /// GenerateMigrationGuideAsync always reported "no manual steps required" even when these
     /// issues were present.
     /// </summary>
-    private static List<ManualStepInfo> CollectManualSteps(ControlNode root, string sourceFile, PluginMappingOverrides overrides)
+    private static List<ManualStepInfo> CollectManualSteps(
+        ControlNode root, string sourceFile, PluginMappingOverrides overrides,
+        IReadOnlyDictionary<string, string> handlerBodies)
     {
         var steps = new List<ManualStepInfo>();
-        CollectManualStepsRecursive(root, sourceFile, steps, overrides);
+        CollectManualStepsRecursive(root, sourceFile, steps, overrides, handlerBodies);
         return steps;
     }
 
@@ -822,7 +893,9 @@ public class ConversionOrchestrator
         }
     }
 
-    private static void CollectManualStepsRecursive(ControlNode control, string sourceFile, List<ManualStepInfo> steps, PluginMappingOverrides overrides)
+    private static void CollectManualStepsRecursive(
+        ControlNode control, string sourceFile, List<ManualStepInfo> steps, PluginMappingOverrides overrides,
+        IReadOnlyDictionary<string, string> handlerBodies)
     {
         // A plugin ControlMapper claiming this control means it isn't actually unmapped -
         // AxamlGenerator.WriteControl consults the same overrides and won't emit a TODO
@@ -885,21 +958,29 @@ public class ConversionOrchestrator
             var eventMapping = EventMappingRegistry.GetMapping(eventName);
             if (eventMapping?.PreserveEventHandler == true)
             {
+                var handlerName = control.EventHandlers[eventName];
+                var bodyEmbedded = handlerBodies.ContainsKey(handlerName);
                 steps.Add(new ManualStepInfo
                 {
                     Category = "Preserved Event Handlers",
-                    Title = $"{control.Name}.{eventName} handler \"{control.EventHandlers[eventName]}\" needs manual porting",
+                    Title = $"{control.Name}.{eventName} handler \"{handlerName}\" needs manual review",
                     Location = sourceFile,
-                    Description = eventMapping.Notes ??
-                        $"Maps to Avalonia's '{eventMapping.AvaloniaEvent}' event, but the original handler body " +
-                        "must be manually migrated to code-behind or the ViewModel."
+                    Description = eventMapping.Notes ?? (bodyEmbedded
+                        ? $"Maps to Avalonia's '{eventMapping.AvaloniaEvent}' event. The original handler body " +
+                          "was embedded as live code, with best-effort identifier rewriting for any " +
+                          "fields/methods that moved to the ViewModel - verify this compiles (the original " +
+                          "code may call WinForms-only APIs that don't exist in Avalonia) and double-check " +
+                          "the rewritten identifiers before shipping."
+                        : $"Maps to Avalonia's '{eventMapping.AvaloniaEvent}' event, but no original handler " +
+                          "body was found in the sibling code-behind file; a TODO stub was generated and " +
+                          "must be ported manually.")
                 });
             }
         }
 
         foreach (var child in control.Children)
         {
-            CollectManualStepsRecursive(child, sourceFile, steps, overrides);
+            CollectManualStepsRecursive(child, sourceFile, steps, overrides, handlerBodies);
         }
     }
 
