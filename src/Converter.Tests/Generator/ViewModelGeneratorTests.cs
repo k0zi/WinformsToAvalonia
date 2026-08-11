@@ -293,6 +293,47 @@ public class ViewModelGeneratorTests
     }
 
     [Fact]
+    public void BuildBoundControlPropertyLookup_DataBoundControl_MapsToObservablePropertyName()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var textBox = new ControlNode { ControlType = "TextBox", FullTypeName = "System.Windows.Forms.TextBox", Name = "textBox1" };
+        textBox.DataBindings.Add(new DataBinding { PropertyName = "Text", DataSource = "bindingSource1", DataMember = "CustomerName" });
+        root.Children.Add(textBox);
+
+        var lookup = new ViewModelGenerator().BuildBoundControlPropertyLookup(root);
+
+        Assert.Equal("CustomerName", lookup[("textBox1", "Text")]);
+    }
+
+    [Fact]
+    public void BuildEditableClass_RelayCommandBodyReferencesBoundControlProperty_RewritesToObservableProperty()
+    {
+        // A migrated Click handler commonly reads/writes another control directly
+        // ("textBox1.Text") - the ViewModel has no "textBox1" field (that's a View concern), so
+        // left as-is this would not compile. When that control's property is already bound
+        // (DataBindings.Add), the reference should be rewritten to the ViewModel's own
+        // [ObservableProperty] instead of reaching into the View.
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var button = new ControlNode { ControlType = "Button", FullTypeName = "System.Windows.Forms.Button", Name = "button1" };
+        button.EventHandlers["Click"] = "button1_Click";
+        var textBox = new ControlNode { ControlType = "TextBox", FullTypeName = "System.Windows.Forms.TextBox", Name = "textBox1" };
+        textBox.DataBindings.Add(new DataBinding { PropertyName = "Text", DataSource = "bindingSource1", DataMember = "CustomerName" });
+        root.Children.Add(button);
+        root.Children.Add(textBox);
+
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["button1_Click"] = "private void button1_Click(object sender, System.EventArgs e)\n{\n    Save(textBox1.Text);\n}"
+        };
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", handlerBodies: handlerBodies).Source;
+
+        Assert.Contains("Save(CustomerName);", output);
+        Assert.DoesNotContain("textBox1", output);
+    }
+
+    [Fact]
     public void BuildEditableClass_TextChangedWithoutBoundProperty_EmitsNoHook()
     {
         var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };

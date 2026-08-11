@@ -17,6 +17,7 @@ using Converter.Mappings.BuiltIn;
 using Converter.Plugin.Abstractions;
 using Converter.Reporting.Builders;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using Converter.Cli.Models;
@@ -787,7 +788,7 @@ public class ConversionOrchestrator
                 Status = "Converted"
             };
 
-            var manualSteps = CollectManualSteps(rootControl, parseResult.FilePath, overrides, parseResult.EventHandlerBodies);
+            var manualSteps = CollectManualSteps(rootControl, parseResult.FilePath, overrides, parseResult.EventHandlerBodies, vmGenerator);
             manualSteps.AddRange(resxManualSteps);
             manualSteps.AddRange(vmManualSteps);
 
@@ -916,11 +917,120 @@ public class ConversionOrchestrator
     /// </summary>
     private static List<ManualStepInfo> CollectManualSteps(
         ControlNode root, string sourceFile, PluginMappingOverrides overrides,
-        IReadOnlyDictionary<string, string> handlerBodies)
+        IReadOnlyDictionary<string, string> handlerBodies, ViewModelGenerator vmGenerator)
     {
         var steps = new List<ManualStepInfo>();
-        CollectManualStepsRecursive(root, sourceFile, steps, overrides, handlerBodies);
+        var controlNames = CollectControlNames(root);
+        var boundControlProperties = vmGenerator.BuildBoundControlPropertyLookup(root);
+        CollectManualStepsRecursive(root, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties);
         return steps;
+    }
+
+    private static HashSet<string> CollectControlNames(ControlNode root)
+    {
+        var names = new HashSet<string>();
+        CollectControlNamesRecursive(root, names);
+        return names;
+    }
+
+    private static void CollectControlNamesRecursive(ControlNode control, HashSet<string> names)
+    {
+        names.Add(control.Name);
+        foreach (var child in control.Children)
+        {
+            CollectControlNamesRecursive(child, names);
+        }
+    }
+
+    /// <summary>
+    /// Re-parses a migrated body (already run through EventHandlerBodyParser.ExtractBodyText)
+    /// and finds every "controlName.Property" member access whose controlName matches another
+    /// control in the same form's tree but has no [ObservableProperty] binding
+    /// (ViewModelGenerator.RewriteBoundControlReferences already rewrote the ones that do) - a
+    /// reference the ViewModel cannot resolve without reaching into the View. Best-effort,
+    /// mirroring EventHandlerBodyParser's own tolerance for unparseable text.
+    /// </summary>
+    private static List<(string ControlName, string Property)> FindUnresolvedControlReferences(
+        string body, IReadOnlySet<string> controlNames,
+        IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties)
+    {
+        var results = new List<(string, string)>();
+        try
+        {
+            var wrapper = $"class __Wrapper {{ void __M() {body} }}";
+            var root = CSharpSyntaxTree.ParseText(wrapper).GetRoot();
+
+            foreach (var memberAccess in root.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
+            {
+                if (memberAccess.Expression is not IdentifierNameSyntax identifier)
+                {
+                    continue;
+                }
+
+                var controlName = identifier.Identifier.Text;
+                if (!controlNames.Contains(controlName))
+                {
+                    continue;
+                }
+
+                var property = memberAccess.Name.Identifier.Text;
+                if (boundControlProperties.ContainsKey((controlName, property)))
+                {
+                    continue;
+                }
+
+                results.Add((controlName, property));
+            }
+        }
+        catch
+        {
+            // Best-effort: an unparseable body simply yields no findings, not a hard failure.
+        }
+
+        return results.Distinct().ToList();
+    }
+
+    /// <summary>
+    /// Adds a "Command Logic References View-Only Control" manual step when a migrated,
+    /// live-code event-handler body (a ConvertToCommand [RelayCommand], or an autowired
+    /// TextChanged/ValueChanged/CheckedChanged property-changed hook) references another
+    /// control's property that has no DataBindings-backed [ObservableProperty] to rewrite it
+    /// into - ViewModelGenerator emits the reference as-is in that case (RewriteBoundControlReferences
+    /// only fixes bound references), which will not compile since the ViewModel cannot reach the
+    /// View. Without this, that failure was silent - the only prior signal was a build error with
+    /// no indication of why.
+    /// </summary>
+    private static void AddViewOnlyControlReferenceStepIfAny(
+        ControlNode control, string eventName, string handlerName, string sourceFile,
+        IReadOnlyDictionary<string, string> handlerBodies, IReadOnlySet<string> controlNames,
+        IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties,
+        List<ManualStepInfo> steps)
+    {
+        if (!handlerBodies.TryGetValue(handlerName, out var originalSource))
+        {
+            return;
+        }
+
+        var body = EventHandlerBodyParser.ExtractBodyText(originalSource);
+        var unresolved = FindUnresolvedControlReferences(body, controlNames, boundControlProperties);
+        if (unresolved.Count == 0)
+        {
+            return;
+        }
+
+        steps.Add(new ManualStepInfo
+        {
+            Category = "Command Logic References View-Only Control",
+            Title = $"{control.Name}.{eventName} handler \"{handlerName}\" references " +
+                string.Join(", ", unresolved.Select(r => $"{r.ControlName}.{r.Property}")),
+            Location = sourceFile,
+            Description = "This handler was migrated as live code into the ViewModel, but it reads/writes " +
+                "another control's property directly, and that property has no DataBindings.Add(...) entry " +
+                "to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot " +
+                "reference the View). Either add a DataBindings.Add(...) for it in the source WinForms " +
+                "designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an " +
+                "AXAML-side binding)."
+        });
     }
 
     /// <summary>
@@ -951,7 +1061,8 @@ public class ConversionOrchestrator
 
     private static void CollectManualStepsRecursive(
         ControlNode control, string sourceFile, List<ManualStepInfo> steps, PluginMappingOverrides overrides,
-        IReadOnlyDictionary<string, string> handlerBodies)
+        IReadOnlyDictionary<string, string> handlerBodies, IReadOnlySet<string> controlNames,
+        IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties)
     {
         // A plugin ControlMapper claiming this control means it isn't actually unmapped -
         // AxamlGenerator.WriteControl consults the same overrides and won't emit a TODO
@@ -1067,12 +1178,30 @@ public class ConversionOrchestrator
                             "could not fully translate this event; review and port the original handler manually."
                     });
                 }
+                else
+                {
+                    AddViewOnlyControlReferenceStepIfAny(
+                        control, eventName, handlerName, sourceFile, handlerBodies, controlNames,
+                        boundControlProperties, steps);
+                }
+            }
+            else if (eventMapping?.ConvertToCommand == true)
+            {
+                // Mirrors ViewModelGenerator.ExtractCommands' bucket (Click, DoubleClick,
+                // SelectedIndexChanged, CellClick, NodeClick, ...) - a found body was already
+                // spliced into the generated [RelayCommand] as live code with bound-control
+                // references rewritten (ViewModelGenerator.RewriteBoundControlReferences); flag
+                // whatever's left over instead of leaving a silent compile failure.
+                AddViewOnlyControlReferenceStepIfAny(
+                    control, eventName, control.EventHandlers[eventName], sourceFile, handlerBodies,
+                    controlNames, boundControlProperties, steps);
             }
         }
 
         foreach (var child in control.Children)
         {
-            CollectManualStepsRecursive(child, sourceFile, steps, overrides, handlerBodies);
+            CollectManualStepsRecursive(
+                child, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties);
         }
     }
 

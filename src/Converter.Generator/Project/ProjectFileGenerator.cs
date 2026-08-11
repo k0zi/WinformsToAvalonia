@@ -40,6 +40,7 @@ public class ProjectFileGenerator
         sb.AppendLine("    <OutputType>WinExe</OutputType>");
         sb.AppendLine($"    <TargetFramework>{targetFramework}</TargetFramework>");
         sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>enable</ImplicitUsings>");
         sb.AppendLine("    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>");
         sb.AppendLine("    <ApplicationManifest>app.manifest</ApplicationManifest>");
         sb.AppendLine("    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>");

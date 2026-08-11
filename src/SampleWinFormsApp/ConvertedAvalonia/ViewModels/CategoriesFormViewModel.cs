@@ -50,7 +50,6 @@ public partial class CategoriesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
             }
             return node;
         }
-
     internal void CategoriesTreeView_AfterSelect(object? sender, TreeViewEventArgs e)
         {
             if (SelectedCategory is not { } category)

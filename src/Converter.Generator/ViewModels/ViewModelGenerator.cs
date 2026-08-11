@@ -84,6 +84,7 @@ public class ViewModelGenerator
     {
         overrides ??= PluginMappingOverrides.Empty;
         codeBehindMembers ??= CodeBehindMembers.Empty;
+        var boundControlProperties = BuildBoundControlPropertyLookup(root);
 
         var memberNames = new List<string>();
         var sb = new StringBuilder();
@@ -141,6 +142,7 @@ public class ViewModelGenerator
             if (hasOriginalSource)
             {
                 var body = EventHandlerBodyParser.ExtractBodyText(originalSource!);
+                body = RewriteBoundControlReferences(body, boundControlProperties);
                 sb.AppendLine("    " + IndentContinuationLines(body));
             }
             else
@@ -174,6 +176,7 @@ public class ViewModelGenerator
             // intentionally does not add an async modifier even if the original handler had one.
             sb.AppendLine($"    partial void On{hook.BoundPropertyName}Changed({hook.ParameterType} value)");
             var body = EventHandlerBodyParser.ExtractBodyText(originalSource!);
+            body = RewriteBoundControlReferences(body, boundControlProperties);
             sb.AppendLine("    " + IndentContinuationLines(body));
             sb.AppendLine();
             memberNames.Add($"On{hook.BoundPropertyName}Changed");
@@ -182,6 +185,70 @@ public class ViewModelGenerator
         sb.AppendLine("}");
 
         return new EditableClassContent(sb.ToString(), memberNames);
+    }
+
+    /// <summary>
+    /// Maps every "controlName.ControlSideProperty" pair backed by a DataBindings.Add(...) entry
+    /// anywhere under <paramref name="root"/> to the [ObservableProperty] this generator emits
+    /// for it (see ExtractBoundProperties/GeneratePartialClass). A migrated event-handler body
+    /// spliced into this ViewModel as live code (BuildEditableClass, below) commonly reads/writes
+    /// another control directly - e.g. "textBox1.Text" - which does not compile here (the
+    /// ViewModel has no "textBox1" field; that's a View concern). When the control's property is
+    /// already bound, this lookup lets RewriteBoundControlReferences replace that reference with
+    /// the ViewModel's own property instead, keeping the ViewModel from reaching into the View.
+    /// Keyed by (control.Name, binding.PropertyName); value is the PascalCase form of
+    /// binding.DataMember, matching CommunityToolkit.Mvvm's [ObservableProperty] source-generator
+    /// naming convention (same casing ExtractBoundProperties' FieldName/ToCamelCase already
+    /// assumes, just capitalized back to the generated public property's name).
+    /// </summary>
+    public IReadOnlyDictionary<(string ControlName, string ControlProperty), string> BuildBoundControlPropertyLookup(ControlNode root)
+    {
+        var lookup = new Dictionary<(string, string), string>();
+        BuildBoundControlPropertyLookupRecursive(root, lookup);
+        return lookup;
+    }
+
+    private void BuildBoundControlPropertyLookupRecursive(
+        ControlNode control, Dictionary<(string, string), string> lookup)
+    {
+        foreach (var binding in control.DataBindings)
+        {
+            if (string.IsNullOrEmpty(binding.DataMember))
+            {
+                continue;
+            }
+
+            lookup[(control.Name, binding.PropertyName)] = ToPascalCase(binding.DataMember);
+        }
+
+        foreach (var child in control.Children)
+        {
+            BuildBoundControlPropertyLookupRecursive(child, lookup);
+        }
+    }
+
+    /// <summary>
+    /// Rewrites "controlName.ControlProperty" references in a migrated body (already spliced in
+    /// as live code) into the corresponding [ObservableProperty]'s name, for every pair
+    /// BuildBoundControlPropertyLookup found. A per-pair word-boundary regex, mirroring
+    /// CodeBehindGenerator's identical treatment of its own migratedNames rewrite - same accepted
+    /// limitation (not Roslyn-token-aware, so it can also match inside a string/comment literal
+    /// or a shadowed local sharing the same name) rather than a different approach for the same
+    /// class of problem. References to unbound controls are left untouched here - flagged
+    /// instead as a manual step by ConversionOrchestrator using the same lookup.
+    /// </summary>
+    private static string RewriteBoundControlReferences(
+        string body, IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties)
+    {
+        foreach (var ((controlName, controlProperty), observableProperty) in boundControlProperties)
+        {
+            body = Regex.Replace(
+                body,
+                $@"\b{Regex.Escape(controlName)}\.{Regex.Escape(controlProperty)}\b",
+                observableProperty);
+        }
+
+        return body;
     }
 
     private List<PropertyInfo> ExtractBoundProperties(ControlNode root)
@@ -362,6 +429,12 @@ public class ViewModelGenerator
     {
         if (string.IsNullOrEmpty(text)) return text;
         return char.ToLowerInvariant(text[0]) + text.Substring(1);
+    }
+
+    private static string ToPascalCase(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        return char.ToUpperInvariant(text[0]) + text.Substring(1);
     }
 
     /// <summary>

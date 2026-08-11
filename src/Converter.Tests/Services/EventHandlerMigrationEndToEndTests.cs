@@ -692,4 +692,154 @@ public class EventHandlerMigrationEndToEndTests
             Directory.Delete(outputDir, recursive: true);
         }
     }
+
+    private const string BoundControlRefDesignerContent = """
+        namespace SampleApp
+        {
+            partial class BoundRefForm
+            {
+                private System.Windows.Forms.Button button1;
+                private System.Windows.Forms.TextBox textBox1;
+                private System.Windows.Forms.BindingSource customerBindingSource;
+
+                private void InitializeComponent()
+                {
+                    this.button1 = new System.Windows.Forms.Button();
+                    this.textBox1 = new System.Windows.Forms.TextBox();
+                    this.SuspendLayout();
+                    this.button1.Name = "button1";
+                    this.button1.Click += new System.EventHandler(this.button1_Click);
+                    this.textBox1.Name = "textBox1";
+                    this.textBox1.DataBindings.Add(new System.Windows.Forms.Binding("Text", this.customerBindingSource, "CustomerName", true));
+                    this.Controls.Add(this.button1);
+                    this.Controls.Add(this.textBox1);
+                    this.Name = "BoundRefForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    private const string BoundControlRefCodeBehindContent = """
+        namespace SampleApp
+        {
+            partial class BoundRefForm
+            {
+                private void button1_Click(object sender, System.EventArgs e)
+                {
+                    System.Console.WriteLine(textBox1.Text);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_CommandBodyReferencesBoundControlProperty_RewritesToObservableProperty()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "BoundRefForm.Designer.cs"), BoundControlRefDesignerContent);
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "BoundRefForm.cs"), BoundControlRefCodeBehindContent);
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, BaselineConfig(true)).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var vmContent = await File.ReadAllTextAsync(
+                Path.Combine(outputDir, "ViewModels", "BoundRefFormViewModel.cs"));
+
+            // textBox1.Text is bound (DataBindings.Add -> CustomerName), so the migrated
+            // [RelayCommand] body must reference the ViewModel's own ObservableProperty instead
+            // of the View-only "textBox1" - the ViewModel cannot reach the View.
+            Assert.Contains("Console.WriteLine(CustomerName);", vmContent);
+            Assert.DoesNotContain("textBox1", vmContent);
+
+            Assert.DoesNotContain(
+                result.Report!.ManualSteps, s => s.Category == "Command Logic References View-Only Control");
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    private const string UnboundControlRefDesignerContent = """
+        namespace SampleApp
+        {
+            partial class UnboundRefForm
+            {
+                private System.Windows.Forms.Button button1;
+                private System.Windows.Forms.Label label1;
+
+                private void InitializeComponent()
+                {
+                    this.button1 = new System.Windows.Forms.Button();
+                    this.label1 = new System.Windows.Forms.Label();
+                    this.SuspendLayout();
+                    this.button1.Name = "button1";
+                    this.button1.Click += new System.EventHandler(this.button1_Click);
+                    this.label1.Name = "label1";
+                    this.Controls.Add(this.button1);
+                    this.Controls.Add(this.label1);
+                    this.Name = "UnboundRefForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    private const string UnboundControlRefCodeBehindContent = """
+        namespace SampleApp
+        {
+            partial class UnboundRefForm
+            {
+                private void button1_Click(object sender, System.EventArgs e)
+                {
+                    System.Console.WriteLine(label1.Text);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_CommandBodyReferencesUnboundControlProperty_SurfacedAsManualStep()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "UnboundRefForm.Designer.cs"), UnboundControlRefDesignerContent);
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "UnboundRefForm.cs"), UnboundControlRefCodeBehindContent);
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = true },
+                EventHandlerMigration = new EventHandlerMigrationConfig { Enabled = true },
+                NamingConventions = new NamingConventionsConfig { RootNamespace = "SampleApp" }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            // label1 has no DataBindings entry, so there is nothing to rewrite this reference
+            // into - left as-is it wouldn't compile (the ViewModel has no "label1"), so this
+            // must be surfaced as an explicit manual step instead of silently failing to build.
+            var step = Assert.Single(
+                result.Report!.ManualSteps, s => s.Category == "Command Logic References View-Only Control");
+            Assert.Contains("label1", step.Title);
+
+            var migrationGuide = await File.ReadAllTextAsync(Path.Combine(outputDir, "MIGRATION_GUIDE.md"));
+            Assert.Contains("Command Logic References View-Only Control", migrationGuide);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
 }

@@ -36,6 +36,19 @@ public class ProjectFileGeneratorTests
     }
 
     [Fact]
+    public void GenerateAvaloniaProject_EnablesImplicitUsings()
+    {
+        // Support files carried over verbatim (e.g. a plain Db.cs alongside a form) and
+        // migrated code-behind/ViewModel logic commonly rely on the source WinForms project's
+        // implicit usings (System, System.IO, ...) without an explicit "using" to copy forward
+        // - the generated project must enable the same SDK feature or those files fail to
+        // compile with no signal why.
+        var csproj = new ProjectFileGenerator().GenerateAvaloniaProject("SampleApp");
+
+        Assert.Contains("<ImplicitUsings>enable</ImplicitUsings>", csproj);
+    }
+
+    [Fact]
     public void GenerateAvaloniaProject_AlwaysReferencesAvaloniaControlsDataGrid()
     {
         // ControlMappingRegistry maps DataGridView -> Avalonia.Controls.DataGrid, but that
