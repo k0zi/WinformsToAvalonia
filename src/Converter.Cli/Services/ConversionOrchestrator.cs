@@ -370,7 +370,15 @@ public class ConversionOrchestrator
             foreach (var className in convertedCustomControlClassNames)
             {
                 var designerFilePath = parseResults.First(r => r.RootControl!.Name == className).FilePath;
-                var codeBehindPath = SiblingFileResolver.ResolveCodeBehind(designerFilePath);
+                // A composite custom control (see SingleFileCustomControlDiscovery above) has no
+                // separate "Foo.Designer.cs"/"Foo.cs" split - ResolveCodeBehind's naming
+                // convention never matches, so without this fallback its own properties are
+                // silently never even attempted (empty, not "no properties found" - the file
+                // just never gets read at all). The file parsed as its designer file already IS
+                // its own code-behind in this case, same special-casing the earlier parse loop
+                // already applies for event-handler-body extraction.
+                var codeBehindPath = SiblingFileResolver.ResolveCodeBehind(designerFilePath) ??
+                    (singleFileCustomControlPaths.Contains(designerFilePath) ? designerFilePath : null);
                 customControlBindableProperties[className] = codeBehindPath != null
                     ? await CustomControlPropertyExtractor.ExtractAsync(codeBehindPath, className)
                     : CustomControlPropertyExtractionResult.Empty;
@@ -812,6 +820,7 @@ public class ConversionOrchestrator
             var bindableProperties = customControlBindableProperties.TryGetValue(className, out var extraction)
                 ? extraction.Bindable
                 : null;
+            var delegatingProperties = extraction?.Delegating;
 
             // Many real WinForms apps never call .DataBindings.Add(...) at all (confirmed
             // against WarehouseApp: zero hits across every form), so the DataBindings-only
@@ -832,7 +841,7 @@ public class ConversionOrchestrator
                 inferredBindings);
             var codeBehindContent = codeBehindGenerator.Generate(
                 namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides,
-                avaloniaMajorVersion, codeBehindMembers, viewModelSuffix, bindableProperties);
+                avaloniaMajorVersion, codeBehindMembers, viewModelSuffix, bindableProperties, delegatingProperties);
 
             var axamlPath = Path.Combine(formDir, $"{className}.axaml");
             var codeBehindPath = Path.Combine(formDir, $"{className}.axaml.cs");
@@ -1023,6 +1032,7 @@ public class ConversionOrchestrator
                 inferredBindings);
             manualSteps.AddRange(resxManualSteps);
             manualSteps.AddRange(vmManualSteps);
+            AddCoercionFallbackStepsIfAny(className, bindableProperties, parseResult.FilePath, manualSteps);
 
             // Cheap presence check (not tied to whether MessageBoxTranspiler's own rewrite
             // actually fires - e.g. an unsupported overload it leaves untouched still needs the
@@ -1253,15 +1263,19 @@ public class ConversionOrchestrator
     {
         if (customControlBindableProperties.TryGetValue(control.ControlType, out var extraction))
         {
-            foreach (var property in extraction.Bindable)
+            // A Delegating property is a plain settable CLR property (see
+            // CodeBehindGenerator) - an embedding site's literal XAML attribute works for it
+            // the same way it does for a real StyledProperty.
+            foreach (var propertyName in extraction.Bindable.Select(p => (p.Name, p.TypeName))
+                .Concat(extraction.Delegating.Select(p => (p.Name, p.TypeName))))
             {
-                if (control.Properties.TryGetValue(property.Name, out var propertyValue))
+                if (control.Properties.TryGetValue(propertyName.Name, out var propertyValue))
                 {
-                    overrides.PropertyTranslations[(control, property.Name)] = new PropertyTranslationResult
+                    overrides.PropertyTranslations[(control, propertyName.Name)] = new PropertyTranslationResult
                     {
-                        AvaloniaPropertyName = property.Name,
+                        AvaloniaPropertyName = propertyName.Name,
                         Value = propertyValue.Value,
-                        ValueType = property.TypeName
+                        ValueType = propertyName.TypeName
                     };
                 }
             }
@@ -1374,6 +1388,44 @@ public class ConversionOrchestrator
     }
 
     /// <summary>
+    /// One note per CoercionFallback property this form's own class declares (only meaningful
+    /// when this form's own className is itself a converted custom control - see
+    /// CustomControlPropertyExtractor.CustomControlPropertyKind.CoercionFallback) - the
+    /// property's original setter logic *looked* like a self-contained validation setter but
+    /// wasn't in the safe, mechanically-translatable expression subset, so it was still
+    /// converted (a plain, unvalidated StyledProperty, not silently dropped), but its original
+    /// logic needs manual porting.
+    /// </summary>
+    private static void AddCoercionFallbackStepsIfAny(
+        string className, IReadOnlyList<CustomControlProperty>? bindableProperties, string sourceFile,
+        List<ManualStepInfo> steps)
+    {
+        if (bindableProperties == null)
+        {
+            return;
+        }
+
+        foreach (var property in bindableProperties)
+        {
+            if (property.Kind != CustomControlPropertyKind.CoercionFallback)
+            {
+                continue;
+            }
+
+            steps.Add(new ManualStepInfo
+            {
+                Category = "Custom Control Property",
+                Title = $"{className}.{property.Name} was auto-bound without its original validation logic",
+                Location = sourceFile,
+                Description = $"{className}.{property.Name}'s original setter logic could not be safely " +
+                    "auto-translated into an Avalonia property-coercion callback, so it was converted as a " +
+                    "plain bindable property with no validation. Port the original setter logic manually " +
+                    $"(e.g. into a coerce callback on {property.Name}Property, or an OnPropertyChanged hook)."
+            });
+        }
+    }
+
+    /// <summary>
     /// Same check as AddViewOnlyControlReferenceStepIfAny, for a migrated helper method
     /// (CodeBehindMemberExtractor.HelperMethods) instead of an event-handler body - the source
     /// is already the full method text (not looked up by handler name), so it's re-extracted
@@ -1457,12 +1509,13 @@ public class ConversionOrchestrator
                 // This run also independently converted control.ControlType's own Designer.cs -
                 // AxamlGenerator.WriteControl already references it correctly (<controls:.../>)
                 // instead of a TODO placeholder, so this isn't "Unmapped Controls". Still worth
-                // a lighter-weight note: only its own simple auto-properties get auto-bound
-                // (CustomControlPropertyExtractor/PopulateCustomControlPropertyTranslations) -
-                // anything else this instance's Designer.cs set on it that isn't in that list is
-                // silently dropped, same as any other unmapped property.
+                // a lighter-weight note: only properties CustomControlPropertyExtractor could
+                // classify as bindable or delegating (see AllSettableNames) get auto-bound via
+                // PopulateCustomControlPropertyTranslations - anything else this instance's
+                // Designer.cs set on it that isn't in that list is silently dropped, same as any
+                // other unmapped property.
                 var extraction = customControlBindableProperties.GetValueOrDefault(control.ControlType);
-                var boundNames = extraction?.Bindable.Select(p => p.Name).ToHashSet() ?? [];
+                var boundNames = extraction?.AllSettableNames().ToHashSet() ?? [];
                 var droppedProperties = control.Properties.Keys.Where(p => !boundNames.Contains(p)).ToList();
 
                 steps.Add(new ManualStepInfo

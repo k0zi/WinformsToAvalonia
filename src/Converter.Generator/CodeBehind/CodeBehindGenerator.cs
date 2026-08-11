@@ -37,7 +37,8 @@ public class CodeBehindGenerator
         int avaloniaMajorVersion = 12,
         CodeBehindMembers? codeBehindMembers = null,
         string viewModelSuffix = "ViewModel",
-        IReadOnlyList<CustomControlProperty>? bindableProperties = null)
+        IReadOnlyList<CustomControlProperty>? bindableProperties = null,
+        IReadOnlyList<DelegatingCustomControlProperty>? delegatingProperties = null)
     {
         overrides ??= PluginMappingOverrides.Empty;
         codeBehindMembers ??= CodeBehindMembers.Empty;
@@ -72,22 +73,57 @@ public class CodeBehindGenerator
         sb.AppendLine();
         sb.AppendLine($"    private {vmType} ViewModel => ({vmType})DataContext!;");
 
-        // Re-exposes this custom control's own simple public auto-properties (see
+        // Re-exposes this custom control's own simple public properties (see
         // CustomControlPropertyExtractor) as real Avalonia bindable properties, under their
         // original name, so a parent embedding this control can set them as a plain XAML
-        // attribute (e.g. CustomerId="5") instead of the value being silently dropped.
+        // attribute (e.g. CustomerId="5") instead of the value being silently dropped. A
+        // Coerced property additionally gets its original setter's validation logic back via
+        // Avalonia's "coerce" registration parameter; CoercionFallback is the same plain
+        // StyledProperty as PlainBindable, just without that validation (the original logic
+        // couldn't be safely auto-translated - see ConversionOrchestrator's manual-step note).
         if (bindableProperties is { Count: > 0 })
         {
             foreach (var property in bindableProperties)
             {
                 sb.AppendLine();
+                var coerceArgument = property.Kind == CustomControlPropertyKind.Coerced
+                    ? $", coerce: {property.CoerceMethodName}"
+                    : string.Empty;
                 sb.AppendLine($"    public static readonly Avalonia.StyledProperty<{property.TypeName}> {property.Name}Property =");
-                sb.AppendLine($"        Avalonia.AvaloniaProperty.Register<{className}, {property.TypeName}>(nameof({property.Name}));");
+                sb.AppendLine($"        Avalonia.AvaloniaProperty.Register<{className}, {property.TypeName}>(nameof({property.Name}){coerceArgument});");
                 sb.AppendLine();
                 sb.AppendLine($"    public {property.TypeName} {property.Name}");
                 sb.AppendLine("    {");
                 sb.AppendLine($"        get => GetValue({property.Name}Property);");
                 sb.AppendLine($"        set => SetValue({property.Name}Property, value);");
+                sb.AppendLine("    }");
+
+                if (property.Kind == CustomControlPropertyKind.Coerced)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"    {property.CoerceMethodBody}");
+                }
+            }
+        }
+
+        // Re-exposes a property that just forwards to a single child element's member (e.g.
+        // "Text" -> "_textBox.Text") as a plain CLR property - no StyledProperty/backing field,
+        // since the real state already lives on the named child element. "override" is always
+        // dropped: Avalonia's UserControl/Control base declares no such member the way
+        // WinForms' Control does, so keeping it would be a hard compile error (CS0115) rather
+        // than the harmless hides-member warning (CS0108) dropping it risks at worst.
+        if (delegatingProperties is { Count: > 0 })
+        {
+            foreach (var property in delegatingProperties)
+            {
+                sb.AppendLine();
+                var setterValue = property.FallbackExpression is null
+                    ? "value"
+                    : $"value ?? {property.FallbackExpression}";
+                sb.AppendLine($"    public {property.TypeName} {property.Name}");
+                sb.AppendLine("    {");
+                sb.AppendLine($"        get => {property.FieldName}.{property.MemberName};");
+                sb.AppendLine($"        set => {property.FieldName}.{property.MemberName} = {setterValue};");
                 sb.AppendLine("    }");
             }
         }

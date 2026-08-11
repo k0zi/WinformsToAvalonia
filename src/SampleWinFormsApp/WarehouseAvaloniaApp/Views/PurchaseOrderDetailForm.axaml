@@ -140,7 +140,7 @@
                 Grid.Row="1"
                 Grid.Column="0"
                 Width="250"
-                DisplayMemberPath="Name"
+                DisplayMember="Name"
                 SelectedItem="{Binding ProductSearchBox}" />
                 <TextBlock Name="qtyLabel"
                 Grid.Row="0"

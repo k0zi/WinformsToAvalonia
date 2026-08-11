@@ -12,6 +12,15 @@ public partial class NumericStepperControl : UserControl
 
     private WarehouseAvaloniaApp.ViewModels.NumericStepperControlViewModel ViewModel => (WarehouseAvaloniaApp.ViewModels.NumericStepperControlViewModel)DataContext!;
 
+    public static readonly Avalonia.StyledProperty<decimal> IncrementProperty =
+        Avalonia.AvaloniaProperty.Register<NumericStepperControl, decimal>(nameof(Increment));
+
+    public decimal Increment
+    {
+        get => GetValue(IncrementProperty);
+        set => SetValue(IncrementProperty, value);
+    }
+
     private void _incrementButton_MouseDown_InlineHandler(object? sender, Avalonia.Input.PointerPressedEventArgs e)
     {
         ViewModel.StartRepeat(1);

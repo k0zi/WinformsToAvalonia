@@ -59,7 +59,10 @@ public class CodeBehindGeneratorTests
     public void Generate_WithBindableProperties_EmitsStyledPropertyAndClrWrapper()
     {
         var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "CustomerCard" };
-        var bindableProperties = new List<CustomControlProperty> { new("CustomerId", "int") };
+        var bindableProperties = new List<CustomControlProperty>
+        {
+            new("CustomerId", "int", CustomControlPropertyKind.PlainBindable)
+        };
 
         var content = new CodeBehindGenerator().Generate(
             "SampleApp", "CustomerCard", root, bindableProperties: bindableProperties);
@@ -71,6 +74,95 @@ public class CodeBehindGeneratorTests
         Assert.Contains("public int CustomerId", content);
         Assert.Contains("get => GetValue(CustomerIdProperty);", content);
         Assert.Contains("set => SetValue(CustomerIdProperty, value);", content);
+        Assert.DoesNotContain("coerce:", content);
+
+        var tree = CSharpSyntaxTree.ParseText(content);
+        var errors = tree.GetDiagnostics()
+            .Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+            .ToList();
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Generate_WithCoercedProperty_EmitsCoerceArgumentAndMethod()
+    {
+        var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "NumericStepperControl" };
+        var bindableProperties = new List<CustomControlProperty>
+        {
+            new(
+                "Increment", "decimal", CustomControlPropertyKind.Coerced,
+                BackingFieldName: "_increment",
+                CoerceMethodName: "CoerceIncrement",
+                CoerceMethodBody: "private static decimal CoerceIncrement(Avalonia.AvaloniaObject sender, decimal value) => " +
+                    "System.Math.Max(value, 0m);")
+        };
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "NumericStepperControl", root, bindableProperties: bindableProperties);
+
+        Assert.Contains("coerce: CoerceIncrement", content);
+        Assert.Contains(
+            "private static decimal CoerceIncrement(Avalonia.AvaloniaObject sender, decimal value) => System.Math.Max(value, 0m);",
+            content);
+
+        var tree = CSharpSyntaxTree.ParseText(content);
+        var errors = tree.GetDiagnostics()
+            .Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+            .ToList();
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Generate_WithCoercionFallbackProperty_EmitsPlainStyledPropertyWithoutCoerceArgument()
+    {
+        var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "CustomerCard" };
+        var bindableProperties = new List<CustomControlProperty>
+        {
+            new("Sku", "string", CustomControlPropertyKind.CoercionFallback, BackingFieldName: "_sku")
+        };
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "CustomerCard", root, bindableProperties: bindableProperties);
+
+        Assert.Contains(
+            "Avalonia.AvaloniaProperty.Register<CustomerCard, string>(nameof(Sku));", content);
+        Assert.DoesNotContain("coerce:", content);
+    }
+
+    [Fact]
+    public void Generate_WithDelegatingProperty_EmitsPlainForwardingProperty()
+    {
+        var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "AutocompleteSearchBox" };
+        var delegatingProperties = new List<DelegatingCustomControlProperty>
+        {
+            new("PlaceholderText", "string", "_textBox", "PlaceholderText", FallbackExpression: null, WasOverride: false)
+        };
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "AutocompleteSearchBox", root, delegatingProperties: delegatingProperties);
+
+        Assert.Contains("public string PlaceholderText", content);
+        Assert.Contains("get => _textBox.PlaceholderText;", content);
+        Assert.Contains("set => _textBox.PlaceholderText = value;", content);
+        Assert.DoesNotContain("StyledProperty", content);
+        Assert.DoesNotContain("PlaceholderTextProperty", content);
+    }
+
+    [Fact]
+    public void Generate_WithOverrideDelegatingPropertyAndFallback_StripsOverrideKeywordAndEmitsFallback()
+    {
+        var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "AutocompleteSearchBox" };
+        var delegatingProperties = new List<DelegatingCustomControlProperty>
+        {
+            new("Text", "string", "_textBox", "Text", FallbackExpression: "string.Empty", WasOverride: true)
+        };
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "AutocompleteSearchBox", root, delegatingProperties: delegatingProperties);
+
+        Assert.DoesNotContain("override string Text", content);
+        Assert.Contains("public string Text", content);
+        Assert.Contains("set => _textBox.Text = value ?? string.Empty;", content);
 
         var tree = CSharpSyntaxTree.ParseText(content);
         var errors = tree.GetDiagnostics()

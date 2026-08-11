@@ -178,6 +178,110 @@ public class CustomControlEndToEndTests
         }
         """;
 
+    private const string StepperControlDesignerContent = """
+        namespace SampleApp
+        {
+            partial class StepperControl
+            {
+                private void InitializeComponent()
+                {
+                    this.SuspendLayout();
+                    this.Name = "StepperControl";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    private const string StepperControlCodeBehindContent = """
+        namespace SampleApp
+        {
+            public partial class StepperControl : System.Windows.Forms.UserControl
+            {
+                private decimal _increment = 1;
+                private System.Windows.Forms.TextBox _textBox = new();
+
+                public decimal Increment
+                {
+                    get => _increment;
+                    set => _increment = value;
+                }
+
+                public string PlaceholderText
+                {
+                    get => _textBox.PlaceholderText;
+                    set => _textBox.PlaceholderText = value;
+                }
+
+                public StepperControl()
+                {
+                    InitializeComponent();
+                }
+            }
+        }
+        """;
+
+    private const string StepperFormDesignerContent = """
+        namespace SampleApp
+        {
+            partial class StepperForm
+            {
+                private SampleApp.StepperControl stepper1;
+
+                private void InitializeComponent()
+                {
+                    this.stepper1 = new SampleApp.StepperControl();
+                    this.SuspendLayout();
+                    this.stepper1.Name = "stepper1";
+                    this.stepper1.PlaceholderText = "Enter value";
+                    this.Controls.Add(this.stepper1);
+                    this.Name = "StepperForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_CustomControlWithPassthroughAndDelegatingProperties_ConvertsBothAndSurvivesEmbedding()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "StepperControl.Designer.cs"), StepperControlDesignerContent);
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "StepperControl.cs"), StepperControlCodeBehindContent);
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "StepperForm.Designer.cs"), StepperFormDesignerContent);
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, BaselineConfig()).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var stepperCodeBehind = await File.ReadAllTextAsync(Path.Combine(outputDir, "Controls", "StepperControl.axaml.cs"));
+
+            // Increment: a trivial expression-bodied field passthrough - now a real StyledProperty.
+            Assert.Contains("public static readonly Avalonia.StyledProperty<decimal> IncrementProperty =", stepperCodeBehind);
+            Assert.Contains("public decimal Increment", stepperCodeBehind);
+
+            // PlaceholderText: delegates to a child control - a plain forwarding property, no
+            // StyledProperty of its own.
+            Assert.Contains("get => _textBox.PlaceholderText;", stepperCodeBehind);
+            Assert.Contains("set => _textBox.PlaceholderText = value;", stepperCodeBehind);
+            Assert.DoesNotContain("PlaceholderTextProperty", stepperCodeBehind);
+
+            // An embedding form's literal attribute for the delegating property survives into
+            // the generated AXAML the same way it would for a real StyledProperty.
+            var stepperFormAxaml = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "StepperForm.axaml"));
+            Assert.Contains("<controls:StepperControl", stepperFormAxaml);
+            Assert.Contains("PlaceholderText=\"Enter value\"", stepperFormAxaml);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task ExecuteAsync_FormEmbeddingOwnerDrawnControl_GetsSpecificManualStepMessage()
     {

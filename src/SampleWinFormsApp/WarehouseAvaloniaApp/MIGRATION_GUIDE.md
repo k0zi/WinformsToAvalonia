@@ -1,6 +1,6 @@
 # Migration Guide: WarehouseAvaloniaApp
 
-**Generated**: 2026-08-11 22:51:51
+**Generated**: 2026-08-12 00:05:07
 **Converter Version**: 1.0.0
 
 ---
@@ -336,11 +336,11 @@ The following items require manual attention:
 
 - **AutocompleteSearchBox "productSearchBox" was converted separately**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: Controls/AutocompleteSearchBox.axaml and its ViewModel were generated from this control's own Designer.cs. These properties set on this instance were not simple public auto-properties on AutocompleteSearchBox (or not found at all) and were not carried over: Location, Width, DisplayMember. Wire them up manually if needed.
+  - Description: Controls/AutocompleteSearchBox.axaml and its ViewModel were generated from this control's own Designer.cs. These properties set on this instance were not simple public auto-properties on AutocompleteSearchBox (or not found at all) and were not carried over: Location, Width. Wire them up manually if needed.
 
 - **AutocompleteSearchBox "productSearchBox" was converted separately**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: Controls/AutocompleteSearchBox.axaml and its ViewModel were generated from this control's own Designer.cs. These properties set on this instance were not simple public auto-properties on AutocompleteSearchBox (or not found at all) and were not carried over: Location, Width, DisplayMember. Wire them up manually if needed.
+  - Description: Controls/AutocompleteSearchBox.axaml and its ViewModel were generated from this control's own Designer.cs. These properties set on this instance were not simple public auto-properties on AutocompleteSearchBox (or not found at all) and were not carried over: Location, Width. Wire them up manually if needed.
 
 - **NumericStepperControl "quantityStepper" was converted separately**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
@@ -679,6 +679,24 @@ The following items require manual attention:
 - **_textBox.TextChanged handler "TextBox_TextChanged" requires custom conversion logic**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
   - Description: Bind to Text property changes
+
+### Custom Control Property Not Auto-Bound
+
+- **AutocompleteSearchBox.DataSource was not auto-bound**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
+  - Description: This public property type 'IEnumerable<object>' is not supported for auto-binding, so it was left as a plain C# property instead of a bindable Avalonia StyledProperty - it can't be set from a parent's AXAML as an attribute. Wire it up manually if a consumer needs to.
+
+- **NumericStepperControl.Value was not auto-bound**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/NumericStepperControl.cs`
+  - Description: This public property has custom getter/setter logic, so it was left as a plain C# property instead of a bindable Avalonia StyledProperty - it can't be set from a parent's AXAML as an attribute. Wire it up manually if a consumer needs to.
+
+- **NumericStepperControl.Minimum was not auto-bound**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/NumericStepperControl.cs`
+  - Description: This public property has custom getter/setter logic, so it was left as a plain C# property instead of a bindable Avalonia StyledProperty - it can't be set from a parent's AXAML as an attribute. Wire it up manually if a consumer needs to.
+
+- **NumericStepperControl.Maximum was not auto-bound**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/NumericStepperControl.cs`
+  - Description: This public property has custom getter/setter logic, so it was left as a plain C# property instead of a bindable Avalonia StyledProperty - it can't be set from a parent's AXAML as an attribute. Wire it up manually if a consumer needs to.
 
 ### Skipped Override Methods
 
