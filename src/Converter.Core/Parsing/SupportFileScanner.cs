@@ -117,9 +117,26 @@ public static class SupportFileScanner
 
                 if (unsafeBaseType != null)
                 {
-                    skipped.Add(new SkippedSourceFile(relativePath,
-                        $"Declares a type deriving from WinForms '{unsafeBaseType}' - needs a manual Avalonia " +
-                        "port (a different rendering/control model entirely), not a plain file copy."));
+                    // A composite custom control (its own InitializeComponent + child
+                    // Controls.Add, just never split into a Foo.Designer.cs/Foo.cs pair) is
+                    // handled separately by SingleFileCustomControlDiscovery before this scanner
+                    // ever runs (see handledFilePaths) - reaching here with no
+                    // InitializeComponent method means there's no control tree to convert at
+                    // all, most commonly because it's owner-drawn (an OnPaint override doing
+                    // its own GDI+ rendering) - worth a more specific message than the generic
+                    // "needs a manual port" for that common case.
+                    var isLikelyOwnerDrawn = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+                            .Any(m => m.Identifier.Text == "OnPaint") &&
+                        !root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+                            .Any(m => m.Identifier.Text == "InitializeComponent");
+
+                    skipped.Add(new SkippedSourceFile(relativePath, isLikelyOwnerDrawn
+                        ? $"Custom-drawn control (derives from WinForms '{unsafeBaseType}', overrides OnPaint, " +
+                          "no InitializeComponent/child controls) - there is no control tree to convert into " +
+                          "AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a " +
+                          "Control subclass overriding Render(DrawingContext))."
+                        : $"Declares a type deriving from WinForms '{unsafeBaseType}' - needs a manual Avalonia " +
+                          "port (a different rendering/control model entirely), not a plain file copy."));
                     continue;
                 }
 
@@ -167,7 +184,12 @@ public static class SupportFileScanner
             segment.Equals("obj", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string? SimpleBaseTypeName(TypeSyntax type)
+    /// <summary>
+    /// Extracts a base-type reference's simple name (e.g. "UserControl" from both "UserControl"
+    /// and "System.Windows.Forms.UserControl"). Public so SingleFileCustomControlDiscovery can
+    /// reuse the exact same base-type check this scanner's own bucket-1 classification uses.
+    /// </summary>
+    public static string? SimpleBaseTypeName(TypeSyntax type)
     {
         return type switch
         {

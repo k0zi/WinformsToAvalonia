@@ -1,0 +1,21 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ConvertedAvalonia.ViewModels"
+        x:Class="ConvertedAvalonia.Views.CategoriesForm"
+        x:DataType="vm:CategoriesFormViewModel"
+
+        Width="760"
+        Height="500"
+        Title="Categories — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
+    <Design.DataContext>
+        <vm:CategoriesFormViewModel/>
+    </Design.DataContext>
+
+    <Canvas>
+        <Grid Name="mainSplitContainer" />
+        <StackPanel Name="mainToolStrip"
+        DockPanel.Dock="Top" />
+        <StackPanel Name="statusStrip" />
+    </Canvas>
+</Window>

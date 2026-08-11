@@ -1,0 +1,112 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ConvertedAvalonia.ViewModels"
+        x:Class="ConvertedAvalonia.Views.LoginForm"
+        x:DataType="vm:LoginFormViewModel"
+
+        Width="400"
+        Height="340"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Title="Sign In — WarehouseApp"        >
+    <Design.DataContext>
+        <vm:LoginFormViewModel/>
+    </Design.DataContext>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <Image Name="logoPictureBox"
+        Grid.Row="0"
+        Grid.Column="2"
+        Width="72"
+        Height="72" />
+        <TextBlock Name="titleLabel"
+        Grid.Row="1"
+        Grid.Column="0"
+        Text="Warehouse Management System"
+        FontFamily="Segoe UI"
+        FontSize="13" />
+        <TextBlock Name="subtitleLabel"
+        Grid.Row="2"
+        Grid.Column="2"
+        Text="Sign in to continue"
+        Foreground="Gray" />
+        <Grid Name="layoutPanel"
+        Grid.Row="3"
+        Grid.Column="1"
+        Width="260"
+        Height="64">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Name="usernameLabel"
+                Text="Username:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="0" />
+                <TextBox Name="usernameTextBox"
+                Margin="3,4,3,4"
+                Grid.Column="1"
+                Grid.Row="0" />
+                <TextBlock Name="passwordLabel"
+                Text="Password:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="1" />
+                <TextBox Name="passwordTextBox"
+                Margin="3,4,3,4"
+                Grid.Column="1"
+                Grid.Row="1" />
+            </Grid>
+        </Grid>
+        <CheckBox Name="rememberMeCheckBox"
+        Grid.Row="5"
+        Grid.Column="1"
+        Content="Remember me" />
+        <Button Name="loginButton"
+        Grid.Row="4"
+        Grid.Column="3"
+        Content="Log In"
+        Width="100"
+        Height="32" />
+        <ProgressBar Name="loginProgressBar"
+        Grid.Row="6"
+        Grid.Column="1"
+        Width="260"
+        Height="10"
+        IsVisible="false" />
+        <!-- TODO: Unmapped control: LoadingSpinnerControl (loadingSpinner) -->
+        <TextBlock Name="statusLabel"
+        Grid.Row="7"
+        Grid.Column="1"
+        Foreground="Firebrick"
+        Width="260"
+        Height="20" />
+    </Grid>
+</Window>

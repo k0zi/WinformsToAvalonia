@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ConvertedAvalonia.ViewModels"
+        x:Class="ConvertedAvalonia.Views.NumericStepperControl"
+        x:DataType="vm:NumericStepperControlViewModel"
+        >
+    <Design.DataContext>
+        <vm:NumericStepperControlViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+        <TextBlock Name="_valueLabel"
+        HorizontalContentAlignment="Center"
+        VerticalContentAlignment="Center"
+        FontFamily="Segoe UI"
+        FontSize="10" />
+        <Button Name="_incrementButton"
+        Content="+"
+        DockPanel.Dock="Right"
+        Width="32"
+        PointerPressed="_incrementButton_MouseDown_InlineHandler"
+        PointerReleased="_incrementButton_MouseUp_InlineHandler" />
+        <Button Name="_decrementButton"
+        Content="−"
+        DockPanel.Dock="Left"
+        Width="32"
+        PointerPressed="_decrementButton_MouseDown_InlineHandler"
+        PointerReleased="_decrementButton_MouseUp_InlineHandler" />
+    </DockPanel>
+</UserControl>

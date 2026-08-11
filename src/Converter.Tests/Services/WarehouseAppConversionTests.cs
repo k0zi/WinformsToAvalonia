@@ -20,7 +20,13 @@ public class WarehouseAppConversionTests
         "ReportsForm", "CategoriesForm", "CustomersForm", "SalesOrderDetailForm",
         "ProductDetailForm", "SettingsForm", "PurchaseOrdersListForm", "UsersForm",
         "StockOutForm", "WarehousesForm", "PurchaseOrderDetailForm", "StockTransferForm",
-        "StockInForm", "SuppliersForm", "LoginForm", "ProductsListForm"
+        "StockInForm", "SuppliersForm", "LoginForm", "ProductsListForm",
+        // WarehouseApp.Controls has two composite custom controls (their own
+        // InitializeComponent + child Controls.Add, no separate Designer.cs split) that
+        // SingleFileCustomControlDiscovery now finds and converts as their own UserControl -
+        // the other seven controls there are pure owner-drawn (OnPaint, no InitializeComponent)
+        // and correctly stay out of this list (SupportFileScanner's manual-step path instead).
+        "AutocompleteSearchBox", "NumericStepperControl"
     ];
 
     [Fact]

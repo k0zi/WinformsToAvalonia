@@ -1,0 +1,197 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ConvertedAvalonia.ViewModels"
+        xmlns:views="using:ConvertedAvalonia.Views"
+        x:Class="ConvertedAvalonia.Views.SalesOrderDetailForm"
+        x:DataType="vm:SalesOrderDetailFormViewModel"
+
+        Text="Sales Order Detail — WarehouseApp"        >
+    <Design.DataContext>
+        <vm:SalesOrderDetailFormViewModel/>
+    </Design.DataContext>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <Grid Name="headerTableLayoutPanel"
+        Grid.Row="0"
+        Grid.Column="1"
+        Width="560"
+        Height="220">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Name="orderNumberLabel"
+                Text="Order #:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="0" />
+                <TextBlock Name="orderNumberValueLabel"
+                Text="(new)"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                FontFamily="Segoe UI"
+                FontSize="9"
+                Grid.Column="1"
+                Grid.Row="0" />
+                <TextBlock Name="customerLabel"
+                Text="Customer:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="1" />
+                <ComboBox Name="customerComboBox"
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="1" />
+                <TextBlock Name="warehouseLabel"
+                Text="Warehouse:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="2" />
+                <ComboBox Name="warehouseComboBox"
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="2" />
+                <TextBlock Name="orderDateLabel"
+                Text="Order Date:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="3" />
+                <DatePicker Name="orderDatePicker"
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="3" />
+                <TextBlock Name="requiredDateLabel"
+                Text="Required:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="4" />
+                <DatePicker Name="requiredDatePicker"
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="4" />
+                <TextBlock Name="statusLabel"
+                Text="Status:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="5" />
+                <ComboBox Name="statusComboBox"
+                Margin="3,3,3,3"
+                Grid.Column="1"
+                Grid.Row="5" />
+                <TextBlock Name="satisfactionLabel"
+                Text="Satisfaction:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
+                Grid.Column="0"
+                Grid.Row="6" />
+                <!-- TODO: Unmapped control: StarRatingControl (satisfactionRatingControl) -->
+            </Grid>
+        </Grid>
+        <TextBlock Name="notesLabel"
+        Grid.Row="1"
+        Grid.Column="1"
+        Text="Notes:"
+        HorizontalContentAlignment="Left"
+        VerticalContentAlignment="Center" />
+        <TextBox Name="notesTextBox"
+        Grid.Row="1"
+        Grid.Column="2"
+        Margin="3,3,3,3"
+        AcceptsReturn="true"
+        Height="40"
+        Width="450" />
+        <!-- TODO: Unmapped control: StatusBadgeControl (statusBadge) -->
+        <Panel Name="lineEntryPanel"
+        Grid.Row="2"
+        Grid.Column="0"
+        Width="700"
+        Height="60">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Name="productLabel"
+                Grid.Row="0"
+                Grid.Column="0"
+                Text="Product:" />
+                <views:AutocompleteSearchBox Name="productSearchBox"
+                Grid.Row="1"
+                Grid.Column="0"
+                Width="250"
+                DisplayMemberPath="Name" />
+                <TextBlock Name="qtyLabel"
+                Grid.Row="0"
+                Grid.Column="1"
+                Text="Qty:" />
+                <NumericUpDown Name="qtyNumericUpDown"
+                Grid.Row="1"
+                Grid.Column="1"
+                Width="70"
+                Minimum="1"
+                Maximum="10000"
+                Value="1" />
+                <TextBlock Name="priceLabel"
+                Grid.Row="0"
+                Grid.Column="2"
+                Text="Unit Price:" />
+                <NumericUpDown Name="unitPriceNumericUpDown"
+                Grid.Row="1"
+                Grid.Column="2"
+                Width="90"
+                Minimum="0"
+                Maximum="100000" />
+                <Button Name="addLineButton"
+                Grid.Row="1"
+                Grid.Column="3"
+                Content="Add Line"
+                Width="90"
+                Height="28" />
+            </Grid>
+        </Panel>
+        <DataGrid Name="linesGrid"
+        Grid.Row="3"
+        Grid.Column="1"
+        Width="680"
+        Height="180"
+        AutoGenerateColumns="false"
+        IsReadOnly="true" />
+    </Grid>
+</Window>

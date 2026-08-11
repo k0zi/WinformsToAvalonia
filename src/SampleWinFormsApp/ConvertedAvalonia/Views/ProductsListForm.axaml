@@ -1,0 +1,14 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ConvertedAvalonia.ViewModels"
+        x:Class="ConvertedAvalonia.Views.ProductsListForm"
+        x:DataType="vm:ProductsListFormViewModel"
+
+        Text="Products — WarehouseApp"        >
+    <Design.DataContext>
+        <vm:ProductsListFormViewModel/>
+    </Design.DataContext>
+
+    <Canvas>
+    </Canvas>
+</Window>

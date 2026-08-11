@@ -147,6 +147,23 @@ public class ConversionOrchestrator
                 .ToArray();
             _logger?.LogInformation("Found {Count} designer files", designerFiles.Length);
 
+            // A composite custom control (its own InitializeComponent + child Controls.Add) is
+            // commonly a single .cs file with no Foo.Designer.cs split at all (e.g. a
+            // hand-written UserControl) - WinFormsParser.ParseDesignerFileAsync works on it
+            // exactly the same way it works on a real Designer.cs (it only needs a class +
+            // InitializeComponent method), so folding these into designerFiles here means every
+            // downstream step (incremental hashing, resume, the parse loop, ViewModel/View
+            // generation, "convertedCustomControlClassNames") treats it identically without any
+            // further special-casing.
+            var singleFileCustomControls = await SingleFileCustomControlDiscovery.DiscoverAsync(
+                _sourcePath, new HashSet<string>(designerFiles), _config.ExcludePatterns);
+            if (singleFileCustomControls.Count > 0)
+            {
+                _logger?.LogInformation("Found {Count} single-file custom control(s)", singleFileCustomControls.Count);
+                designerFiles = designerFiles.Concat(singleFileCustomControls).ToArray();
+            }
+            var singleFileCustomControlPaths = new HashSet<string>(singleFileCustomControls);
+
             // Full set of files the Views/ViewModels pipeline already owns - every designer
             // file discovered this run (regardless of incremental/resume filtering below,
             // which only affects *this run's* reparse, not whether the file conceptually
@@ -270,7 +287,12 @@ public class ConversionOrchestrator
 
                         if (_config.EventHandlerMigration.Enabled)
                         {
-                            var codeBehindPath = SiblingFileResolver.ResolveCodeBehind(file);
+                            // A single-file custom control (see SingleFileCustomControlDiscovery)
+                            // has no separate sibling - InitializeComponent, event handlers, and
+                            // helper methods all live in the same file that was just parsed, so
+                            // that file is its own "code-behind" here.
+                            var codeBehindPath = SiblingFileResolver.ResolveCodeBehind(file) ??
+                                (singleFileCustomControlPaths.Contains(file) ? file : null);
                             if (codeBehindPath != null)
                             {
                                 var handlerNames = CollectHandlerMethodNames(result.RootControl);
@@ -280,8 +302,13 @@ public class ConversionOrchestrator
                                         await EventHandlerBodyParser.ExtractAsync(codeBehindPath, handlerNames);
                                 }
 
-                                result.CodeBehindMembers =
-                                    await CodeBehindMemberExtractor.ExtractAsync(codeBehindPath, handlerNames);
+                                // Only matters (excludes something) when codeBehindPath == file
+                                // itself (the single-file case) - a control's own child-control
+                                // fields (e.g. "_textBox") must not be re-migrated into the
+                                // ViewModel as if they were business fields.
+                                var controlFieldNames = CollectControlNames(result.RootControl);
+                                result.CodeBehindMembers = await CodeBehindMemberExtractor.ExtractAsync(
+                                    codeBehindPath, handlerNames, controlFieldNames);
                             }
 
                             // Inline lambda bodies live in the .Designer.cs file itself (no
@@ -827,6 +854,24 @@ public class ConversionOrchestrator
                 });
             }
 
+            // Mirrors the same check RelayCommand/property-changed-hook bodies already get
+            // (AddViewOnlyControlReferenceStepIfAny): a helper method just as commonly
+            // reads/writes another control directly (e.g. "skuTextBox.Text" in a LoadFromEntity/
+            // SaveToEntity/ValidateInput-style method) - ViewModelGenerator.BuildEditableClass
+            // now rewrites the bound-property case, but a reference to a still-unbound control
+            // is left as-is and needs the same explicit flag instead of a silent compile failure.
+            if (codeBehindMembers.HelperMethods.Count > 0)
+            {
+                var helperMethodControlNames = CollectControlNames(rootControl);
+                var helperMethodBoundControlProperties = vmGenerator.BuildBoundControlPropertyLookup(rootControl);
+                foreach (var (methodName, methodSource) in codeBehindMembers.HelperMethods)
+                {
+                    AddHelperMethodViewOnlyControlReferenceStepIfAny(
+                        className, methodName, methodSource, parseResult.FilePath,
+                        helperMethodControlNames, helperMethodBoundControlProperties, vmManualSteps);
+                }
+            }
+
             if (_config.StyleExtraction.Enabled)
             {
                 var stylesContent = styleGenerator.GenerateStyles(rootControl, _config.StyleExtraction.MinimumOccurrence, overrides);
@@ -1143,6 +1188,41 @@ public class ConversionOrchestrator
                 "reference the View). Either add a DataBindings.Add(...) for it in the source WinForms " +
                 "designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an " +
                 "AXAML-side binding)."
+        });
+    }
+
+    /// <summary>
+    /// Same check as AddViewOnlyControlReferenceStepIfAny, for a migrated helper method
+    /// (CodeBehindMemberExtractor.HelperMethods) instead of an event-handler body - the source
+    /// is already the full method text (not looked up by handler name), so it's re-extracted
+    /// down to just the body the same way EventHandlerBodyParser.ExtractBodyText does for the
+    /// event-handler case, before scanning for unresolved control references.
+    /// </summary>
+    private static void AddHelperMethodViewOnlyControlReferenceStepIfAny(
+        string className, string methodName, string methodSource, string sourceFile,
+        IReadOnlySet<string> controlNames,
+        IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties,
+        List<ManualStepInfo> steps)
+    {
+        var body = EventHandlerBodyParser.ExtractBodyText(methodSource);
+        var unresolved = FindUnresolvedControlReferences(body, controlNames, boundControlProperties);
+        if (unresolved.Count == 0)
+        {
+            return;
+        }
+
+        steps.Add(new ManualStepInfo
+        {
+            Category = "Command Logic References View-Only Control",
+            Title = $"{className}.{methodName} references " +
+                string.Join(", ", unresolved.Select(r => $"{r.ControlName}.{r.Property}")),
+            Location = sourceFile,
+            Description = "This helper method was migrated as live code into the ViewModel, but it " +
+                "reads/writes another control's property directly, and that property has no " +
+                "DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile " +
+                "as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it " +
+                "in the source WinForms designer so it is auto-bound on the next conversion, or wire this " +
+                "up manually."
         });
     }
 

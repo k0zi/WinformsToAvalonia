@@ -269,6 +269,17 @@ public class WinFormsParser
             {
                 ParseEventSubscription(assignment, controls);
             }
+            else if (assignment.Left is IdentifierNameSyntax fieldIdentifier &&
+                assignment.Right is ObjectCreationExpressionSyntax { Initializer: not null } creation)
+            {
+                // A hand-written custom control commonly creates and initializes a child
+                // control in one statement ("_textBox = new TextBox { Dock = ...,
+                // PlaceholderText = ... };") instead of VS designer output's separate
+                // "this.textBox1 = new TextBox();" + one statement per property. The
+                // object-initializer's member assignments carry the same information those
+                // separate statements would.
+                ParseObjectInitializerProperties(fieldIdentifier.Identifier.Text, creation.Initializer!, controls, resources);
+            }
             else
             {
                 ParsePropertyAssignment(assignment, controls, resources);
@@ -306,6 +317,50 @@ public class WinFormsParser
                     Type = "object" // Type inference would require a semantic model.
                 };
             }
+        }
+    }
+
+    /// <summary>
+    /// Parses `fieldName = new SomeControl { Prop1 = Val1, Prop2 = Val2 };` - a hand-written
+    /// custom control's own compact way of creating and initializing a child control in one
+    /// statement, as opposed to VS designer output's always-separate "this.textBox1 = new
+    /// TextBox();" + one property-assignment statement per property. Each member of the
+    /// object initializer is treated exactly like ParsePropertyAssignment would treat the
+    /// equivalent separate statement.
+    /// </summary>
+    private void ParseObjectInitializerProperties(string controlName, InitializerExpressionSyntax initializer,
+        Dictionary<string, ControlNode> controls, IReadOnlyDictionary<string, ResxEntry>? resources)
+    {
+        if (!controls.TryGetValue(controlName, out var control))
+        {
+            return;
+        }
+
+        foreach (var expression in initializer.Expressions)
+        {
+            if (expression is not AssignmentExpressionSyntax propertyAssignment ||
+                propertyAssignment.Left is not IdentifierNameSyntax propertyIdentifier)
+            {
+                continue;
+            }
+
+            var propertyName = propertyIdentifier.Identifier.Text;
+
+            if (resources != null &&
+                TryGetResxKey(propertyAssignment.Right, out var resxKey) &&
+                resources.TryGetValue(resxKey, out var entry))
+            {
+                control.Properties[propertyName] = BuildResxPropertyValue(propertyName, entry);
+                continue;
+            }
+
+            var value = GetPropertyAssignmentValue(propertyAssignment.Right);
+            control.Properties[propertyName] = new PropertyValue
+            {
+                Name = propertyName,
+                Value = value,
+                Type = "object" // Type inference would require a semantic model.
+            };
         }
     }
 
@@ -421,13 +476,34 @@ public class WinFormsParser
             return;
         }
 
-        if (methodName != "Add" || memberAccess.Expression is not MemberAccessExpressionSyntax collectionAccess)
+        if (methodName != "Add")
         {
             return;
         }
 
-        var collectionName = collectionAccess.Name.Identifier.Text;
-        var ownerControlName = GetControlNameFromExpression(collectionAccess.Expression);
+        string collectionName;
+        string ownerControlName;
+
+        if (memberAccess.Expression is MemberAccessExpressionSyntax collectionAccess)
+        {
+            // this.Controls.Add(...) / someControl.Controls.Add(...) - the shape real Visual
+            // Studio designer output always uses.
+            collectionName = collectionAccess.Name.Identifier.Text;
+            ownerControlName = GetControlNameFromExpression(collectionAccess.Expression);
+        }
+        else if (memberAccess.Expression is IdentifierNameSyntax { Identifier.Text: "Controls" or "DataBindings" } implicitCollection)
+        {
+            // Controls.Add(...) / DataBindings.Add(...) with an implicit "this." - common in
+            // hand-written custom controls (single-file, no Designer.cs split) rather than VS
+            // designer output, which always writes "this." explicitly. ThisAlias is the same
+            // alias an explicit "this.Controls.Add(...)" resolves the owner to.
+            collectionName = implicitCollection.Identifier.Text;
+            ownerControlName = ThisAlias;
+        }
+        else
+        {
+            return;
+        }
 
         if (string.IsNullOrEmpty(ownerControlName))
         {

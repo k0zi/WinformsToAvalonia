@@ -842,4 +842,129 @@ public class EventHandlerMigrationEndToEndTests
             Directory.Delete(outputDir, recursive: true);
         }
     }
+
+    private const string HelperMethodBoundDesignerContent = """
+        namespace SampleApp
+        {
+            partial class HelperMethodBoundForm
+            {
+                private System.Windows.Forms.TextBox skuTextBox;
+                private System.Windows.Forms.BindingSource productBindingSource;
+
+                private void InitializeComponent()
+                {
+                    this.skuTextBox = new System.Windows.Forms.TextBox();
+                    this.SuspendLayout();
+                    this.skuTextBox.Name = "skuTextBox";
+                    this.skuTextBox.DataBindings.Add(new System.Windows.Forms.Binding("Text", this.productBindingSource, "Sku", true));
+                    this.Controls.Add(this.skuTextBox);
+                    this.Name = "HelperMethodBoundForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    private const string HelperMethodBoundCodeBehindContent = """
+        namespace SampleApp
+        {
+            partial class HelperMethodBoundForm
+            {
+                private void LoadFromEntity()
+                {
+                    skuTextBox.Text = "ABC";
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_HelperMethodReferencesBoundControlProperty_RewritesToObservableProperty()
+    {
+        // A migrated helper method (LoadFromEntity/ValidateInput/SaveToEntity-style code) is
+        // just as likely as a RelayCommand body to reference another control directly - the
+        // same rewrite RelayCommand bodies already get must apply here too, or the ViewModel
+        // references a View-only control and doesn't compile.
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "HelperMethodBoundForm.Designer.cs"), HelperMethodBoundDesignerContent);
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "HelperMethodBoundForm.cs"), HelperMethodBoundCodeBehindContent);
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, BaselineConfig(true)).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var vmContent = await File.ReadAllTextAsync(
+                Path.Combine(outputDir, "ViewModels", "HelperMethodBoundFormViewModel.cs"));
+
+            Assert.Contains("Sku = \"ABC\";", vmContent);
+            Assert.DoesNotContain("skuTextBox", vmContent);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    private const string HelperMethodUnboundDesignerContent = """
+        namespace SampleApp
+        {
+            partial class HelperMethodUnboundForm
+            {
+                private System.Windows.Forms.TextBox skuTextBox;
+
+                private void InitializeComponent()
+                {
+                    this.skuTextBox = new System.Windows.Forms.TextBox();
+                    this.SuspendLayout();
+                    this.skuTextBox.Name = "skuTextBox";
+                    this.Controls.Add(this.skuTextBox);
+                    this.Name = "HelperMethodUnboundForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    private const string HelperMethodUnboundCodeBehindContent = """
+        namespace SampleApp
+        {
+            partial class HelperMethodUnboundForm
+            {
+                private void LoadFromEntity()
+                {
+                    skuTextBox.Text = "ABC";
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_HelperMethodReferencesUnboundControlProperty_SurfacedAsManualStep()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "HelperMethodUnboundForm.Designer.cs"), HelperMethodUnboundDesignerContent);
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "HelperMethodUnboundForm.cs"), HelperMethodUnboundCodeBehindContent);
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, BaselineConfig(true)).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var step = Assert.Single(
+                result.Report!.ManualSteps, s => s.Category == "Command Logic References View-Only Control");
+            Assert.Contains("LoadFromEntity", step.Title);
+            Assert.Contains("skuTextBox", step.Title);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
 }

@@ -118,6 +118,32 @@ public class ViewModelGeneratorTests
     }
 
     [Fact]
+    public void BuildEditableClass_HelperMethodReferencesBoundControlProperty_RewritesToObservableProperty()
+    {
+        // Same defect class as the RelayCommand/property-changed-hook rewrite: a migrated
+        // helper method (e.g. LoadFromEntity/SaveToEntity-style code) just as commonly reads/
+        // writes another control directly ("skuTextBox.Text") - the ViewModel has no
+        // "skuTextBox" field, so this must be rewritten to the bound ObservableProperty too,
+        // not just RelayCommand bodies.
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var textBox = new ControlNode { ControlType = "TextBox", FullTypeName = "System.Windows.Forms.TextBox", Name = "skuTextBox" };
+        textBox.DataBindings.Add(new DataBinding { PropertyName = "Text", DataSource = "bindingSource1", DataMember = "Sku" });
+        root.Children.Add(textBox);
+
+        var codeBehindMembers = new CodeBehindMembers(
+            helperMethods: new Dictionary<string, string>
+            {
+                ["LoadFromEntity"] = "private void LoadFromEntity()\n{\n    skuTextBox.Text = Entity.Sku;\n}"
+            });
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", codeBehindMembers: codeBehindMembers).Source;
+
+        Assert.Contains("Sku = Entity.Sku;", output);
+        Assert.DoesNotContain("skuTextBox", output);
+    }
+
+    [Fact]
     public void BuildEditableClass_MigratesProtectedHelperMethod_UpgradesToInternal()
     {
         // A migrated business-logic override (see CodeBehindMemberExtractor.

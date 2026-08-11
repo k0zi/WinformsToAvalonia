@@ -99,9 +99,23 @@ public static class CodeBehindMemberExtractor
     /// business logic (the project's own base class member) and migrated into HelperMethods
     /// with "override" stripped - there's nothing to override in the ViewModel's own hierarchy.
     /// </summary>
+    private static readonly HashSet<string> EmptyNames = [];
+
+    /// <summary>
+    /// <paramref name="controlFieldNames"/> - a single-file custom control's own child-control
+    /// instance fields (e.g. "_textBox"), already captured by WinFormsParser as ControlNode
+    /// instances - matters only when scanning that same file for its OWN "code-behind" (a
+    /// composite custom control with no separate Foo.Designer.cs split has everything, control
+    /// fields included, in one file); harmless no-op for the ordinary split Designer.cs/.cs pair
+    /// case, where a control field never appears in the sibling file this scans. Without this,
+    /// such a field would be wrongly re-migrated into the ViewModel as if it were a business
+    /// field - it's a View concern, not a ViewModel one.
+    /// </summary>
     public static async Task<CodeBehindMembers> ExtractAsync(
-        string codeBehindFilePath, IReadOnlySet<string> handlerMethodNames)
+        string codeBehindFilePath, IReadOnlySet<string> handlerMethodNames,
+        IReadOnlySet<string>? controlFieldNames = null)
     {
+        controlFieldNames ??= EmptyNames;
         var fields = new List<CodeBehindField>();
         var helperMethods = new Dictionary<string, string>();
         var skippedOverrides = new List<string>();
@@ -131,13 +145,22 @@ public static class CodeBehindMemberExtractor
             foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
             {
                 var names = field.Declaration.Variables.Select(v => v.Identifier.Text).ToList();
+                if (names.All(controlFieldNames.Contains))
+                {
+                    continue;
+                }
+
                 fields.Add(new CodeBehindField(names, field.ToString().Trim()));
             }
 
             foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
             {
                 var name = method.Identifier.Text;
-                if (handlerMethodNames.Contains(name))
+                // InitializeComponent is WinForms control-construction plumbing with no
+                // ViewModel meaning (the generated AXAML is its replacement) - only ever
+                // relevant here for a single-file custom control (see controlFieldNames), since
+                // a split Designer.cs/.cs pair never has it in the sibling file this scans.
+                if (name == "InitializeComponent" || handlerMethodNames.Contains(name))
                 {
                     continue;
                 }

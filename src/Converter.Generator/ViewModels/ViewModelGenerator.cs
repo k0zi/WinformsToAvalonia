@@ -113,7 +113,13 @@ public class ViewModelGenerator
 
         foreach (var (name, source) in codeBehindMembers.HelperMethods)
         {
-            sb.AppendLine("    " + IndentContinuationLines(EnsureInternalAccessibility(source)));
+            // A migrated helper method (e.g. LoadFromEntity/ValidateInput/SaveToEntity) is
+            // exactly as likely as a RelayCommand body to read/write another control directly
+            // (e.g. "skuTextBox.Text") - the same rewrite that already fixes that for
+            // RelayCommand/property-changed-hook bodies below applies here too, so the
+            // ViewModel doesn't end up referencing View-only controls.
+            var rewritten = RewriteBoundControlReferences(source, boundControlProperties);
+            sb.AppendLine("    " + IndentContinuationLines(EnsureInternalAccessibility(rewritten)));
             sb.AppendLine();
             memberNames.Add(name);
         }

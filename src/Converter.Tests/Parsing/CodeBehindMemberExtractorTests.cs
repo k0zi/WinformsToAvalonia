@@ -297,4 +297,80 @@ public class CodeBehindMemberExtractorTests
             File.Delete(path);
         }
     }
+
+    private const string SingleFileCustomControlContent = """
+        namespace SampleApp
+        {
+            public class AutocompleteSearchBox : System.Windows.Forms.UserControl
+            {
+                private System.Windows.Forms.TextBox _textBox;
+                private int _counter;
+
+                private void InitializeComponent()
+                {
+                    _textBox = new System.Windows.Forms.TextBox();
+                    Controls.Add(_textBox);
+                }
+
+                private void ClosePopupSoon()
+                {
+                    _counter++;
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExtractAsync_ControlFieldName_IsExcludedFromMigratedFields()
+    {
+        // A single-file custom control's own child-control fields (already captured by
+        // WinFormsParser as ControlNode instances) must not be re-migrated as ViewModel
+        // fields - that's a View concern.
+        var path = await WriteTempFileAsync(SingleFileCustomControlContent);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(
+                path, new HashSet<string>(), controlFieldNames: new HashSet<string> { "_textBox" });
+
+            Assert.DoesNotContain(result.Fields, f => f.Names.Contains("_textBox"));
+            Assert.Contains(result.Fields, f => f.Names.Contains("_counter"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractAsync_NoControlFieldNames_MigratesAllFieldsAsBefore()
+    {
+        var path = await WriteTempFileAsync(SingleFileCustomControlContent);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string>());
+
+            Assert.Contains(result.Fields, f => f.Names.Contains("_textBox"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractAsync_InitializeComponent_IsNeverMigratedAsHelperMethod()
+    {
+        var path = await WriteTempFileAsync(SingleFileCustomControlContent);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string>());
+
+            Assert.DoesNotContain(result.HelperMethods.Keys, n => n == "InitializeComponent");
+            Assert.Contains(result.HelperMethods.Keys, n => n == "ClosePopupSoon");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
