@@ -2,101 +2,101 @@
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs": {
     "Hash": "8B3091C46E767B7F077C7A93E0889C399256E7877441E089334BAC79737E6777",
     "LastModified": "2026-08-10T17:42:58.8195337Z",
-    "LastConverted": "2026-08-11T09:02:55.6250078Z"
+    "LastConverted": "2026-08-11T09:58:21.4561562Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs": {
     "Hash": "82E32BF7104E962D4412A72A47D893170FCF8B344037F33739D37EDDA08D364C",
     "LastModified": "2026-08-10T17:42:58.8189127Z",
-    "LastConverted": "2026-08-11T09:02:55.6256724Z"
+    "LastConverted": "2026-08-11T09:58:21.4564824Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ReportsForm.Designer.cs": {
     "Hash": "5625CEDA41CD65FD48EA5359100BF4AECA736EAA427588AE9762CBABA573D769",
     "LastModified": "2026-08-10T17:42:58.8195337Z",
-    "LastConverted": "2026-08-11T09:02:55.6258698Z"
+    "LastConverted": "2026-08-11T09:58:21.4566213Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs": {
     "Hash": "40D222ABA99A31745B9A2983032FDE4DFDBB721147731608777467DA028624CB",
     "LastModified": "2026-08-10T17:42:58.8215337Z",
-    "LastConverted": "2026-08-11T09:02:55.6260157Z"
+    "LastConverted": "2026-08-11T09:58:21.4567383Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CustomersForm.Designer.cs": {
     "Hash": "48E0E1D821D771670DD21118F9836D93BA43AB50E988B0C657288BCAA6BAEC3D",
     "LastModified": "2026-08-10T17:42:58.8189127Z",
-    "LastConverted": "2026-08-11T09:02:55.6261498Z"
+    "LastConverted": "2026-08-11T09:58:21.456871Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs": {
     "Hash": "9492CCBE7030459B0974766B712EC3E5C9F18E0EFAF608AE1D43CB80CE6DB42E",
     "LastModified": "2026-08-10T17:42:58.8195337Z",
-    "LastConverted": "2026-08-11T09:02:55.626297Z"
+    "LastConverted": "2026-08-11T09:58:21.456981Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CategoriesForm.Designer.cs": {
     "Hash": "D302BB52F8B97BDB5C22E1AF148690A10362F14FF652DBD0C65423DD6ABA4E7F",
     "LastModified": "2026-08-10T17:42:58.8179512Z",
-    "LastConverted": "2026-08-11T09:02:55.6264185Z"
+    "LastConverted": "2026-08-11T09:58:21.4570567Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs": {
     "Hash": "CE664A5362526A2EB6B24C49388275A95549476F673D2E5D92DD579751DD69DE",
     "LastModified": "2026-08-10T17:42:58.8205337Z",
-    "LastConverted": "2026-08-11T09:02:55.6265044Z"
+    "LastConverted": "2026-08-11T09:58:21.4571306Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrdersListForm.Designer.cs": {
     "Hash": "A37006C71625C4A20E3E4BBF254419459164648CC3C51C493A4A1B4E5A410272",
     "LastModified": "2026-08-10T17:42:58.8205337Z",
-    "LastConverted": "2026-08-11T09:02:55.6265792Z"
+    "LastConverted": "2026-08-11T09:58:21.4571989Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOverviewForm.Designer.cs": {
     "Hash": "49E7554534EDF3CA643B1B4107CE6B7B13C7372B2B44D7DCB5640AD43C05476F",
     "LastModified": "2026-08-10T17:42:58.8215337Z",
-    "LastConverted": "2026-08-11T09:02:55.6266914Z"
+    "LastConverted": "2026-08-11T09:58:21.4572754Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs": {
     "Hash": "97841B2AB0D3794DE9FC2DC5BB164905BB102CCD2471791F42A130705D38E13F",
     "LastModified": "2026-08-10T17:42:58.8215337Z",
-    "LastConverted": "2026-08-11T09:02:55.6267883Z"
+    "LastConverted": "2026-08-11T09:58:21.4573602Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductsListForm.Designer.cs": {
     "Hash": "5CF2567C8617205B9842D3E286CBA216D9928B61C0007C3478AD1F8A693056C2",
     "LastModified": "2026-08-10T17:42:58.8195337Z",
-    "LastConverted": "2026-08-11T09:02:55.6268766Z"
+    "LastConverted": "2026-08-11T09:58:21.4574389Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs": {
     "Hash": "D04285D7087BC1281307F87DD3DEA3048DBC2A7F069E0B6F46F3F5BA5160BE73",
     "LastModified": "2026-08-10T17:42:58.8189127Z",
-    "LastConverted": "2026-08-11T09:02:55.6269972Z"
+    "LastConverted": "2026-08-11T09:58:21.4575509Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs": {
     "Hash": "710D093FA8B386F835B7C5E76C39DB779F07A8C6FBCB8BC7DA30D890C9146AA1",
     "LastModified": "2026-08-10T17:42:58.8189127Z",
-    "LastConverted": "2026-08-11T09:02:55.6270866Z"
+    "LastConverted": "2026-08-11T09:58:21.457652Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SuppliersForm.Designer.cs": {
     "Hash": "B58F45E7B27A39CA09835A7DE5634F59C9C63ED1034EA3DE2274A086A86B2D7C",
     "LastModified": "2026-08-10T17:42:58.8215337Z",
-    "LastConverted": "2026-08-11T09:02:55.6271774Z"
+    "LastConverted": "2026-08-11T09:58:21.4577394Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs": {
     "Hash": "B50B1E051FA35816A6F32B7E32AB6C82F930F392BA6F7CA18D5E60C817CD4877",
     "LastModified": "2026-08-10T17:42:58.8205337Z",
-    "LastConverted": "2026-08-11T09:02:55.6272645Z"
+    "LastConverted": "2026-08-11T09:58:21.457802Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrdersListForm.Designer.cs": {
     "Hash": "FFA5A2802BEE3BA26F1D4FEADAE6554D9DC89F85D3EA15B2F7C8FFF56A327076",
     "LastModified": "2026-08-10T17:42:58.8195337Z",
-    "LastConverted": "2026-08-11T09:02:55.6273544Z"
+    "LastConverted": "2026-08-11T09:58:21.4578583Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/UsersForm.Designer.cs": {
     "Hash": "BC8F768872BD0F70B8BA94E6D35ECD0E671CE0939C1D0E2E0DFED5FDAA0B82F0",
     "LastModified": "2026-08-10T17:42:58.8215337Z",
-    "LastConverted": "2026-08-11T09:02:55.6274625Z"
+    "LastConverted": "2026-08-11T09:58:21.4579276Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SettingsForm.Designer.cs": {
     "Hash": "B62F499830104307F3E7EDF43FE238D885F6AA1AE4051CEE51D263CCCCD311EA",
     "LastModified": "2026-08-10T17:42:58.8205337Z",
-    "LastConverted": "2026-08-11T09:02:55.6275651Z"
+    "LastConverted": "2026-08-11T09:58:21.4580084Z"
   },
   "/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockAdjustmentForm.Designer.cs": {
     "Hash": "B85ED002B17EB7817E01D6661C605EBDD84096C19063A7373F8DBB35BB79D7A2",
     "LastModified": "2026-08-10T17:42:58.8205337Z",
-    "LastConverted": "2026-08-11T09:02:55.6276707Z"
+    "LastConverted": "2026-08-11T09:58:21.4580877Z"
   }
 }
