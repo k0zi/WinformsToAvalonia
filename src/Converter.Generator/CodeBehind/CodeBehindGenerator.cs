@@ -36,7 +36,8 @@ public class CodeBehindGenerator
         PluginMappingOverrides? overrides = null,
         int avaloniaMajorVersion = 12,
         CodeBehindMembers? codeBehindMembers = null,
-        string viewModelSuffix = "ViewModel")
+        string viewModelSuffix = "ViewModel",
+        IReadOnlyList<CustomControlProperty>? bindableProperties = null)
     {
         overrides ??= PluginMappingOverrides.Empty;
         codeBehindMembers ??= CodeBehindMembers.Empty;
@@ -52,8 +53,12 @@ public class CodeBehindGenerator
 
         var vmType = $"{namespaceName}.ViewModels.{className}{viewModelSuffix}";
 
+        // Mirrors AxamlGenerator's own root-element choice: "Form" -> "Window", "UserControl"
+        // -> "UserControl", defaulting to "Window" for anything unrecognized.
+        var rootBaseType = ControlMappingRegistry.GetMapping(root.ControlType)?.AvaloniaType ?? "Window";
+
         // Class declaration
-        sb.AppendLine($"public partial class {className} : Window");
+        sb.AppendLine($"public partial class {className} : {rootBaseType}");
         sb.AppendLine("{");
         sb.AppendLine($"    public {className}()");
         sb.AppendLine("    {");
@@ -62,6 +67,26 @@ public class CodeBehindGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
         sb.AppendLine($"    private {vmType} ViewModel => ({vmType})DataContext!;");
+
+        // Re-exposes this custom control's own simple public auto-properties (see
+        // CustomControlPropertyExtractor) as real Avalonia bindable properties, under their
+        // original name, so a parent embedding this control can set them as a plain XAML
+        // attribute (e.g. CustomerId="5") instead of the value being silently dropped.
+        if (bindableProperties is { Count: > 0 })
+        {
+            foreach (var property in bindableProperties)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"    public static readonly Avalonia.StyledProperty<{property.TypeName}> {property.Name}Property =");
+                sb.AppendLine($"        Avalonia.AvaloniaProperty.Register<{className}, {property.TypeName}>(nameof({property.Name}));");
+                sb.AppendLine();
+                sb.AppendLine($"    public {property.TypeName} {property.Name}");
+                sb.AppendLine("    {");
+                sb.AppendLine($"        get => GetValue({property.Name}Property);");
+                sb.AppendLine($"        set => SetValue({property.Name}Property, value);");
+                sb.AppendLine("    }");
+            }
+        }
 
         var migratedNames = codeBehindMembers.Fields
             .SelectMany(f => f.Names)

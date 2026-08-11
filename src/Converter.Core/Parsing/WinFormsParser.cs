@@ -90,7 +90,8 @@ public class WinFormsParser
     /// are resolved to their real values instead of being stored as opaque raw C# text.
     /// </summary>
     public async Task<ParseResult> ParseDesignerFileAsync(
-        string filePath, IReadOnlyDictionary<string, ResxEntry>? resources = null)
+        string filePath, IReadOnlyDictionary<string, ResxEntry>? resources = null,
+        string? rootBaseTypeOverride = null)
     {
         try
         {
@@ -131,7 +132,9 @@ public class WinFormsParser
             }
 
             var className = classDeclaration.Identifier.Text;
-            var baseType = classDeclaration.BaseList?.Types.FirstOrDefault()?.Type.ToString() ?? "Form";
+            var baseType = rootBaseTypeOverride
+                ?? classDeclaration.BaseList?.Types.FirstOrDefault()?.Type.ToString()?.Split('.').Last()
+                ?? "Form";
 
             // Create root control node (the Form itself)
             var rootControl = new ControlNode

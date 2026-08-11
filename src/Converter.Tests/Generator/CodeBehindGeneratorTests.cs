@@ -31,6 +31,60 @@ public class CodeBehindGeneratorTests
     }
 
     [Fact]
+    public void Generate_UserControlRoot_EmitsUserControlBaseClass()
+    {
+        var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "CustomerCard" };
+
+        var content = new CodeBehindGenerator().Generate("SampleApp", "CustomerCard", root);
+
+        Assert.Contains("public partial class CustomerCard : UserControl", content);
+    }
+
+    [Fact]
+    public void Generate_FormRoot_StillEmitsWindowBaseClass()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "SampleForm" };
+
+        var content = new CodeBehindGenerator().Generate("SampleApp", "SampleForm", root);
+
+        Assert.Contains("public partial class SampleForm : Window", content);
+    }
+
+    [Fact]
+    public void Generate_WithBindableProperties_EmitsStyledPropertyAndClrWrapper()
+    {
+        var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "CustomerCard" };
+        var bindableProperties = new List<CustomControlProperty> { new("CustomerId", "int") };
+
+        var content = new CodeBehindGenerator().Generate(
+            "SampleApp", "CustomerCard", root, bindableProperties: bindableProperties);
+
+        Assert.Contains(
+            "public static readonly Avalonia.StyledProperty<int> CustomerIdProperty =", content);
+        Assert.Contains(
+            "Avalonia.AvaloniaProperty.Register<CustomerCard, int>(nameof(CustomerId));", content);
+        Assert.Contains("public int CustomerId", content);
+        Assert.Contains("get => GetValue(CustomerIdProperty);", content);
+        Assert.Contains("set => SetValue(CustomerIdProperty, value);", content);
+
+        var tree = CSharpSyntaxTree.ParseText(content);
+        var errors = tree.GetDiagnostics()
+            .Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+            .ToList();
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Generate_NoBindableProperties_EmitsNoStyledProperty()
+    {
+        var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "CustomerCard" };
+
+        var content = new CodeBehindGenerator().Generate("SampleApp", "CustomerCard", root);
+
+        Assert.DoesNotContain("StyledProperty", content);
+    }
+
+    [Fact]
     public void Generate_PreserveEventHandlerEvent_EmitsCorrectlySignedStub()
     {
         var root = BuildFormWithButtonHandler("MouseDown", "button1_MouseDown");

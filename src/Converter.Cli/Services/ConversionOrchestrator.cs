@@ -255,7 +255,14 @@ public class ConversionOrchestrator
                         }
                     }
 
-                    var result = await parser.ParseDesignerFileAsync(file, resources);
+                    // Real Visual Studio designer output never redeclares the base type on the
+                    // .Designer.cs partial itself - resolving it off the sibling .cs file is
+                    // what lets a custom UserControl's own Designer.cs be recognized as such
+                    // (rather than always defaulting to "Form"), unconditionally - this is
+                    // structural correctness, not part of the event-handler-body-migration
+                    // feature, so it isn't gated behind _config.EventHandlerMigration.Enabled.
+                    var rootBaseTypeOverride = await SiblingFileResolver.ResolveRootBaseTypeAsync(file);
+                    var result = await parser.ParseDesignerFileAsync(file, resources, rootBaseTypeOverride);
                     if (result.RootControl != null)
                     {
                         parseResults.Add(result);
@@ -299,6 +306,35 @@ public class ConversionOrchestrator
 
             _logger?.LogInformation("Parsed {Count} forms with {TotalControls} total controls",
                 parseResults.Count, statistics.TotalControls);
+
+            // Every form whose resolved root maps to Avalonia "UserControl" (see
+            // SiblingFileResolver.ResolveRootBaseTypeAsync above) is a custom control this run
+            // is independently converting into its own reusable View - deliberately excludes
+            // "Window"-rooted forms, since a Window can't be embedded inline in AXAML the way a
+            // UserControl can. AxamlGenerator/CollectManualSteps use this to reference such a
+            // control correctly from wherever it's embedded, instead of the dead "Unmapped
+            // control" TODO placeholder.
+            var convertedCustomControlClassNames = parseResults
+                .Where(r => r.RootControl != null &&
+                    ControlMappingRegistry.GetMapping(r.RootControl.ControlType)?.AvaloniaType == "UserControl")
+                .Select(r => r.RootControl!.Name)
+                .ToHashSet();
+
+            // For each of those, extract its own simple public auto-properties (e.g.
+            // CustomerId) from its own sibling code-behind file - CodeBehindGenerator uses this
+            // to re-expose them as real Avalonia bindable properties on the generated
+            // UserControl, and embedding sites use it to know which of a custom control's
+            // properties can be wired via PropertyTranslations below instead of silently
+            // dropped.
+            var customControlBindableProperties = new Dictionary<string, CustomControlPropertyExtractionResult>();
+            foreach (var className in convertedCustomControlClassNames)
+            {
+                var designerFilePath = parseResults.First(r => r.RootControl!.Name == className).FilePath;
+                var codeBehindPath = SiblingFileResolver.ResolveCodeBehind(designerFilePath);
+                customControlBindableProperties[className] = codeBehindPath != null
+                    ? await CustomControlPropertyExtractor.ExtractAsync(codeBehindPath, className)
+                    : CustomControlPropertyExtractionResult.Empty;
+            }
 
             // Calculate total files to generate: 3 per form + 5 project files
             var totalForms = parseResults.Count;
@@ -357,12 +393,15 @@ public class ConversionOrchestrator
                 ? await ConvertFormsInParallelAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
-                    resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion,
+                    resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
+                    customControlBindableProperties,
                     _config.ParallelProcessing.MaxDegreeOfParallelism, cancellationToken)
                 : await ConvertFormsSequentiallyAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
-                    resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, progress, statistics, totalForms,
+                    resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
+                    customControlBindableProperties,
+                    progress, statistics, totalForms,
                     totalFilesToGenerate, cancellationToken, checkpointManager, state);
 
             var filesGenerated = 0;
@@ -409,7 +448,7 @@ public class ConversionOrchestrator
                 formsProcessed, filesGenerated, force: true);
 
             _logger?.LogInformation("Generating project files...");
-            await GenerateProjectFilesAsync(rollbackManager, formReports, manualSteps);
+            await GenerateProjectFilesAsync(rollbackManager, formReports, manualSteps, convertedCustomControlClassNames);
             filesGenerated += 5; // Project files generated
 
             _logger?.LogInformation("Copying non-Form support files...");
@@ -631,7 +670,9 @@ public class ConversionOrchestrator
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, ResxEntry>> resxByFile,
         MappingResolver mappingResolver,
         MappingContext mappingContext,
-        int avaloniaMajorVersion)
+        int avaloniaMajorVersion,
+        IReadOnlySet<string> convertedCustomControlClassNames,
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties)
     {
         try
         {
@@ -653,15 +694,34 @@ public class ConversionOrchestrator
             // this form, before generation (which stays fully synchronous) starts.
             var overrides = await mappingResolver.ResolveForFormAsync(rootControl, mappingContext);
 
+            // A literal property assignment on an embedded custom-control instance (e.g.
+            // "this.customerCard1.CustomerId = 5;") has no PropertyMappingRegistry entry (an
+            // app-specific type isn't in the static registry) and would otherwise be silently
+            // dropped by AxamlGenerator.WriteControlProperties. When that property is one of the
+            // custom control's own simple auto-properties CustomControlPropertyExtractor found
+            // (and CodeBehindGenerator re-exposed as a real Avalonia property on that control's
+            // own generated code-behind), reuse the exact same PropertyTranslations mechanism a
+            // plugin's IPropertyTranslator would populate, so it's written as a plain XAML
+            // attribute instead.
+            PopulateCustomControlPropertyTranslations(rootControl, overrides, customControlBindableProperties);
+
             var layoutResult = await layoutAnalyzer.AnalyzeAsync(rootControl, layoutContext);
             var layoutType = layoutResult.LayoutType;
 
             var codeBehindMembers = parseResult.CodeBehindMembers;
 
-            var axamlContent = axamlGenerator.Generate(rootControl, layoutResult, namespaceName, className, overrides);
+            // Only meaningful when this form's own className is itself a converted custom
+            // control - re-exposes ITS OWN simple public properties as real Avalonia bindable
+            // properties (see CodeBehindGenerator.Generate).
+            var bindableProperties = customControlBindableProperties.TryGetValue(className, out var extraction)
+                ? extraction.Bindable
+                : null;
+
+            var axamlContent = axamlGenerator.Generate(
+                rootControl, layoutResult, namespaceName, className, overrides, convertedCustomControlClassNames);
             var codeBehindContent = codeBehindGenerator.Generate(
                 namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides,
-                avaloniaMajorVersion, codeBehindMembers, viewModelSuffix);
+                avaloniaMajorVersion, codeBehindMembers, viewModelSuffix, bindableProperties);
 
             var axamlPath = Path.Combine(viewsDir, $"{className}.axaml");
             var codeBehindPath = Path.Combine(viewsDir, $"{className}.axaml.cs");
@@ -788,7 +848,9 @@ public class ConversionOrchestrator
                 Status = "Converted"
             };
 
-            var manualSteps = CollectManualSteps(rootControl, parseResult.FilePath, overrides, parseResult.EventHandlerBodies, vmGenerator);
+            var manualSteps = CollectManualSteps(
+                rootControl, parseResult.FilePath, overrides, parseResult.EventHandlerBodies, vmGenerator,
+                convertedCustomControlClassNames, customControlBindableProperties);
             manualSteps.AddRange(resxManualSteps);
             manualSteps.AddRange(vmManualSteps);
 
@@ -917,12 +979,37 @@ public class ConversionOrchestrator
     /// </summary>
     private static List<ManualStepInfo> CollectManualSteps(
         ControlNode root, string sourceFile, PluginMappingOverrides overrides,
-        IReadOnlyDictionary<string, string> handlerBodies, ViewModelGenerator vmGenerator)
+        IReadOnlyDictionary<string, string> handlerBodies, ViewModelGenerator vmGenerator,
+        IReadOnlySet<string> convertedCustomControlClassNames,
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties)
     {
         var steps = new List<ManualStepInfo>();
         var controlNames = CollectControlNames(root);
         var boundControlProperties = vmGenerator.BuildBoundControlPropertyLookup(root);
-        CollectManualStepsRecursive(root, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties);
+        CollectManualStepsRecursive(
+            root, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties,
+            convertedCustomControlClassNames, customControlBindableProperties);
+
+        // This form's own className may itself be a converted custom control - flag any of its
+        // own public auto-properties CustomControlPropertyExtractor found but couldn't safely
+        // auto-wire (custom getter/setter logic, or an unsupported type), so that gap isn't
+        // silent either.
+        if (customControlBindableProperties.TryGetValue(root.Name, out var extraction))
+        {
+            foreach (var skipped in extraction.Skipped)
+            {
+                steps.Add(new ManualStepInfo
+                {
+                    Category = "Custom Control Property Not Auto-Bound",
+                    Title = $"{root.Name}.{skipped.Name} was not auto-bound",
+                    Location = sourceFile,
+                    Description = $"This public property {skipped.Reason}, so it was left as a plain C# " +
+                        "property instead of a bindable Avalonia StyledProperty - it can't be set from a " +
+                        "parent's AXAML as an attribute. Wire it up manually if a consumer needs to."
+                });
+            }
+        }
+
         return steps;
     }
 
@@ -931,6 +1018,32 @@ public class ConversionOrchestrator
         var names = new HashSet<string>();
         CollectControlNamesRecursive(root, names);
         return names;
+    }
+
+    private static void PopulateCustomControlPropertyTranslations(
+        ControlNode control, PluginMappingOverrides overrides,
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties)
+    {
+        if (customControlBindableProperties.TryGetValue(control.ControlType, out var extraction))
+        {
+            foreach (var property in extraction.Bindable)
+            {
+                if (control.Properties.TryGetValue(property.Name, out var propertyValue))
+                {
+                    overrides.PropertyTranslations[(control, property.Name)] = new PropertyTranslationResult
+                    {
+                        AvaloniaPropertyName = property.Name,
+                        Value = propertyValue.Value,
+                        ValueType = property.TypeName
+                    };
+                }
+            }
+        }
+
+        foreach (var child in control.Children)
+        {
+            PopulateCustomControlPropertyTranslations(child, overrides, customControlBindableProperties);
+        }
     }
 
     private static void CollectControlNamesRecursive(ControlNode control, HashSet<string> names)
@@ -1062,21 +1175,52 @@ public class ConversionOrchestrator
     private static void CollectManualStepsRecursive(
         ControlNode control, string sourceFile, List<ManualStepInfo> steps, PluginMappingOverrides overrides,
         IReadOnlyDictionary<string, string> handlerBodies, IReadOnlySet<string> controlNames,
-        IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties)
+        IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties,
+        IReadOnlySet<string> convertedCustomControlClassNames,
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties)
     {
         // A plugin ControlMapper claiming this control means it isn't actually unmapped -
         // AxamlGenerator.WriteControl consults the same overrides and won't emit a TODO
         // placeholder for it.
         if (!overrides.ControlMappings.ContainsKey(control) && ControlMappingRegistry.GetMapping(control.ControlType) == null)
         {
-            steps.Add(new ManualStepInfo
+            if (convertedCustomControlClassNames.Contains(control.ControlType))
             {
-                Category = "Unmapped Controls",
-                Title = $"{control.ControlType} \"{control.Name}\" has no Avalonia mapping",
-                Location = sourceFile,
-                Description = "This control type has no built-in WinForms-to-Avalonia mapping; it was emitted " +
-                    "as a TODO placeholder in the AXAML and needs a manual replacement."
-            });
+                // This run also independently converted control.ControlType's own Designer.cs -
+                // AxamlGenerator.WriteControl already references it correctly (<views:.../>)
+                // instead of a TODO placeholder, so this isn't "Unmapped Controls". Still worth
+                // a lighter-weight note: only its own simple auto-properties get auto-bound
+                // (CustomControlPropertyExtractor/PopulateCustomControlPropertyTranslations) -
+                // anything else this instance's Designer.cs set on it that isn't in that list is
+                // silently dropped, same as any other unmapped property.
+                var extraction = customControlBindableProperties.GetValueOrDefault(control.ControlType);
+                var boundNames = extraction?.Bindable.Select(p => p.Name).ToHashSet() ?? [];
+                var droppedProperties = control.Properties.Keys.Where(p => !boundNames.Contains(p)).ToList();
+
+                steps.Add(new ManualStepInfo
+                {
+                    Category = "Custom Control Instance",
+                    Title = $"{control.ControlType} \"{control.Name}\" was converted separately",
+                    Location = sourceFile,
+                    Description = $"Views/{control.ControlType}.axaml and its ViewModel were generated from this " +
+                        $"control's own Designer.cs. " + (droppedProperties.Count > 0
+                            ? $"These properties set on this instance were not simple public auto-properties on " +
+                              $"{control.ControlType} (or not found at all) and were not carried over: " +
+                              $"{string.Join(", ", droppedProperties)}. Wire them up manually if needed."
+                            : "All properties set on this instance were auto-bound.")
+                });
+            }
+            else
+            {
+                steps.Add(new ManualStepInfo
+                {
+                    Category = "Unmapped Controls",
+                    Title = $"{control.ControlType} \"{control.Name}\" has no Avalonia mapping",
+                    Location = sourceFile,
+                    Description = "This control type has no built-in WinForms-to-Avalonia mapping; it was emitted " +
+                        "as a TODO placeholder in the AXAML and needs a manual replacement."
+                });
+            }
         }
 
         foreach (var propName in control.Properties.Keys)
@@ -1201,7 +1345,8 @@ public class ConversionOrchestrator
         foreach (var child in control.Children)
         {
             CollectManualStepsRecursive(
-                child, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties);
+                child, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties,
+                convertedCustomControlClassNames, customControlBindableProperties);
         }
     }
 
@@ -1223,6 +1368,8 @@ public class ConversionOrchestrator
         MappingResolver mappingResolver,
         MappingContext mappingContext,
         int avaloniaMajorVersion,
+        IReadOnlySet<string> convertedCustomControlClassNames,
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         IProgress<ConversionProgress>? progress,
         ConversionStatistics statistics,
         int totalForms,
@@ -1246,7 +1393,7 @@ public class ConversionOrchestrator
             var outcome = await ConvertFormAsync(parseResult, layoutAnalyzer, axamlGenerator, vmGenerator,
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
-                avaloniaMajorVersion);
+                avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties);
 
             outcomes.Add(outcome);
             formsProcessed++;
@@ -1304,6 +1451,8 @@ public class ConversionOrchestrator
         MappingResolver mappingResolver,
         MappingContext mappingContext,
         int avaloniaMajorVersion,
+        IReadOnlySet<string> convertedCustomControlClassNames,
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         int? maxDegreeOfParallelism,
         CancellationToken cancellationToken)
     {
@@ -1320,7 +1469,7 @@ public class ConversionOrchestrator
             outcomes[i] = await ConvertFormAsync(parseResults[i], layoutAnalyzer, axamlGenerator, vmGenerator,
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
-                avaloniaMajorVersion);
+                avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties);
         });
 
         return outcomes.Select(o => o!.Value).ToList();
@@ -1334,7 +1483,8 @@ public class ConversionOrchestrator
     /// "MainWindow" almost never matches a real WinForms class name and previously made every
     /// conversion's generated project fail to compile.
     /// </summary>
-    private string ResolveMainWindowName(List<FormReportInfo> formReports)
+    private string ResolveMainWindowName(
+        List<FormReportInfo> formReports, IReadOnlySet<string> convertedCustomControlClassNames)
     {
         if (formReports.Count == 0)
         {
@@ -1347,11 +1497,18 @@ public class ConversionOrchestrator
             return startupForm;
         }
 
-        return formReports[0].Name;
+        // Fallback when the real startup form couldn't be determined: prefer a Window-rooted
+        // form over a UserControl-rooted custom control - desktop.MainWindow requires an actual
+        // Window, and a custom control (now correctly convertible, see
+        // SiblingFileResolver.ResolveRootBaseTypeAsync) could otherwise end up first in
+        // formReports.
+        return formReports.FirstOrDefault(f => !convertedCustomControlClassNames.Contains(f.Name))?.Name
+            ?? formReports[0].Name;
     }
 
     private async Task GenerateProjectFilesAsync(
-        RollbackManager rollbackManager, List<FormReportInfo> formReports, List<ManualStepInfo> manualSteps)
+        RollbackManager rollbackManager, List<FormReportInfo> formReports, List<ManualStepInfo> manualSteps,
+        IReadOnlySet<string> convertedCustomControlClassNames)
     {
         var projectGenerator = new ProjectFileGenerator();
         var projectName = Path.GetFileName(_outputPath);
@@ -1380,7 +1537,8 @@ public class ConversionOrchestrator
             _config.ProjectGeneration.CommunityToolkitMvvmVersion,
             relativeReferencePaths);
         var appAxamlContent = projectGenerator.GenerateAppAxaml(projectName);
-        var appCodeBehindContent = projectGenerator.GenerateAppCodeBehind(projectName, ResolveMainWindowName(formReports));
+        var appCodeBehindContent = projectGenerator.GenerateAppCodeBehind(
+            projectName, ResolveMainWindowName(formReports, convertedCustomControlClassNames));
         var programContent = projectGenerator.GenerateProgramFile(projectName);
         var manifestContent = projectGenerator.GenerateAppManifest();
 

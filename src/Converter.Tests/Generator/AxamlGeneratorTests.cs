@@ -56,6 +56,63 @@ public class AxamlGeneratorTests
     }
 
     [Fact]
+    public void Generate_UserControlRoot_EmitsUserControlElement()
+    {
+        // ControlMappingRegistry maps "UserControl" -> "UserControl" (unlike "Form" ->
+        // "Window") - the root element must mirror the source's real base type instead of
+        // always hardcoding Window, or a custom control's own Designer.cs comes out broken.
+        var root = new ControlNode { ControlType = "UserControl", FullTypeName = "System.Windows.Forms.UserControl", Name = "CustomerCard" };
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "CustomerCard");
+
+        Assert.Contains("<UserControl xmlns=", axaml);
+        Assert.Contains("</UserControl>", axaml);
+        Assert.DoesNotContain("<Window", axaml);
+    }
+
+    [Fact]
+    public void Generate_FormRoot_StillEmitsWindowElement()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "SampleForm" };
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains("<Window xmlns=", axaml);
+        Assert.Contains("</Window>", axaml);
+    }
+
+    [Fact]
+    public void Generate_ChildIsConvertedCustomControl_ReferencesItInsteadOfTodoPlaceholder()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "SampleForm" };
+        var card = new ControlNode { ControlType = "CustomerCard", FullTypeName = "SampleApp.Widgets.CustomerCard", Name = "customerCard1", Parent = root };
+        root.Children.Add(card);
+
+        var axaml = new AxamlGenerator().Generate(
+            root, CanvasLayout(), "SampleApp", "SampleForm",
+            convertedCustomControlClassNames: new HashSet<string> { "CustomerCard" });
+
+        Assert.Contains("<views:CustomerCard", axaml);
+        Assert.Contains("xmlns:views=\"using:SampleApp.Views\"", axaml);
+        Assert.DoesNotContain("TODO: Unmapped control", axaml);
+    }
+
+    [Fact]
+    public void Generate_ChildIsUnresolvedCustomControl_StillEmitsTodoPlaceholder()
+    {
+        // Nothing this run also converted matches "CustomerCard" - keeps today's exact
+        // fallback behavior (a third-party control, or one outside the input path).
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "SampleForm" };
+        var card = new ControlNode { ControlType = "CustomerCard", FullTypeName = "SampleApp.Widgets.CustomerCard", Name = "customerCard1", Parent = root };
+        root.Children.Add(card);
+
+        var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
+
+        Assert.Contains("<!-- TODO: Unmapped control: CustomerCard (customerCard1) -->", axaml);
+        Assert.DoesNotContain("xmlns:views=", axaml);
+    }
+
+    [Fact]
     public void Generate_EmitsBackground_FromBackColor()
     {
         var root = BuildFormWithButton(("BackColor", "System.Drawing.Color.FromArgb(0, 120, 215)"));
