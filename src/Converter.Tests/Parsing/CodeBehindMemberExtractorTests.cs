@@ -373,4 +373,91 @@ public class CodeBehindMemberExtractorTests
             File.Delete(path);
         }
     }
+
+    private const string NestedTypeContent = """
+        namespace SampleApp
+        {
+            partial class StockOverviewForm
+            {
+                private sealed class StockRow
+                {
+                    public required string ProductName { get; init; }
+                    public int OnHand { get; init; }
+                }
+
+                private List<StockRow> _rows = [];
+
+                private void RefreshRowStatuses()
+                {
+                    _rows.Clear();
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExtractAsync_NestedTypeInsideFormClass_IsCapturedVerbatim()
+    {
+        var path = await WriteTempFileAsync(NestedTypeContent);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string>());
+
+            Assert.True(result.NestedTypes.TryGetValue("StockRow", out var declaration));
+            Assert.Contains("class StockRow", declaration);
+            Assert.Contains("ProductName", declaration);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractAsync_NestedTypeOwnMembers_AreNotDuplicatedAsFormFields()
+    {
+        // StockRow's own auto-properties aren't FieldDeclarationSyntax, so this specific real
+        // case wouldn't duplicate regardless - but a nested type WITH real fields must not have
+        // them re-captured as if they belonged to the outer form.
+        const string nestedTypeWithField = """
+            namespace SampleApp
+            {
+                partial class SampleForm
+                {
+                    private sealed class Inner
+                    {
+                        private int _innerField;
+                    }
+                }
+            }
+            """;
+        var path = await WriteTempFileAsync(nestedTypeWithField);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string>());
+
+            Assert.DoesNotContain(result.Fields, f => f.Names.Contains("_innerField"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractAsync_FormOwnFieldAndMethod_StillCapturedAlongsideNestedType()
+    {
+        var path = await WriteTempFileAsync(NestedTypeContent);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string>());
+
+            Assert.Contains(result.Fields, f => f.Names.Contains("_rows"));
+            Assert.Contains(result.HelperMethods.Keys, n => n == "RefreshRowStatuses");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

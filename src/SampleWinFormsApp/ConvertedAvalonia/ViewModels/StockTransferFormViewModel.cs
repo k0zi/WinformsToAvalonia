@@ -20,6 +20,8 @@ public partial class StockTransferFormViewModel : CommunityToolkit.Mvvm.Componen
 
     internal List<Warehouse> _warehouses = [];
 
+    internal sealed record PendingLine(int ProductId, string ProductName, int FromWarehouseId, string FromWarehouseName, int ToWarehouseId, string ToWarehouseName, int Quantity);
+
     internal async Task LoadLookupsAsync()
         {
             (_products, _warehouses) = await Task.Run(() =>
@@ -55,15 +57,15 @@ public partial class StockTransferFormViewModel : CommunityToolkit.Mvvm.Componen
         {
             if (linesGrid.CurrentRow is { } row)
             {
-                linesGrid.Rows.Remove(row);
+                LinesGrid.Remove(row);
             }
         }
 
     internal async Task PostTransferAsync()
         {
-            if (linesGrid.Rows.Count == 0)
+            if (LinesGrid.Count == 0)
             {
-                MessageBox.Show(this, "Add at least one line before posting.", "Nothing to Post", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Add at least one line before posting.","Nothing to Post",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
                 return;
             }
     
@@ -73,7 +75,7 @@ public partial class StockTransferFormViewModel : CommunityToolkit.Mvvm.Componen
             {
                 using var ctx = Db.CreateContext();
                 var service = new StockMovementService(ctx);
-                foreach (DataGridViewRow row in linesGrid.Rows)
+                foreach (DataGridViewRow row in LinesGrid)
                 {
                     if (row.Tag is not PendingLine line)
                     {
@@ -82,12 +84,12 @@ public partial class StockTransferFormViewModel : CommunityToolkit.Mvvm.Componen
                     await service.PostTransferAsync(line.ProductId, line.FromWarehouseId, line.ToWarehouseId, line.Quantity, userId, "Manual warehouse transfer");
                 }
     
-                statusLabel.Text = $"Posted {linesGrid.Rows.Count} transfer(s) successfully.";
-                linesGrid.Rows.Clear();
+                Status = $"Posted {LinesGrid.Count} transfer(s) successfully.";
+                LinesGrid.Clear();
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Could not post transfer: {ex.Message}", "Post Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync($"Could not post transfer: {ex.Message}","Post Failed",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Error);
             }
             finally
             {
@@ -114,7 +116,7 @@ public partial class StockTransferFormViewModel : CommunityToolkit.Mvvm.Componen
     }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
-    private void addLineButtonClick()
+    private async void addLineButtonClick()
     {
             if (productComboBox.SelectedItem is not Product product
                 || fromWarehouseComboBox.SelectedItem is not Warehouse fromWarehouse
@@ -125,15 +127,15 @@ public partial class StockTransferFormViewModel : CommunityToolkit.Mvvm.Componen
     
             if (fromWarehouse.Id == toWarehouse.Id)
             {
-                MessageBox.Show(this, "Source and destination warehouses must differ.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Source and destination warehouses must differ.","Validation",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Warning);
                 return;
             }
     
             var quantity = (int)quantityNumericUpDown.Value;
             var line = new PendingLine(product.Id, product.Name, fromWarehouse.Id, fromWarehouse.Name, toWarehouse.Id, toWarehouse.Name, quantity);
-            var rowIndex = linesGrid.Rows.Add(line.ProductName, line.FromWarehouseName, line.ToWarehouseName, line.Quantity);
-            linesGrid.Rows[rowIndex].Tag = line;
-            statusLabel.Text = string.Empty;
+            var rowIndex = LinesGrid.Add(line.ProductName, line.FromWarehouseName, line.ToWarehouseName, line.Quantity);
+            LinesGrid[rowIndex].Tag = line;
+            Status = string.Empty;
         }
 
 }

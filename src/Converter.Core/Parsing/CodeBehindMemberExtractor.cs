@@ -19,11 +19,22 @@ public class CodeBehindMembers(
     IReadOnlyList<CodeBehindField>? fields = null,
     IReadOnlyDictionary<string, string>? helperMethods = null,
     IReadOnlyList<string>? skippedOverrideMethodNames = null,
-    IReadOnlyList<string>? usingDirectives = null)
+    IReadOnlyList<string>? usingDirectives = null,
+    IReadOnlyDictionary<string, string>? nestedTypes = null)
 {
     public IReadOnlyList<CodeBehindField> Fields { get; } = fields ?? [];
     public IReadOnlyDictionary<string, string> HelperMethods { get; } = helperMethods ?? new Dictionary<string, string>();
     public IReadOnlyList<string> SkippedOverrideMethodNames { get; } = skippedOverrideMethodNames ?? [];
+
+    /// <summary>
+    /// A class/record/struct nested inside the form's own partial class (e.g. a small
+    /// "private sealed class NewLine { ... }" helper type a migrated method's signature
+    /// references) - name -> full declaration text, verbatim. Previously never migrated at all
+    /// (only fields/methods were), so any reference to one broke with "type not found" (found
+    /// via a real build against WarehouseApp: SalesOrderDetailForm.AddLineRow takes a "NewLine?"
+    /// parameter that never resolved).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> NestedTypes { get; } = nestedTypes ?? new Dictionary<string, string>();
 
     /// <summary>
     /// Namespaces the sibling code-behind file itself imports (e.g. "WarehouseApp.Data.Models"),
@@ -120,6 +131,7 @@ public static class CodeBehindMemberExtractor
         var helperMethods = new Dictionary<string, string>();
         var skippedOverrides = new List<string>();
         var usingDirectives = new List<string>();
+        var nestedTypes = new Dictionary<string, string>();
 
         try
         {
@@ -142,7 +154,29 @@ public static class CodeBehindMemberExtractor
                 }
             }
 
-            foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
+            // A type declaration nested one level inside another type (the form's own partial
+            // class, most commonly) - a small local helper type used only by that form's
+            // migrated logic. Not picky about *which* outer class it's nested in, consistent
+            // with the fields/methods scan below (which also doesn't discriminate).
+            var nestedTypeNodes = root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+                .Where(t => t.Parent is TypeDeclarationSyntax)
+                .ToList();
+            foreach (var nestedType in nestedTypeNodes)
+            {
+                var name = nestedType.Identifier.Text;
+                if (!nestedTypes.ContainsKey(name))
+                {
+                    nestedTypes[name] = nestedType.ToString().Trim();
+                }
+            }
+
+            // A field/method declared *inside* one of those nested types is migrated as part of
+            // its own declaration text above - excluded here to avoid emitting it a second time
+            // as if it were the outer form's own member.
+            bool IsInsideNestedType(SyntaxNode node) =>
+                node.Ancestors().OfType<TypeDeclarationSyntax>().Any(nestedTypeNodes.Contains);
+
+            foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>().Where(f => !IsInsideNestedType(f)))
             {
                 var names = field.Declaration.Variables.Select(v => v.Identifier.Text).ToList();
                 if (names.All(controlFieldNames.Contains))
@@ -153,7 +187,7 @@ public static class CodeBehindMemberExtractor
                 fields.Add(new CodeBehindField(names, field.ToString().Trim()));
             }
 
-            foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
+            foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(m => !IsInsideNestedType(m)))
             {
                 var name = method.Identifier.Text;
                 // InitializeComponent is WinForms control-construction plumbing with no
@@ -192,7 +226,7 @@ public static class CodeBehindMemberExtractor
             // extracted, not a failed conversion.
         }
 
-        return new CodeBehindMembers(fields, helperMethods, skippedOverrides, usingDirectives);
+        return new CodeBehindMembers(fields, helperMethods, skippedOverrides, usingDirectives, nestedTypes);
     }
 
     /// <summary>

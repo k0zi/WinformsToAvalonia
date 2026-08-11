@@ -54,7 +54,7 @@ public partial class ProductsListFormViewModel : CommunityToolkit.Mvvm.Component
     internal void AddNew()
         {
             using var form = new ProductDetailForm();
-            if (form.ShowDialog(this) == DialogResult.OK)
+            if (form.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 _ = ReloadAsync();
             }
@@ -63,7 +63,7 @@ public partial class ProductsListFormViewModel : CommunityToolkit.Mvvm.Component
     internal void EditEntity(Product entity)
         {
             using var form = new ProductDetailForm(entity);
-            if (form.ShowDialog(this) == DialogResult.OK)
+            if (form.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 _ = ReloadAsync();
             }
@@ -104,16 +104,16 @@ public partial class ProductsListFormViewModel : CommunityToolkit.Mvvm.Component
             }
         }
 
-    internal void quickAddDuplicate_Click(object? sender, EventArgs e)
+    internal async void quickAddDuplicate_Click(object? sender, EventArgs e)
         {
             if (BindingSourceControl?.Current is not Product selected)
             {
-                MessageBox.Show(this, "Select a product first.", "Quick Add", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Select a product first.","Quick Add",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
                 return;
             }
     
             using var form = new ProductDetailForm { SeedTemplate = selected };
-            if (form.ShowDialog(this) == DialogResult.OK)
+            if (form.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 _ = ReloadAsync();
             }

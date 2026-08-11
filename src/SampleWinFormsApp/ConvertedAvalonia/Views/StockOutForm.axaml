@@ -16,7 +16,8 @@
     <DockPanel>
         <DataGrid Name="linesGrid"
         AutoGenerateColumns="false"
-        IsReadOnly="true" />
+        IsReadOnly="true"
+        Items="{Binding LinesGrid}" />
         <Panel Name="actionPanel"
         DockPanel.Dock="Bottom"
         Height="52">
@@ -48,7 +49,8 @@
                 <TextBlock Name="statusLabel"
                 Grid.Row="1"
                 Grid.Column="1"
-                Foreground="SeaGreen" />
+                Foreground="SeaGreen"
+                Text="{Binding Status}" />
             </Grid>
         </Panel>
         <Panel Name="entryPanel"

@@ -29,9 +29,11 @@ public class ViewModelGenerator
     /// shell. Declares no base type - ObservableObject is declared once, on the always-present
     /// hand-editable partial (see BuildEditableClass), since this file may or may not exist.
     /// </summary>
-    public string GeneratePartialClass(ControlNode root, string namespaceName, string className)
+    public string GeneratePartialClass(
+        ControlNode root, string namespaceName, string className,
+        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null)
     {
-        var properties = ExtractBoundProperties(root);
+        var properties = ExtractBoundProperties(root, inferredBindings);
         if (properties.Count == 0)
         {
             return string.Empty;
@@ -80,11 +82,12 @@ public class ViewModelGenerator
         ControlNode root, string namespaceName, string className,
         PluginMappingOverrides? overrides = null,
         IReadOnlyDictionary<string, string>? handlerBodies = null,
-        CodeBehindMembers? codeBehindMembers = null)
+        CodeBehindMembers? codeBehindMembers = null,
+        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null)
     {
         overrides ??= PluginMappingOverrides.Empty;
         codeBehindMembers ??= CodeBehindMembers.Empty;
-        var boundControlProperties = BuildBoundControlPropertyLookup(root);
+        var boundControlProperties = BuildBoundControlPropertyLookup(root, inferredBindings);
 
         var memberNames = new List<string>();
         var sb = new StringBuilder();
@@ -111,6 +114,17 @@ public class ViewModelGenerator
             memberNames.AddRange(field.Names);
         }
 
+        // A small local helper type (e.g. "private sealed class NewLine { ... }") a migrated
+        // method's own signature references - migrated verbatim, same accessibility-upgrade
+        // treatment as fields/methods so it's reachable if CodeBehindGenerator's "ViewModel."
+        // rewrite ever needs to reference it from a different class/file.
+        foreach (var (name, source) in codeBehindMembers.NestedTypes)
+        {
+            sb.AppendLine("    " + IndentContinuationLines(EnsureInternalAccessibility(source)));
+            sb.AppendLine();
+            memberNames.Add(name);
+        }
+
         foreach (var (name, source) in codeBehindMembers.HelperMethods)
         {
             // A migrated helper method (e.g. LoadFromEntity/ValidateInput/SaveToEntity) is
@@ -119,7 +133,21 @@ public class ViewModelGenerator
             // RelayCommand/property-changed-hook bodies below applies here too, so the
             // ViewModel doesn't end up referencing View-only controls.
             var rewritten = RewriteBoundControlReferences(source, boundControlProperties);
-            sb.AppendLine("    " + IndentContinuationLines(EnsureInternalAccessibility(rewritten)));
+            // A migrated method commonly shows a MessageBox to confirm/report something -
+            // rewrite it into the generated Dialogs.ShowAsync helper the same way RelayCommand
+            // bodies below get. Unlike those, a helper method's signature is verbatim migrated
+            // text (not reconstructed here) - TranspileMethod (not Transpile) operates on the
+            // full signature+body text this loop has, and making it async when the rewrite adds
+            // an "await" goes through EnsureAsyncModifier's own syntax-tree edit rather than a
+            // string-built signature.
+            var helperTranspiled = MessageBoxTranspiler.TranspileMethod(rewritten, namespaceName);
+            var helperSource = EnsureInternalAccessibility(helperTranspiled.TransformedBody);
+            if (helperTranspiled.AddedAwait)
+            {
+                helperSource = EventHandlerBodyParser.EnsureAsyncModifier(helperSource);
+            }
+
+            sb.AppendLine("    " + IndentContinuationLines(helperSource));
             sb.AppendLine();
             memberNames.Add(name);
         }
@@ -130,10 +158,25 @@ public class ViewModelGenerator
             string? originalSource = null;
             var hasOriginalSource = handlerBodies != null &&
                 handlerBodies.TryGetValue(command.OriginalHandlerMethodName, out originalSource);
+
+            var body = string.Empty;
+            var addedAwait = false;
+            if (hasOriginalSource)
+            {
+                body = EventHandlerBodyParser.ExtractBodyText(originalSource!);
+                body = RewriteBoundControlReferences(body, boundControlProperties);
+                var transpiled = MessageBoxTranspiler.Transpile(body, namespaceName);
+                body = transpiled.TransformedBody;
+                addedAwait = transpiled.AddedAwait;
+            }
+
             // The original handler is commonly "async void" (WinForms event handlers are
             // fire-and-forget by nature); the body carries "await" regardless of whether we
-            // preserve that modifier, so dropping it would emit code that doesn't compile.
-            var asyncModifier = hasOriginalSource && EventHandlerBodyParser.IsAsyncMethodSignature(originalSource!) ? "async " : "";
+            // preserve that modifier, so dropping it would emit code that doesn't compile. A
+            // MessageBoxTranspiler rewrite adds its own "await" for the same reason even when
+            // the original handler wasn't async.
+            var asyncModifier = (hasOriginalSource && EventHandlerBodyParser.IsAsyncMethodSignature(originalSource!)) || addedAwait
+                ? "async " : "";
 
             sb.AppendLine($"    [CommunityToolkit.Mvvm.Input.RelayCommand]");
             if (command.HasParameter)
@@ -147,8 +190,6 @@ public class ViewModelGenerator
 
             if (hasOriginalSource)
             {
-                var body = EventHandlerBodyParser.ExtractBodyText(originalSource!);
-                body = RewriteBoundControlReferences(body, boundControlProperties);
                 sb.AppendLine("    " + IndentContinuationLines(body));
             }
             else
@@ -207,10 +248,25 @@ public class ViewModelGenerator
     /// naming convention (same casing ExtractBoundProperties' FieldName/ToCamelCase already
     /// assumes, just capitalized back to the generated public property's name).
     /// </summary>
-    public IReadOnlyDictionary<(string ControlName, string ControlProperty), string> BuildBoundControlPropertyLookup(ControlNode root)
+    public IReadOnlyDictionary<(string ControlName, string ControlProperty), string> BuildBoundControlPropertyLookup(
+        ControlNode root, IReadOnlyDictionary<(string ControlName, string Property), string>? additionalBindings = null)
     {
         var lookup = new Dictionary<(string, string), string>();
         BuildBoundControlPropertyLookupRecursive(root, lookup);
+
+        // UsageInferredBindingDetector's own entries - merged in here so every existing
+        // consumer of this lookup (the rewrite below, and ConversionOrchestrator's own
+        // unresolved-reference flagging, which calls this same method) picks them up for free
+        // without a second, parallel mechanism. DataBindings-sourced entries win on conflict
+        // (shouldn't happen - the detector already excludes anything already bound).
+        if (additionalBindings != null)
+        {
+            foreach (var (key, value) in additionalBindings)
+            {
+                lookup.TryAdd(key, value);
+            }
+        }
+
         return lookup;
     }
 
@@ -257,10 +313,30 @@ public class ViewModelGenerator
         return body;
     }
 
-    private List<PropertyInfo> ExtractBoundProperties(ControlNode root)
+    private List<PropertyInfo> ExtractBoundProperties(
+        ControlNode root, IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null)
     {
         var properties = new List<PropertyInfo>();
         ExtractPropertiesRecursive(root, properties);
+
+        // UsageInferredBindingDetector's own entries (a control property touched from 2+
+        // migrated members with no DataBindings.Add(...) declaring it) - same PropertyInfo
+        // shape as a DataBindings-sourced one, just named from the control's own field name
+        // (DerivePropertyName) instead of a DataMember.
+        if (inferredBindings != null)
+        {
+            foreach (var ((_, controlProperty), observableName) in inferredBindings)
+            {
+                properties.Add(new PropertyInfo
+                {
+                    Name = observableName,
+                    FieldName = ToCamelCase(observableName),
+                    Type = InferPropertyType(controlProperty),
+                    DefaultValue = GetDefaultValue(InferPropertyType(controlProperty))
+                });
+            }
+        }
+
         return properties.DistinctBy(p => p.Name).ToList();
     }
 

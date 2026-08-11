@@ -20,6 +20,8 @@ public partial class StockOutFormViewModel : CommunityToolkit.Mvvm.ComponentMode
 
     internal List<Warehouse> _warehouses = [];
 
+    internal sealed record PendingLine(int ProductId, string ProductName, int WarehouseId, string WarehouseName, int Quantity);
+
     internal async Task LoadLookupsAsync()
         {
             (_products, _warehouses) = await Task.Run(() =>
@@ -41,15 +43,15 @@ public partial class StockOutFormViewModel : CommunityToolkit.Mvvm.ComponentMode
         {
             if (linesGrid.CurrentRow is { } row)
             {
-                linesGrid.Rows.Remove(row);
+                LinesGrid.Remove(row);
             }
         }
 
     internal async Task PostIssueAsync()
         {
-            if (linesGrid.Rows.Count == 0)
+            if (LinesGrid.Count == 0)
             {
-                MessageBox.Show(this, "Add at least one line before posting.", "Nothing to Post", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Add at least one line before posting.","Nothing to Post",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
                 return;
             }
     
@@ -59,7 +61,7 @@ public partial class StockOutFormViewModel : CommunityToolkit.Mvvm.ComponentMode
             {
                 using var ctx = Db.CreateContext();
                 var service = new StockMovementService(ctx);
-                foreach (DataGridViewRow row in linesGrid.Rows)
+                foreach (DataGridViewRow row in LinesGrid)
                 {
                     if (row.Tag is not PendingLine line)
                     {
@@ -68,12 +70,12 @@ public partial class StockOutFormViewModel : CommunityToolkit.Mvvm.ComponentMode
                     await service.PostGoodsIssueAsync(line.ProductId, line.WarehouseId, line.Quantity, userId, notes: "Manual goods issue");
                 }
     
-                statusLabel.Text = $"Posted {linesGrid.Rows.Count} line(s) successfully.";
-                linesGrid.Rows.Clear();
+                Status = $"Posted {LinesGrid.Count} line(s) successfully.";
+                LinesGrid.Clear();
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Could not post issue: {ex.Message}", "Post Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync($"Could not post issue: {ex.Message}","Post Failed",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Error);
             }
             finally
             {
@@ -94,7 +96,7 @@ public partial class StockOutFormViewModel : CommunityToolkit.Mvvm.ComponentMode
     }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
-    private void addLineButtonClick()
+    private async void addLineButtonClick()
     {
             if (productComboBox.SelectedItem is not Product product || warehouseComboBox.SelectedItem is not Warehouse warehouse)
             {
@@ -104,14 +106,14 @@ public partial class StockOutFormViewModel : CommunityToolkit.Mvvm.ComponentMode
             var quantity = (int)quantityStepper.Value;
             if (quantity <= 0)
             {
-                MessageBox.Show(this, "Quantity must be greater than zero.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Quantity must be greater than zero.","Validation",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Warning);
                 return;
             }
     
             var line = new PendingLine(product.Id, product.Name, warehouse.Id, warehouse.Name, quantity);
-            var rowIndex = linesGrid.Rows.Add(line.ProductName, line.WarehouseName, line.Quantity);
-            linesGrid.Rows[rowIndex].Tag = line;
-            statusLabel.Text = string.Empty;
+            var rowIndex = LinesGrid.Add(line.ProductName, line.WarehouseName, line.Quantity);
+            LinesGrid[rowIndex].Tag = line;
+            Status = string.Empty;
         }
 
 }

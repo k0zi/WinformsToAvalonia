@@ -17,7 +17,8 @@
         DockPanel.Dock="Left"
         Width="300">
             <DockPanel>
-                <TreeView Name="locationsTreeView" />
+                <TreeView Name="locationsTreeView"
+                SelectedNode="{Binding Locations}" />
             </DockPanel>
         </Panel>
         <GridSplitter Name="splitter"
@@ -25,7 +26,8 @@
         Width="4" />
         <Panel Name="detailFillPanel">
             <DockPanel>
-                <ListBox Name="shelfContentsListView" />
+                <ListBox Name="shelfContentsListView"
+                Items="{Binding ShelfContents}" />
                 <Panel Name="gaugePanel"
                 DockPanel.Dock="Top"
                 Height="170">
@@ -50,7 +52,8 @@
                         <TextBlock Name="capacityDetailLabel"
                         Grid.Row="2"
                         Grid.Column="1"
-                        Foreground="Gray" />
+                        Foreground="Gray"
+                        Text="{Binding CapacityDetail}" />
                     </Grid>
                 </Panel>
             </DockPanel>

@@ -70,9 +70,9 @@ public partial class ReportsFormViewModel : CommunityToolkit.Mvvm.ComponentModel
             }
         }
 
-    internal void exportCsvButton_Click(object? sender, EventArgs e)
+    internal async void exportCsvButton_Click(object? sender, EventArgs e)
         {
-            if (saveFileDialog.ShowDialog(this) != DialogResult.OK)
+            if (saveFileDialog.ShowDialog(this) != ConvertedAvalonia.Common.DialogResult.OK)
             {
                 return;
             }
@@ -85,13 +85,13 @@ public partial class ReportsFormViewModel : CommunityToolkit.Mvvm.ComponentModel
             }
     
             File.WriteAllText(saveFileDialog.FileName, sb.ToString());
-            MessageBox.Show(this, $"Exported to {saveFileDialog.FileName}", "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            await ConvertedAvalonia.Common.Dialogs.ShowAsync($"Exported to {saveFileDialog.FileName}","Export Complete",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
         }
 
     internal void chooseFontButton_Click(object? sender, EventArgs e)
         {
             fontDialog.Font = salesChart.TitleFont;
-            if (fontDialog.ShowDialog(this) == DialogResult.OK)
+            if (fontDialog.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 salesChart.TitleFont = fontDialog.Font;
                 salesChart.Invalidate();

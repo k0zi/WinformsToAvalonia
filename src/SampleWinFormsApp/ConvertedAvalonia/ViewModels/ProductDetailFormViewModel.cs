@@ -36,18 +36,18 @@ public partial class ProductDetailFormViewModel : CommunityToolkit.Mvvm.Componen
     
             var seed = IsNew ? SeedTemplate : null;
     
-            skuTextBox.Text = seed is not null ? seed.Sku + "-COPY" : Entity.Sku;
-            nameTextBox.Text = seed is not null ? seed.Name + " (Copy)" : Entity.Name;
-            descriptionTextBox.Text = seed?.Description ?? Entity.Description;
-            unitPriceNumericUpDown.Value = seed?.UnitPrice ?? Entity.UnitPrice;
-            reorderLevelNumericUpDown.Value = seed?.ReorderLevel ?? Entity.ReorderLevel;
-            isActiveCheckBox.Checked = IsNew || Entity.IsActive;
+            Sku = seed is not null ? seed.Sku + "-COPY" : Entity.Sku;
+            Name = seed is not null ? seed.Name + " (Copy)" : Entity.Name;
+            Description = seed?.Description ?? Entity.Description;
+            UnitPrice = seed?.UnitPrice ?? Entity.UnitPrice;
+            ReorderLevel = seed?.ReorderLevel ?? Entity.ReorderLevel;
+            IsActive = IsNew || Entity.IsActive;
     
             if (!IsNew || seed is not null)
             {
                 var source = seed ?? Entity;
-                categoryComboBox.SelectedValue = source.CategoryId;
-                supplierComboBox.SelectedValue = source.SupplierId;
+                Category = source.CategoryId;
+                Supplier = source.SupplierId;
                 var uomIndex = unitOfMeasureDomainUpDown.Items.IndexOf(source.UnitOfMeasure.ToString());
                 if (uomIndex >= 0)
                 {
@@ -59,12 +59,12 @@ public partial class ProductDetailFormViewModel : CommunityToolkit.Mvvm.Componen
     internal bool ValidateInput()
         {
             var valid = true;
-            if (string.IsNullOrWhiteSpace(skuTextBox.Text))
+            if (string.IsNullOrWhiteSpace(Sku))
             {
                 Validation.SetError(skuTextBox, "SKU is required.");
                 valid = false;
             }
-            if (string.IsNullOrWhiteSpace(nameTextBox.Text))
+            if (string.IsNullOrWhiteSpace(Name))
             {
                 Validation.SetError(nameTextBox, "Name is required.");
                 valid = false;
@@ -84,15 +84,15 @@ public partial class ProductDetailFormViewModel : CommunityToolkit.Mvvm.Componen
 
     internal void SaveToEntity()
         {
-            Entity.Sku = skuTextBox.Text.Trim();
-            Entity.Name = nameTextBox.Text.Trim();
-            Entity.Description = descriptionTextBox.Text.Trim();
-            Entity.CategoryId = (int)categoryComboBox.SelectedValue!;
-            Entity.SupplierId = (int)supplierComboBox.SelectedValue!;
+            Entity.Sku = Sku.Trim();
+            Entity.Name = Name.Trim();
+            Entity.Description = Description.Trim();
+            Entity.CategoryId = (int)Category!;
+            Entity.SupplierId = (int)Supplier!;
             Entity.UnitOfMeasure = Enum.Parse<UnitOfMeasure>((string)unitOfMeasureDomainUpDown.SelectedItem!);
-            Entity.UnitPrice = unitPriceNumericUpDown.Value;
-            Entity.ReorderLevel = (int)reorderLevelNumericUpDown.Value;
-            Entity.IsActive = isActiveCheckBox.Checked;
+            Entity.UnitPrice = UnitPrice;
+            Entity.ReorderLevel = (int)ReorderLevel;
+            Entity.IsActive = IsActive;
             if (IsNew)
             {
                 Entity.CreatedAt = DateTime.UtcNow;
@@ -116,7 +116,7 @@ public partial class ProductDetailFormViewModel : CommunityToolkit.Mvvm.Componen
     [CommunityToolkit.Mvvm.Input.RelayCommand]
     private void chooseImageButtonClick()
     {
-            if (openFileDialog.ShowDialog(this) == DialogResult.OK)
+            if (openFileDialog.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 Entity.ImagePath = openFileDialog.FileName;
                 productPictureBox.Image = Image.FromFile(openFileDialog.FileName);

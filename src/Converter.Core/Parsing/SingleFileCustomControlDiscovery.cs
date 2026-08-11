@@ -84,6 +84,74 @@ public static class SingleFileCustomControlDiscovery
         return discovered;
     }
 
+    /// <summary>
+    /// Finds every class deriving from Control/UserControl that overrides OnPaint but has no
+    /// InitializeComponent - the inverse of DiscoverAsync's own check, i.e. the owner-drawn
+    /// case that has no control tree to convert into AXAML at all (see
+    /// SupportFileScanner.ScanAsync's identical detection for the file-level skip). Used by
+    /// ConversionOrchestrator so an embedded *instance* of one of these controls gets the same
+    /// specific "Custom-drawn control..." message in its "Unmapped Controls" manual step that
+    /// the file-level skip already gives, instead of a generic "has no Avalonia mapping".
+    /// </summary>
+    public static async Task<HashSet<string>> DiscoverOwnerDrawnControlClassNamesAsync(
+        string sourcePath, IReadOnlyList<string> excludePatterns)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        string[] allCsFiles;
+        try
+        {
+            allCsFiles = Directory.GetFiles(sourcePath, "*.cs", SearchOption.AllDirectories);
+        }
+        catch
+        {
+            return names;
+        }
+
+        foreach (var file in allCsFiles)
+        {
+            if (Path.GetFileName(file).Equals("Program.cs", StringComparison.OrdinalIgnoreCase) ||
+                ExcludePatternMatcher.IsExcluded(file, excludePatterns) ||
+                IsInBuildOutputDirectory(sourcePath, file))
+            {
+                continue;
+            }
+
+            try
+            {
+                var sourceCode = await File.ReadAllTextAsync(file);
+                var root = CSharpSyntaxTree.ParseText(sourceCode).GetRoot();
+
+                foreach (var classDeclaration in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
+                {
+                    var derivesFromCustomControlBase = classDeclaration.BaseList?.Types.Any(b =>
+                        SupportFileScanner.SimpleBaseTypeName(b.Type) is { } baseName &&
+                        CustomControlBaseTypeNames.Contains(baseName)) == true;
+                    if (!derivesFromCustomControlBase)
+                    {
+                        continue;
+                    }
+
+                    var hasOnPaint = classDeclaration.Members.OfType<MethodDeclarationSyntax>()
+                        .Any(m => m.Identifier.Text == "OnPaint");
+                    var hasInitializeComponent = classDeclaration.Members.OfType<MethodDeclarationSyntax>()
+                        .Any(m => m.Identifier.Text == "InitializeComponent");
+
+                    if (hasOnPaint && !hasInitializeComponent)
+                    {
+                        names.Add(classDeclaration.Identifier.Text);
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort: an unparseable/unreadable file simply contributes no names.
+            }
+        }
+
+        return names;
+    }
+
     private static bool IsInBuildOutputDirectory(string sourcePath, string filePath)
     {
         var relative = Path.GetRelativePath(sourcePath, filePath).Replace('\\', '/');

@@ -20,6 +20,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Converter.Cli.Models;
 
 namespace Converter.Cli.Services;
@@ -363,6 +364,14 @@ public class ConversionOrchestrator
                     : CustomControlPropertyExtractionResult.Empty;
             }
 
+            // Every class deriving from Control/UserControl with an OnPaint override and no
+            // InitializeComponent (an owner-drawn control - no control tree to convert into
+            // AXAML at all). Gives an embedded instance's "Unmapped Controls" manual step the
+            // same specific message SupportFileScanner's file-level skip already has, instead of
+            // a generic "has no Avalonia mapping".
+            var ownerDrawnControlClassNames = await SingleFileCustomControlDiscovery
+                .DiscoverOwnerDrawnControlClassNamesAsync(_sourcePath, _config.ExcludePatterns);
+
             // Calculate total files to generate: 3 per form + 5 project files
             var totalForms = parseResults.Count;
             var totalFilesToGenerate = (totalForms * 3) + 5;
@@ -421,13 +430,13 @@ public class ConversionOrchestrator
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
                     resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
-                    customControlBindableProperties,
+                    customControlBindableProperties, ownerDrawnControlClassNames,
                     _config.ParallelProcessing.MaxDegreeOfParallelism, cancellationToken)
                 : await ConvertFormsSequentiallyAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
                     resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
-                    customControlBindableProperties,
+                    customControlBindableProperties, ownerDrawnControlClassNames,
                     progress, statistics, totalForms,
                     totalFilesToGenerate, cancellationToken, checkpointManager, state);
 
@@ -466,6 +475,8 @@ public class ConversionOrchestrator
                 await hashTracker.SaveCacheAsync();
             }
 
+            var usesMessageBoxDialogs = outcomes.Any(o => o.UsesMessageBoxDialogs);
+
             ReportProgress(OperationType.ConvertingForm, progress, statistics, totalForms, totalFilesToGenerate,
                 formsProcessed, filesGenerated, force: true);
 
@@ -475,7 +486,8 @@ public class ConversionOrchestrator
                 formsProcessed, filesGenerated, force: true);
 
             _logger?.LogInformation("Generating project files...");
-            await GenerateProjectFilesAsync(rollbackManager, formReports, manualSteps, convertedCustomControlClassNames);
+            await GenerateProjectFilesAsync(
+                rollbackManager, formReports, manualSteps, convertedCustomControlClassNames, usesMessageBoxDialogs);
             filesGenerated += 5; // Project files generated
 
             _logger?.LogInformation("Copying non-Form support files...");
@@ -669,7 +681,8 @@ public class ConversionOrchestrator
         int ControlCount,
         string SourceFile,
         Exception? Error,
-        IReadOnlyList<ManualStepInfo> ManualSteps);
+        IReadOnlyList<ManualStepInfo> ManualSteps,
+        bool UsesMessageBoxDialogs = false);
 
     /// <summary>
     /// Converts a single form. Pure with respect to shared orchestrator state - reads only
@@ -699,7 +712,8 @@ public class ConversionOrchestrator
         MappingContext mappingContext,
         int avaloniaMajorVersion,
         IReadOnlySet<string> convertedCustomControlClassNames,
-        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties)
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
+        IReadOnlySet<string> ownerDrawnControlClassNames)
     {
         try
         {
@@ -744,8 +758,23 @@ public class ConversionOrchestrator
                 ? extraction.Bindable
                 : null;
 
+            // Many real WinForms apps never call .DataBindings.Add(...) at all (confirmed
+            // against WarehouseApp: zero hits across every form), so the DataBindings-only
+            // binding machinery above has no reach there even though a control read in one
+            // migrated method and written in another is behaviorally a bound property either
+            // way. Infer those from usage instead - see UsageInferredBindingDetector for the
+            // conservative (2+ distinct members) threshold - and merge them in everywhere a
+            // DataBindings-derived binding would otherwise flow: the generated
+            // [ObservableProperty] set, the AXAML {Binding} attributes, and the bound-control
+            // rewrite inside migrated method bodies.
+            var inferredBindings = UsageInferredBindingDetector.DetectInferredBindings(
+                parseResult.EventHandlerBodies.Values.Concat(codeBehindMembers.HelperMethods.Values),
+                CollectControlNames(rootControl),
+                vmGenerator.BuildBoundControlPropertyLookup(rootControl));
+
             var axamlContent = axamlGenerator.Generate(
-                rootControl, layoutResult, namespaceName, className, overrides, convertedCustomControlClassNames);
+                rootControl, layoutResult, namespaceName, className, overrides, convertedCustomControlClassNames,
+                inferredBindings);
             var codeBehindContent = codeBehindGenerator.Generate(
                 namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides,
                 avaloniaMajorVersion, codeBehindMembers, viewModelSuffix, bindableProperties);
@@ -764,7 +793,7 @@ public class ConversionOrchestrator
             // Auto-regenerated, ObservableProperty-only, optional file - only written when it
             // would have at least one property; a previously-written one whose bindings have
             // since been removed is deleted rather than left stale.
-            var vmGenContent = vmGenerator.GeneratePartialClass(rootControl, namespaceName, className);
+            var vmGenContent = vmGenerator.GeneratePartialClass(rootControl, namespaceName, className, inferredBindings);
             var vmGenPath = Path.Combine(viewModelsDir, $"{className}{viewModelSuffix}.g.cs");
             if (!string.IsNullOrEmpty(vmGenContent))
             {
@@ -781,7 +810,8 @@ public class ConversionOrchestrator
             // rewritten (user edits survive reconversion); any command/field/method this run
             // would have seeded but isn't already present is instead surfaced as a manual step.
             var editable = vmGenerator.BuildEditableClass(
-                rootControl, namespaceName, className, overrides, parseResult.EventHandlerBodies, codeBehindMembers);
+                rootControl, namespaceName, className, overrides, parseResult.EventHandlerBodies, codeBehindMembers,
+                inferredBindings);
             var vmUserPath = Path.Combine(viewModelsDir, $"{className}{viewModelSuffix}.cs");
 
             if (!File.Exists(vmUserPath))
@@ -837,6 +867,20 @@ public class ConversionOrchestrator
             {
                 var referencedTypes = WinFormsTypeUsageDetector.FindReferencedTypeNames(
                     CSharpSyntaxTree.ParseText(methodSource).GetRoot());
+
+                // MessageBoxTranspiler (applied to this exact body by
+                // ViewModelGenerator.BuildEditableClass) already rewrites "MessageBox.Show(...)"
+                // and any standalone MessageBoxButtons/MessageBoxIcon/DialogResult reference into
+                // a real, compiling call against the generated Dialogs helper - once that rewrite
+                // actually applies, those names must not still be flagged as "no Avalonia
+                // equivalent" (any other, genuinely-unhandled type stays flagged).
+                if (MessageBoxTranspiler.TranspileMethod(methodSource, namespaceName).AddedAwait)
+                {
+                    referencedTypes = referencedTypes
+                        .Where(t => t is not ("MessageBox" or "MessageBoxButtons" or "MessageBoxIcon" or "DialogResult"))
+                        .ToList();
+                }
+
                 if (referencedTypes.Count == 0)
                 {
                     continue;
@@ -854,6 +898,31 @@ public class ConversionOrchestrator
                 });
             }
 
+            // Same check as above, but for a migrated *field*'s declared type (e.g. "private
+            // Form? _popup;", "private readonly System.Windows.Forms.Timer _repeatTimer;") -
+            // previously unscanned entirely, so a field like this compiled-errored with zero
+            // manual-step warning (found via a real build against WarehouseApp).
+            foreach (var field in codeBehindMembers.Fields)
+            {
+                var referencedTypes = WinFormsTypeUsageDetector.FindReferencedTypeNames(
+                    CSharpSyntaxTree.ParseText(field.DeclarationText).GetRoot());
+                if (referencedTypes.Count == 0)
+                {
+                    continue;
+                }
+
+                vmManualSteps.Add(new ManualStepInfo
+                {
+                    Category = "Migrated Logic May Not Compile",
+                    Title = $"{className}.{string.Join("/", field.Names)} references WinForms type(s) with no Avalonia equivalent",
+                    Location = parseResult.FilePath,
+                    Description = $"This field was migrated as live code, but its declared type references " +
+                        $"{string.Join(", ", referencedTypes)} - which have no Avalonia equivalent (a " +
+                        "different UI/control model entirely). It will not compile as-is; review and " +
+                        "redesign this field's type manually."
+                });
+            }
+
             // Mirrors the same check RelayCommand/property-changed-hook bodies already get
             // (AddViewOnlyControlReferenceStepIfAny): a helper method just as commonly
             // reads/writes another control directly (e.g. "skuTextBox.Text" in a LoadFromEntity/
@@ -863,7 +932,7 @@ public class ConversionOrchestrator
             if (codeBehindMembers.HelperMethods.Count > 0)
             {
                 var helperMethodControlNames = CollectControlNames(rootControl);
-                var helperMethodBoundControlProperties = vmGenerator.BuildBoundControlPropertyLookup(rootControl);
+                var helperMethodBoundControlProperties = vmGenerator.BuildBoundControlPropertyLookup(rootControl, inferredBindings);
                 foreach (var (methodName, methodSource) in codeBehindMembers.HelperMethods)
                 {
                     AddHelperMethodViewOnlyControlReferenceStepIfAny(
@@ -895,11 +964,21 @@ public class ConversionOrchestrator
 
             var manualSteps = CollectManualSteps(
                 rootControl, parseResult.FilePath, overrides, parseResult.EventHandlerBodies, vmGenerator,
-                convertedCustomControlClassNames, customControlBindableProperties);
+                convertedCustomControlClassNames, customControlBindableProperties, ownerDrawnControlClassNames,
+                inferredBindings);
             manualSteps.AddRange(resxManualSteps);
             manualSteps.AddRange(vmManualSteps);
 
-            return new FormConversionOutcome(report, controlCount, parseResult.FilePath, null, manualSteps);
+            // Cheap presence check (not tied to whether MessageBoxTranspiler's own rewrite
+            // actually fires - e.g. an unsupported overload it leaves untouched still needs the
+            // generated Dialogs infrastructure copy if literally any call anywhere gets
+            // rewritten) - decides whether GenerateProjectFilesAsync needs to emit
+            // Common/Dialogs.cs and friends for this run at all.
+            var usesMessageBoxDialogs = UsesMessageBoxShow(parseResult.EventHandlerBodies.Values) ||
+                UsesMessageBoxShow(codeBehindMembers.HelperMethods.Values);
+
+            return new FormConversionOutcome(
+                report, controlCount, parseResult.FilePath, null, manualSteps, usesMessageBoxDialogs);
         }
         catch (Exception ex)
         {
@@ -1026,14 +1105,16 @@ public class ConversionOrchestrator
         ControlNode root, string sourceFile, PluginMappingOverrides overrides,
         IReadOnlyDictionary<string, string> handlerBodies, ViewModelGenerator vmGenerator,
         IReadOnlySet<string> convertedCustomControlClassNames,
-        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties)
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
+        IReadOnlySet<string> ownerDrawnControlClassNames,
+        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null)
     {
         var steps = new List<ManualStepInfo>();
         var controlNames = CollectControlNames(root);
-        var boundControlProperties = vmGenerator.BuildBoundControlPropertyLookup(root);
+        var boundControlProperties = vmGenerator.BuildBoundControlPropertyLookup(root, inferredBindings);
         CollectManualStepsRecursive(
             root, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties,
-            convertedCustomControlClassNames, customControlBindableProperties);
+            convertedCustomControlClassNames, customControlBindableProperties, ownerDrawnControlClassNames, isRoot: true);
 
         // This form's own className may itself be a converted custom control - flag any of its
         // own public auto-properties CustomControlPropertyExtractor found but couldn't safely
@@ -1057,6 +1138,11 @@ public class ConversionOrchestrator
 
         return steps;
     }
+
+    private static readonly Regex MessageBoxShowPattern = new(@"\bMessageBox\s*\.\s*Show\s*\(", RegexOptions.Compiled);
+
+    private static bool UsesMessageBoxShow(IEnumerable<string> sources) =>
+        sources.Any(source => MessageBoxShowPattern.IsMatch(source));
 
     private static HashSet<string> CollectControlNames(ControlNode root)
     {
@@ -1257,12 +1343,18 @@ public class ConversionOrchestrator
         IReadOnlyDictionary<string, string> handlerBodies, IReadOnlySet<string> controlNames,
         IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties,
         IReadOnlySet<string> convertedCustomControlClassNames,
-        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties)
+        IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
+        IReadOnlySet<string> ownerDrawnControlClassNames,
+        bool isRoot = false)
     {
         // A plugin ControlMapper claiming this control means it isn't actually unmapped -
         // AxamlGenerator.WriteControl consults the same overrides and won't emit a TODO
-        // placeholder for it.
-        if (!overrides.ControlMappings.ContainsKey(control) && ControlMappingRegistry.GetMapping(control.ControlType) == null)
+        // placeholder for it. The root control is also exempt: it isn't an embedded instance at
+        // all, and AxamlGenerator/CodeBehindGenerator already fall back to "Window" for a root
+        // whose ControlType isn't in ControlMappingRegistry (e.g. a project-local generic base
+        // like "DetailFormBase<SalesOrder>") - flagging it here would be a false positive on
+        // already-correct output.
+        if (!isRoot && !overrides.ControlMappings.ContainsKey(control) && ControlMappingRegistry.GetMapping(control.ControlType) == null)
         {
             if (convertedCustomControlClassNames.Contains(control.ControlType))
             {
@@ -1292,13 +1384,23 @@ public class ConversionOrchestrator
             }
             else
             {
+                // Mirrors SupportFileScanner's own owner-drawn detection for the exact same
+                // control's file-level skip, so an embedded instance gets the same specific,
+                // accurate message instead of the generic "has no Avalonia mapping" (which reads
+                // as if this were merely an unregistered-but-portable control type).
+                var isOwnerDrawn = ownerDrawnControlClassNames.Contains(control.ControlType);
                 steps.Add(new ManualStepInfo
                 {
                     Category = "Unmapped Controls",
                     Title = $"{control.ControlType} \"{control.Name}\" has no Avalonia mapping",
                     Location = sourceFile,
-                    Description = "This control type has no built-in WinForms-to-Avalonia mapping; it was emitted " +
-                        "as a TODO placeholder in the AXAML and needs a manual replacement."
+                    Description = isOwnerDrawn
+                        ? $"Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no " +
+                          "InitializeComponent/child controls) - there is no control tree to convert into AXAML. " +
+                          "Needs a hand-written Avalonia control with its own render logic (e.g. a Control " +
+                          "subclass overriding Render(DrawingContext))."
+                        : "This control type has no built-in WinForms-to-Avalonia mapping; it was emitted " +
+                          "as a TODO placeholder in the AXAML and needs a manual replacement."
                 });
             }
         }
@@ -1426,7 +1528,7 @@ public class ConversionOrchestrator
         {
             CollectManualStepsRecursive(
                 child, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties,
-                convertedCustomControlClassNames, customControlBindableProperties);
+                convertedCustomControlClassNames, customControlBindableProperties, ownerDrawnControlClassNames);
         }
     }
 
@@ -1450,6 +1552,7 @@ public class ConversionOrchestrator
         int avaloniaMajorVersion,
         IReadOnlySet<string> convertedCustomControlClassNames,
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
+        IReadOnlySet<string> ownerDrawnControlClassNames,
         IProgress<ConversionProgress>? progress,
         ConversionStatistics statistics,
         int totalForms,
@@ -1473,7 +1576,8 @@ public class ConversionOrchestrator
             var outcome = await ConvertFormAsync(parseResult, layoutAnalyzer, axamlGenerator, vmGenerator,
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
-                avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties);
+                avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties,
+                ownerDrawnControlClassNames);
 
             outcomes.Add(outcome);
             formsProcessed++;
@@ -1533,6 +1637,7 @@ public class ConversionOrchestrator
         int avaloniaMajorVersion,
         IReadOnlySet<string> convertedCustomControlClassNames,
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
+        IReadOnlySet<string> ownerDrawnControlClassNames,
         int? maxDegreeOfParallelism,
         CancellationToken cancellationToken)
     {
@@ -1549,7 +1654,8 @@ public class ConversionOrchestrator
             outcomes[i] = await ConvertFormAsync(parseResults[i], layoutAnalyzer, axamlGenerator, vmGenerator,
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
-                avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties);
+                avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties,
+                ownerDrawnControlClassNames);
         });
 
         return outcomes.Select(o => o!.Value).ToList();
@@ -1588,7 +1694,7 @@ public class ConversionOrchestrator
 
     private async Task GenerateProjectFilesAsync(
         RollbackManager rollbackManager, List<FormReportInfo> formReports, List<ManualStepInfo> manualSteps,
-        IReadOnlySet<string> convertedCustomControlClassNames)
+        IReadOnlySet<string> convertedCustomControlClassNames, bool usesMessageBoxDialogs)
     {
         var projectGenerator = new ProjectFileGenerator();
         var projectName = Path.GetFileName(_outputPath);
@@ -1641,6 +1747,34 @@ public class ConversionOrchestrator
         var manifestPath = Path.Combine(_outputPath, "app.manifest");
         await File.WriteAllTextAsync(manifestPath, manifestContent);
         rollbackManager.TrackFileCreation(manifestPath);
+
+        // Only when at least one form's migrated logic actually calls MessageBox.Show -
+        // MessageBoxTranspiler's rewrite targets these types, but most projects never use
+        // MessageBox at all, and generating unused dialog infrastructure into every project
+        // would just be clutter.
+        if (usesMessageBoxDialogs)
+        {
+            var commonDir = Path.Combine(_outputPath, "Common");
+            var viewsDir = Path.Combine(_outputPath, "Views");
+            Directory.CreateDirectory(commonDir);
+            Directory.CreateDirectory(viewsDir);
+
+            var messageBoxTypesPath = Path.Combine(commonDir, "MessageBoxTypes.cs");
+            await File.WriteAllTextAsync(messageBoxTypesPath, projectGenerator.GenerateMessageBoxTypes(projectName));
+            rollbackManager.TrackFileCreation(messageBoxTypesPath);
+
+            var dialogsPath = Path.Combine(commonDir, "Dialogs.cs");
+            await File.WriteAllTextAsync(dialogsPath, projectGenerator.GenerateDialogsHelper(projectName));
+            rollbackManager.TrackFileCreation(dialogsPath);
+
+            var messageBoxWindowAxamlPath = Path.Combine(viewsDir, "MessageBoxWindow.axaml");
+            await File.WriteAllTextAsync(messageBoxWindowAxamlPath, projectGenerator.GenerateMessageBoxWindowAxaml(projectName));
+            rollbackManager.TrackFileCreation(messageBoxWindowAxamlPath);
+
+            var messageBoxWindowCodeBehindPath = Path.Combine(viewsDir, "MessageBoxWindow.axaml.cs");
+            await File.WriteAllTextAsync(messageBoxWindowCodeBehindPath, projectGenerator.GenerateMessageBoxWindowCodeBehind(projectName));
+            rollbackManager.TrackFileCreation(messageBoxWindowCodeBehindPath);
+        }
     }
 
     /// <summary>

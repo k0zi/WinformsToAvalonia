@@ -63,7 +63,8 @@
                         <TextBox Name="skuTextBox"
                         Margin="3,5,3,5"
                         Grid.Column="1"
-                        Grid.Row="0" />
+                        Grid.Row="0"
+                        Text="{Binding Sku}" />
                         <TextBlock Name="nameLabel"
                         Text="Name:"
                         HorizontalContentAlignment="Left"
@@ -73,7 +74,8 @@
                         <TextBox Name="nameTextBox"
                         Margin="3,5,3,5"
                         Grid.Column="1"
-                        Grid.Row="1" />
+                        Grid.Row="1"
+                        Text="{Binding Name}" />
                         <TextBlock Name="descriptionLabel"
                         Text="Description:"
                         HorizontalContentAlignment="Left"
@@ -83,7 +85,8 @@
                         <TextBox Name="descriptionTextBox"
                         Margin="3,5,3,5"
                         Grid.Column="1"
-                        Grid.Row="2" />
+                        Grid.Row="2"
+                        Text="{Binding Description}" />
                         <TextBlock Name="categoryLabel"
                         Text="Category:"
                         HorizontalContentAlignment="Left"
@@ -93,7 +96,8 @@
                         <ComboBox Name="categoryComboBox"
                         Margin="3,5,3,5"
                         Grid.Column="1"
-                        Grid.Row="3" />
+                        Grid.Row="3"
+                        SelectedValue="{Binding Category}" />
                         <TextBlock Name="supplierLabel"
                         Text="Supplier:"
                         HorizontalContentAlignment="Left"
@@ -103,7 +107,8 @@
                         <ComboBox Name="supplierComboBox"
                         Margin="3,5,3,5"
                         Grid.Column="1"
-                        Grid.Row="4" />
+                        Grid.Row="4"
+                        SelectedValue="{Binding Supplier}" />
                         <TextBlock Name="unitOfMeasureLabel"
                         Text="Unit:"
                         HorizontalContentAlignment="Left"
@@ -126,7 +131,8 @@
                         Minimum="0"
                         Maximum="100000"
                         Grid.Column="1"
-                        Grid.Row="6" />
+                        Grid.Row="6"
+                        Value="{Binding UnitPrice}" />
                         <TextBlock Name="reorderLevelLabel"
                         Text="Reorder Level:"
                         HorizontalContentAlignment="Left"
@@ -138,7 +144,8 @@
                         Minimum="0"
                         Maximum="10000"
                         Grid.Column="1"
-                        Grid.Row="7" />
+                        Grid.Row="7"
+                        Value="{Binding ReorderLevel}" />
                     </Grid>
                 </Grid>
                 <CheckBox Name="isActiveCheckBox"

@@ -56,7 +56,7 @@ public partial class StockAdjustmentFormViewModel : CommunityToolkit.Mvvm.Compon
             statusLabel.Text = string.Empty;
         }
 
-    internal void StartCountSession()
+    internal async void StartCountSession()
         {
             countGrid.Rows.Clear();
             for (var i = 0; i < itemsCheckedListBox.Items.Count; i++)
@@ -73,8 +73,7 @@ public partial class StockAdjustmentFormViewModel : CommunityToolkit.Mvvm.Compon
     
             if (countGrid.Rows.Count == 0)
             {
-                MessageBox.Show(this, "Check at least one item to start a count session.", "Nothing Selected",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Check at least one item to start a count session.","Nothing Selected",                ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
             }
         }
 
@@ -82,7 +81,7 @@ public partial class StockAdjustmentFormViewModel : CommunityToolkit.Mvvm.Compon
         {
             if (countGrid.Rows.Count == 0)
             {
-                MessageBox.Show(this, "Start a count session first.", "Nothing to Post", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Start a count session first.","Nothing to Post",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
                 return;
             }
     
@@ -120,7 +119,7 @@ public partial class StockAdjustmentFormViewModel : CommunityToolkit.Mvvm.Compon
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Could not post adjustment: {ex.Message}", "Post Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync($"Could not post adjustment: {ex.Message}","Post Failed",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Error);
             }
             finally
             {

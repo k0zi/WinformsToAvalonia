@@ -23,6 +23,8 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
 
     internal List<Product> _products = [];
 
+    internal sealed record NewLine(Product Product, int Quantity, decimal UnitPrice);
+
     internal void LoadFromEntity()
         {
             using var ctx = Db.CreateContext();
@@ -42,22 +44,22 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
     
             statusComboBox.DataSource = Enum.GetValues<SalesOrderStatus>();
     
-            orderDatePicker.Value = IsNew ? DateTime.Today : Entity.OrderDate;
-            requiredDatePicker.Value = Entity.RequiredDate ?? DateTime.Today.AddDays(5);
-            notesTextBox.Text = Entity.Notes;
-            satisfactionRatingControl.Value = Entity.SatisfactionRating ?? 0;
+            OrderDatePicker = IsNew ? DateTime.Today : Entity.OrderDate;
+            RequiredDatePicker = Entity.RequiredDate ?? DateTime.Today.AddDays(5);
+            Notes = Entity.Notes;
+            SatisfactionRatingControl = Entity.SatisfactionRating ?? 0;
     
             if (IsNew)
             {
                 orderNumberValueLabel.Text = "(assigned on save)";
-                statusComboBox.SelectedItem = SalesOrderStatus.New;
+                Status = SalesOrderStatus.New;
             }
             else
             {
                 orderNumberValueLabel.Text = Entity.OrderNumber;
-                customerComboBox.SelectedValue = Entity.CustomerId;
-                warehouseComboBox.SelectedValue = Entity.WarehouseId;
-                statusComboBox.SelectedItem = Entity.Status;
+                Customer = Entity.CustomerId;
+                Warehouse = Entity.WarehouseId;
+                Status = Entity.Status;
     
                 using var detailCtx = Db.CreateContext();
                 var lines = detailCtx.SalesOrderLines.Include(l => l.Product).Where(l => l.SalesOrderId == Entity.Id).ToList();
@@ -73,7 +75,7 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
 
     internal void UpdateStatusBadge()
         {
-            if (statusComboBox.SelectedItem is not SalesOrderStatus status)
+            if (Status is not SalesOrderStatus status)
             {
                 return;
             }
@@ -91,8 +93,8 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
     internal void AddLineRow(string productName, int quantity, decimal unitPrice, SalesOrderLine? existingLine = null, NewLine? newLine = null)
         {
             var total = quantity * unitPrice;
-            var rowIndex = linesGrid.Rows.Add(productName, quantity, unitPrice, total);
-            linesGrid.Rows[rowIndex].Tag = (object?)existingLine ?? newLine;
+            var rowIndex = LinesGrid.Add(productName, quantity, unitPrice, total);
+            LinesGrid[rowIndex].Tag = (object?)existingLine ?? newLine;
         }
 
     internal bool ValidateInput()
@@ -107,7 +109,7 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
                 Validation.SetError(warehouseComboBox, "Choose a warehouse.");
                 return false;
             }
-            if (IsNew && linesGrid.Rows.Count == 0)
+            if (IsNew && LinesGrid.Count == 0)
             {
                 MessageBox.Show(this, "Add at least one line item.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return false;
@@ -117,13 +119,13 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
 
     internal void SaveToEntity()
         {
-            Entity.CustomerId = (int)customerComboBox.SelectedValue!;
-            Entity.WarehouseId = (int)warehouseComboBox.SelectedValue!;
-            Entity.OrderDate = orderDatePicker.Value;
-            Entity.RequiredDate = requiredDatePicker.Value;
-            Entity.Status = (SalesOrderStatus)statusComboBox.SelectedItem!;
-            Entity.SatisfactionRating = satisfactionRatingControl.Value > 0 ? satisfactionRatingControl.Value : null;
-            Entity.Notes = notesTextBox.Text.Trim();
+            Entity.CustomerId = (int)Customer!;
+            Entity.WarehouseId = (int)Warehouse!;
+            Entity.OrderDate = OrderDatePicker;
+            Entity.RequiredDate = RequiredDatePicker;
+            Entity.Status = (SalesOrderStatus)Status!;
+            Entity.SatisfactionRating = SatisfactionRatingControl > 0 ? SatisfactionRatingControl : null;
+            Entity.Notes = Notes.Trim();
             if (IsNew)
             {
                 Entity.OrderNumber = $"SO-{DateTime.UtcNow:yyyyMMddHHmmss}";
@@ -137,7 +139,7 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
     
             if (IsNew)
             {
-                foreach (DataGridViewRow row in linesGrid.Rows)
+                foreach (DataGridViewRow row in LinesGrid)
                 {
                     if (row.Tag is NewLine newLine)
                     {
@@ -157,7 +159,7 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
                 tracked.SatisfactionRating = Entity.SatisfactionRating;
                 tracked.Notes = Entity.Notes;
     
-                foreach (DataGridViewRow row in linesGrid.Rows)
+                foreach (DataGridViewRow row in LinesGrid)
                 {
                     if (row.Tag is NewLine newLine)
                     {
@@ -170,15 +172,15 @@ public partial class SalesOrderDetailFormViewModel : CommunityToolkit.Mvvm.Compo
         }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
-    private void addLineButtonClick()
+    private async void addLineButtonClick()
     {
-            if (productSearchBox.SelectedItem is not Product product)
+            if (ProductSearchBox is not Product product)
             {
-                MessageBox.Show(this, "Search and select a product first.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Search and select a product first.","Validation",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Warning);
                 return;
             }
     
-            AddLineRow(product.Name, (int)qtyNumericUpDown.Value, unitPriceNumericUpDown.Value, newLine: new NewLine(product, (int)qtyNumericUpDown.Value, unitPriceNumericUpDown.Value));
+            AddLineRow(product.Name, (int)qtyNumericUpDown.Value, UnitPrice, newLine: new NewLine(product, (int)qtyNumericUpDown.Value, UnitPrice));
         }
 
 }

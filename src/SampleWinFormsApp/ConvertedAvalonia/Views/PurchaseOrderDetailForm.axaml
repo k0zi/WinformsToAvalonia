@@ -65,7 +65,8 @@
                 <ComboBox Name="supplierComboBox"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="1" />
+                Grid.Row="1"
+                SelectedValue="{Binding Supplier}" />
                 <TextBlock Name="orderDateLabel"
                 Text="Order Date:"
                 HorizontalContentAlignment="Left"
@@ -75,7 +76,8 @@
                 <DatePicker Name="orderDatePicker"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="2" />
+                Grid.Row="2"
+                Value="{Binding OrderDatePicker}" />
                 <TextBlock Name="expectedDateLabel"
                 Text="Expected:"
                 HorizontalContentAlignment="Left"
@@ -85,7 +87,8 @@
                 <DatePicker Name="expectedDatePicker"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="3" />
+                Grid.Row="3"
+                Value="{Binding ExpectedDatePicker}" />
                 <TextBlock Name="statusLabel"
                 Text="Status:"
                 HorizontalContentAlignment="Left"
@@ -95,7 +98,8 @@
                 <ComboBox Name="statusComboBox"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="4" />
+                Grid.Row="4"
+                SelectedItem="{Binding Status}" />
                 <TextBlock Name="notesLabel"
                 Text="Notes:"
                 HorizontalContentAlignment="Left"
@@ -107,7 +111,8 @@
                 AcceptsReturn="true"
                 Height="40"
                 Grid.Column="1"
-                Grid.Row="5" />
+                Grid.Row="5"
+                Text="{Binding Notes}" />
             </Grid>
         </Grid>
         <!-- TODO: Unmapped control: StatusBadgeControl (statusBadge) -->
@@ -136,7 +141,8 @@
                 Grid.Row="1"
                 Grid.Column="0"
                 Width="250"
-                DisplayMemberPath="Name" />
+                DisplayMemberPath="Name"
+                SelectedItem="{Binding ProductSearchBox}" />
                 <TextBlock Name="qtyLabel"
                 Grid.Row="0"
                 Grid.Column="1"
@@ -157,7 +163,8 @@
                 Grid.Column="2"
                 Width="90"
                 Minimum="0"
-                Maximum="100000" />
+                Maximum="100000"
+                Value="{Binding UnitPrice}" />
                 <Button Name="addLineButton"
                 Grid.Row="1"
                 Grid.Column="3"
@@ -172,7 +179,8 @@
         Width="680"
         Height="200"
         AutoGenerateColumns="false"
-        IsReadOnly="true" />
+        IsReadOnly="true"
+        Items="{Binding LinesGrid}" />
         <Button Name="printButton"
         Grid.Row="3"
         Grid.Column="1"

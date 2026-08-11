@@ -103,22 +103,35 @@ public class CodeBehindGenerator
             var signature = EventSignatureRegistry.GetSignature(avaloniaEvent, avaloniaMajorVersion);
             string? originalSource = null;
             var hasOriginalSource = handlerBodies != null && handlerBodies.TryGetValue(handlerName, out originalSource);
+
+            var body = string.Empty;
+            var addedAwait = false;
+            if (hasOriginalSource)
+            {
+                body = EventHandlerBodyParser.ExtractBodyText(originalSource!);
+                foreach (var name in migratedNames)
+                {
+                    body = Regex.Replace(body, $@"\b{Regex.Escape(name)}\b", $"ViewModel.{name}");
+                }
+
+                var transpiled = MessageBoxTranspiler.Transpile(body, namespaceName);
+                body = transpiled.TransformedBody;
+                addedAwait = transpiled.AddedAwait;
+            }
+
             // Mirrors ViewModelGenerator's same handling: WinForms event handlers are commonly
             // "async void", and a body containing "await" needs that modifier preserved on the
-            // freshly-constructed stub signature or the generated code won't compile.
-            var asyncModifier = hasOriginalSource && EventHandlerBodyParser.IsAsyncMethodSignature(originalSource!) ? "async " : "";
+            // freshly-constructed stub signature or the generated code won't compile. A
+            // MessageBoxTranspiler rewrite adds its own "await" for the same reason even when
+            // the original handler wasn't async.
+            var asyncModifier = (hasOriginalSource && EventHandlerBodyParser.IsAsyncMethodSignature(originalSource!)) || addedAwait
+                ? "async " : "";
 
             sb.AppendLine();
             sb.AppendLine($"    private {asyncModifier}void {handlerName}(object? sender, {signature.EventArgsType} e)");
 
             if (hasOriginalSource)
             {
-                var body = EventHandlerBodyParser.ExtractBodyText(originalSource!);
-                foreach (var name in migratedNames)
-                {
-                    body = Regex.Replace(body, $@"\b{Regex.Escape(name)}\b", $"ViewModel.{name}");
-                }
-
                 sb.AppendLine("    " + body.Replace("\n", "\n    "));
             }
             else

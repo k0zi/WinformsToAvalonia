@@ -13,6 +13,7 @@ namespace Converter.Generator.Axaml;
 public class AxamlGenerator
 {
     private static readonly HashSet<string> EmptyCustomControlClassNames = [];
+    private static readonly Dictionary<(string ControlName, string Property), string> EmptyInferredBindings = [];
 
     /// <summary>
     /// True if any control in the tree is an unmapped custom control this run also converted
@@ -42,10 +43,12 @@ public class AxamlGenerator
     public string Generate(
         ControlNode root, LayoutAnalysisResult layoutInfo, string namespaceName, string className,
         PluginMappingOverrides? overrides = null,
-        IReadOnlySet<string>? convertedCustomControlClassNames = null)
+        IReadOnlySet<string>? convertedCustomControlClassNames = null,
+        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null)
     {
         overrides ??= PluginMappingOverrides.Empty;
         convertedCustomControlClassNames ??= EmptyCustomControlClassNames;
+        inferredBindings ??= EmptyInferredBindings;
         var sb = new StringBuilder();
 
         // The root element mirrors the source WinForms class's real base type via the same
@@ -73,7 +76,7 @@ public class AxamlGenerator
         // Add window/control properties. LayoutType.Custom is used purely as a "not Canvas"
         // sentinel here - the root element has no container of its own, so Canvas.Left/Top must
         // never leak onto it even if a Form.Location property happens to be present.
-        WriteControlProperties(sb, root, LayoutType.Custom, indent: "        ", namespaceName, overrides);
+        WriteControlProperties(sb, root, LayoutType.Custom, indent: "        ", namespaceName, overrides, inferredBindings);
         WriteEventAttributes(sb, root, indent: "        ", overrides);
 
         sb.AppendLine("        >");
@@ -85,34 +88,34 @@ public class AxamlGenerator
         sb.AppendLine();
 
         // Write content based on layout type
-        WriteLayoutContainer(sb, root, layoutInfo, "    ", namespaceName, overrides, convertedCustomControlClassNames);
+        WriteLayoutContainer(sb, root, layoutInfo, "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
 
         sb.AppendLine($"</{rootElement}>");
 
         return sb.ToString();
     }
 
-    private void WriteLayoutContainer(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WriteLayoutContainer(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         switch (layoutInfo.LayoutType)
         {
             case LayoutType.Grid:
-                WriteGridLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames);
+                WriteGridLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
                 break;
             case LayoutType.StackPanel:
-                WriteStackPanelLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames);
+                WriteStackPanelLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
                 break;
             case LayoutType.DockPanel:
-                WriteDockPanelLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames);
+                WriteDockPanelLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
                 break;
             case LayoutType.Canvas:
             default:
-                WriteCanvasLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames);
+                WriteCanvasLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
                 break;
         }
     }
 
-    private void WriteGridLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WriteGridLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         sb.AppendLine($"{indent}<Grid>");
 
@@ -138,7 +141,7 @@ public class AxamlGenerator
         }
 
         // Write child controls
-        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
 
         sb.AppendLine($"{indent}</Grid>");
 
@@ -183,35 +186,35 @@ public class AxamlGenerator
             .DefaultIfEmpty(-1)
             .Max();
 
-    private void WriteStackPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WriteStackPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         var orientation = layoutInfo.Metadata.TryGetValue("Orientation", out var orientObj) &&
                          orientObj?.ToString() == "Horizontal" ? "Horizontal" : "Vertical";
 
         sb.AppendLine($"{indent}<StackPanel Orientation=\"{orientation}\">");
-        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
         sb.AppendLine($"{indent}</StackPanel>");
     }
 
-    private void WriteDockPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WriteDockPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         sb.AppendLine($"{indent}<DockPanel>");
-        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
         sb.AppendLine($"{indent}</DockPanel>");
     }
 
-    private void WriteCanvasLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WriteCanvasLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         sb.AppendLine($"{indent}<Canvas>");
-        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
         sb.AppendLine($"{indent}</Canvas>");
     }
 
-    private void WriteChildren(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WriteChildren(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         foreach (var child in OrderChildrenForStack(control.Children, layoutInfo))
         {
-            WriteControl(sb, child, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames);
+            WriteControl(sb, child, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
         }
     }
 
@@ -240,11 +243,11 @@ public class AxamlGenerator
             .ToList();
     }
 
-    private void WriteControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WriteControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         if (overrides.ControlMappings.TryGetValue(control, out var pluginMapping))
         {
-            WritePluginMappedControl(sb, control, pluginMapping, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames);
+            WritePluginMappedControl(sb, control, pluginMapping, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
             return;
         }
 
@@ -264,7 +267,7 @@ public class AxamlGenerator
         }
         else
         {
-            WriteUnmappedControl(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames);
+            WriteUnmappedControl(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
             return;
         }
 
@@ -279,7 +282,7 @@ public class AxamlGenerator
         WriteGridPlacementAttributes(sb, control, layoutInfo, indent);
 
         // Write properties
-        WriteControlProperties(sb, control, layoutInfo.LayoutType, indent, namespaceName, overrides);
+        WriteControlProperties(sb, control, layoutInfo.LayoutType, indent, namespaceName, overrides, inferredBindings);
         WriteEventAttributes(sb, control, indent, overrides);
 
         if (control.Children.Count > 0)
@@ -289,11 +292,11 @@ public class AxamlGenerator
             // Recursively write children if applicable
             if (layoutInfo.ChildLayouts.TryGetValue(control.Name, out var childLayout))
             {
-                WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+                WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
             }
             else
             {
-                WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+                WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
             }
 
             sb.AppendLine($"{indent}</{avaloniaType}>");
@@ -312,7 +315,7 @@ public class AxamlGenerator
     /// into the structured ManualStepInfo/migration-guide list - a reasonable follow-up once
     /// this base wiring has proven out).
     /// </summary>
-    private void WritePluginMappedControl(StringBuilder sb, ControlNode control, ControlMappingResult pluginMapping, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WritePluginMappedControl(StringBuilder sb, ControlNode control, ControlMappingResult pluginMapping, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         foreach (var manualStep in pluginMapping.ManualSteps)
         {
@@ -341,11 +344,11 @@ public class AxamlGenerator
 
             if (layoutInfo.ChildLayouts.TryGetValue(control.Name, out var childLayout))
             {
-                WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+                WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
             }
             else
             {
-                WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+                WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
             }
 
             sb.AppendLine($"{indent}</{avaloniaType}>");
@@ -361,7 +364,7 @@ public class AxamlGenerator
     /// branch - still recurses into its children wrapped in a plain Panel, so mapped
     /// descendants nested inside an unmapped custom/third-party container still render.
     /// </summary>
-    private void WriteUnmappedControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames)
+    private void WriteUnmappedControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         sb.AppendLine($"{indent}<!-- TODO: Unmapped control: {control.ControlType} ({control.Name}) -->");
 
@@ -376,11 +379,11 @@ public class AxamlGenerator
 
         if (layoutInfo.ChildLayouts.TryGetValue(control.Name, out var childLayout))
         {
-            WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+            WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
         }
         else
         {
-            WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames);
+            WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
         }
 
         sb.AppendLine($"{indent}</Panel>");
@@ -403,7 +406,7 @@ public class AxamlGenerator
         AppendAttribute(sb, indent, "Grid.Column", cell.Column.ToString());
     }
 
-    private void WriteControlProperties(StringBuilder sb, ControlNode control, LayoutType containerLayoutType, string indent, string namespaceName, PluginMappingOverrides overrides)
+    private void WriteControlProperties(StringBuilder sb, ControlNode control, LayoutType containerLayoutType, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
     {
         foreach (var prop in control.Properties)
         {
@@ -446,6 +449,32 @@ public class AxamlGenerator
 
                 AppendPlacementAwareAttribute(sb, indent, attributeName, qualifiedValue, containerLayoutType);
             }
+        }
+
+        WriteInferredBindingAttributes(sb, control, containerLayoutType, indent, inferredBindings);
+    }
+
+    /// <summary>
+    /// Emits `{Binding {ObservableProperty}}` for every UsageInferredBindingDetector-derived
+    /// property of this control - properties whose value comes from usage across migrated
+    /// methods rather than an explicit Designer.cs value or `.DataBindings.Add(...)` call, so
+    /// the loop above (which only ever visits control.Properties) never reaches them on its own.
+    /// Skipped when the property already has a literal Designer.cs value - that value takes
+    /// precedence and was already written above.
+    /// </summary>
+    private void WriteInferredBindingAttributes(StringBuilder sb, ControlNode control, LayoutType containerLayoutType, string indent, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    {
+        if (inferredBindings.Count == 0) return;
+
+        foreach (var ((controlName, property), observablePropertyName) in inferredBindings)
+        {
+            if (controlName != control.Name || control.Properties.ContainsKey(property))
+            {
+                continue;
+            }
+
+            var avaloniaProperty = PropertyMappingRegistry.GetMapping(property, control.ControlType)?.AvaloniaProperty ?? property;
+            AppendPlacementAwareAttribute(sb, indent, avaloniaProperty, $"{{Binding {observablePropertyName}}}", containerLayoutType);
         }
     }
 

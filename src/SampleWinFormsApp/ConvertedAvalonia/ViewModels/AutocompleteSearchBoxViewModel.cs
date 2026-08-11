@@ -22,6 +22,12 @@ public partial class AutocompleteSearchBoxViewModel : CommunityToolkit.Mvvm.Comp
 
     internal bool _suppressTextChanged;
 
+    internal sealed class DisplayWrapper(object value, string display)
+        {
+            public object Value { get; } = value;
+            public override string ToString() => display;
+        }
+
     internal string GetDisplayText(object item)
         {
             if (string.IsNullOrEmpty(DisplayMember))
@@ -80,9 +86,9 @@ public partial class AutocompleteSearchBoxViewModel : CommunityToolkit.Mvvm.Comp
             var value = item is DisplayWrapper w ? w.Value : item;
             SelectedItem = value;
             _suppressTextChanged = true;
-            _textBox.Text = GetDisplayText(value);
+            _textBox = GetDisplayText(value);
             _suppressTextChanged = false;
-            _textBox.SelectionStart = _textBox.Text.Length;
+            _textBox.SelectionStart = _textBox.Length;
             HidePopup();
             SelectedItemChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -98,7 +104,5 @@ public partial class AutocompleteSearchBoxViewModel : CommunityToolkit.Mvvm.Comp
             _popup = null;
             _popupList = null;
         }
-
-    public string ToString() => display;
 
 }

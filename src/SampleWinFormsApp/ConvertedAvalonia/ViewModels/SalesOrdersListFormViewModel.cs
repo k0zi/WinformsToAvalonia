@@ -42,7 +42,7 @@ public partial class SalesOrdersListFormViewModel : CommunityToolkit.Mvvm.Compon
     internal void AddNew()
         {
             using var form = new SalesOrderDetailForm();
-            if (form.ShowDialog(this) == DialogResult.OK)
+            if (form.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 _ = ReloadAsync();
             }
@@ -51,7 +51,7 @@ public partial class SalesOrdersListFormViewModel : CommunityToolkit.Mvvm.Compon
     internal void EditEntity(SalesOrder entity)
         {
             using var form = new SalesOrderDetailForm(entity);
-            if (form.ShowDialog(this) == DialogResult.OK)
+            if (form.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 _ = ReloadAsync();
             }

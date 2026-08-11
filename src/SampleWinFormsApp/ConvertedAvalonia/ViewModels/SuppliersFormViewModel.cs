@@ -97,7 +97,7 @@ public partial class SuppliersFormViewModel : CommunityToolkit.Mvvm.ComponentMod
     
             if (string.IsNullOrWhiteSpace(nameTextBox.Text))
             {
-                MessageBox.Show(this, "Supplier name is required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Supplier name is required.","Validation",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Warning);
                 return;
             }
     
@@ -131,8 +131,8 @@ public partial class SuppliersFormViewModel : CommunityToolkit.Mvvm.ComponentMod
             }
     
             var confirm = MessageBox.Show(this, $"Delete supplier '{_current.Name}'?", "Confirm Delete",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-            if (confirm != DialogResult.Yes)
+                ConvertedAvalonia.Common.MessageBoxButtons.YesNo, ConvertedAvalonia.Common.MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (confirm != ConvertedAvalonia.Common.DialogResult.Yes)
             {
                 return;
             }
@@ -150,21 +150,19 @@ public partial class SuppliersFormViewModel : CommunityToolkit.Mvvm.ComponentMod
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Could not delete supplier: {ex.Message}", "Delete Failed",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync($"Could not delete supplier: {ex.Message}","Delete Failed",                ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Error);
             }
         }
 
-    internal void EmailLinkLabel_LinkClicked(object? sender, LinkLabelLinkClickedEventArgs e)
+    internal async void EmailLinkLabel_LinkClicked(object? sender, LinkLabelLinkClickedEventArgs e)
         {
             if (string.IsNullOrWhiteSpace(emailTextBox.Text))
             {
-                MessageBox.Show(this, "No email address on file.", "Send Email", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("No email address on file.","Send Email",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
                 return;
             }
     
-            MessageBox.Show(this, $"Would open mail client for: {emailTextBox.Text}", "Send Email",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            await ConvertedAvalonia.Common.Dialogs.ShowAsync($"Would open mail client for: {emailTextBox.Text}","Send Email",            ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
         }
 
 }

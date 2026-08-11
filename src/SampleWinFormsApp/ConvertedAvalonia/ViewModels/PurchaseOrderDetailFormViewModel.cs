@@ -21,6 +21,8 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
 
     internal List<Product> _products = [];
 
+    internal sealed record NewLine(Product Product, int Quantity, decimal UnitPrice);
+
     internal void LoadFromEntity()
         {
             using var ctx = Db.CreateContext();
@@ -35,20 +37,20 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
     
             statusComboBox.DataSource = Enum.GetValues<PurchaseOrderStatus>();
     
-            orderDatePicker.Value = IsNew ? DateTime.Today : Entity.OrderDate;
-            expectedDatePicker.Value = Entity.ExpectedDate ?? DateTime.Today.AddDays(7);
-            notesTextBox.Text = Entity.Notes;
+            OrderDatePicker = IsNew ? DateTime.Today : Entity.OrderDate;
+            ExpectedDatePicker = Entity.ExpectedDate ?? DateTime.Today.AddDays(7);
+            Notes = Entity.Notes;
     
             if (IsNew)
             {
-                orderNumberValueLabel.Text = "(assigned on save)";
-                statusComboBox.SelectedItem = PurchaseOrderStatus.Draft;
+                OrderNumberValue = "(assigned on save)";
+                Status = PurchaseOrderStatus.Draft;
             }
             else
             {
-                orderNumberValueLabel.Text = Entity.OrderNumber;
-                supplierComboBox.SelectedValue = Entity.SupplierId;
-                statusComboBox.SelectedItem = Entity.Status;
+                OrderNumberValue = Entity.OrderNumber;
+                Supplier = Entity.SupplierId;
+                Status = Entity.Status;
     
                 using var detailCtx = Db.CreateContext();
                 var lines = detailCtx.PurchaseOrderLines.Include(l => l.Product).Where(l => l.PurchaseOrderId == Entity.Id).ToList();
@@ -64,7 +66,7 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
 
     internal void UpdateStatusBadge()
         {
-            if (statusComboBox.SelectedItem is not PurchaseOrderStatus status)
+            if (Status is not PurchaseOrderStatus status)
             {
                 return;
             }
@@ -82,8 +84,8 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
     internal void AddLineRow(string productName, int quantity, decimal unitPrice, PurchaseOrderLine? existingLine = null, NewLine? newLine = null)
         {
             var total = quantity * unitPrice;
-            var rowIndex = linesGrid.Rows.Add(productName, quantity, unitPrice, total);
-            linesGrid.Rows[rowIndex].Tag = (object?)existingLine ?? newLine;
+            var rowIndex = LinesGrid.Add(productName, quantity, unitPrice, total);
+            LinesGrid[rowIndex].Tag = (object?)existingLine ?? newLine;
         }
 
     internal bool ValidateInput()
@@ -93,7 +95,7 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
                 Validation.SetError(supplierComboBox, "Choose a supplier.");
                 return false;
             }
-            if (IsNew && linesGrid.Rows.Count == 0)
+            if (IsNew && LinesGrid.Count == 0)
             {
                 MessageBox.Show(this, "Add at least one line item.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return false;
@@ -103,11 +105,11 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
 
     internal void SaveToEntity()
         {
-            Entity.SupplierId = (int)supplierComboBox.SelectedValue!;
-            Entity.OrderDate = orderDatePicker.Value;
-            Entity.ExpectedDate = expectedDatePicker.Value;
-            Entity.Status = (PurchaseOrderStatus)statusComboBox.SelectedItem!;
-            Entity.Notes = notesTextBox.Text.Trim();
+            Entity.SupplierId = (int)Supplier!;
+            Entity.OrderDate = OrderDatePicker;
+            Entity.ExpectedDate = ExpectedDatePicker;
+            Entity.Status = (PurchaseOrderStatus)Status!;
+            Entity.Notes = Notes.Trim();
             if (IsNew)
             {
                 Entity.OrderNumber = $"PO-{DateTime.UtcNow:yyyyMMddHHmmss}";
@@ -121,7 +123,7 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
     
             if (IsNew)
             {
-                foreach (DataGridViewRow row in linesGrid.Rows)
+                foreach (DataGridViewRow row in LinesGrid)
                 {
                     if (row.Tag is NewLine newLine)
                     {
@@ -139,7 +141,7 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
                 tracked.Status = Entity.Status;
                 tracked.Notes = Entity.Notes;
     
-                foreach (DataGridViewRow row in linesGrid.Rows)
+                foreach (DataGridViewRow row in LinesGrid)
                 {
                     if (row.Tag is NewLine newLine)
                     {
@@ -158,14 +160,14 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
             using var bodyFont = new Font("Segoe UI", 10f);
             var y = 40f;
     
-            g.DrawString($"Purchase Order {orderNumberValueLabel.Text}", titleFont, Brushes.Black, 40, y);
+            g.DrawString($"Purchase Order {OrderNumberValue}", titleFont, Brushes.Black, 40, y);
             y += 30;
             g.DrawString($"Supplier: {supplierComboBox.Text}", bodyFont, Brushes.Black, 40, y);
             y += 20;
-            g.DrawString($"Order Date: {orderDatePicker.Value:d}    Expected: {expectedDatePicker.Value:d}", bodyFont, Brushes.Black, 40, y);
+            g.DrawString($"Order Date: {OrderDatePicker:d}    Expected: {ExpectedDatePicker:d}", bodyFont, Brushes.Black, 40, y);
             y += 30;
     
-            foreach (DataGridViewRow row in linesGrid.Rows)
+            foreach (DataGridViewRow row in LinesGrid)
             {
                 var line = $"{row.Cells["Product"].Value}   x{row.Cells["Qty"].Value}   @ {row.Cells["Price"].Value:C2}   = {row.Cells["Total"].Value:C2}";
                 g.DrawString(line, bodyFont, Brushes.Black, 40, y);
@@ -174,21 +176,21 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
         }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
-    private void addLineButtonClick()
+    private async void addLineButtonClick()
     {
-            if (productSearchBox.SelectedItem is not Product product)
+            if (ProductSearchBox is not Product product)
             {
-                MessageBox.Show(this, "Search and select a product first.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Search and select a product first.","Validation",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Warning);
                 return;
             }
     
-            AddLineRow(product.Name, (int)qtyNumericUpDown.Value, unitPriceNumericUpDown.Value, newLine: new NewLine(product, (int)qtyNumericUpDown.Value, unitPriceNumericUpDown.Value));
+            AddLineRow(product.Name, (int)qtyNumericUpDown.Value, UnitPrice, newLine: new NewLine(product, (int)qtyNumericUpDown.Value, UnitPrice));
         }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
     private void printButtonClick()
     {
-            if (printDialog.ShowDialog(this) == DialogResult.OK)
+            if (printDialog.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 printDocument.Print();
             }

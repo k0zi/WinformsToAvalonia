@@ -67,7 +67,8 @@
                 <ComboBox Name="customerComboBox"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="1" />
+                Grid.Row="1"
+                SelectedValue="{Binding Customer}" />
                 <TextBlock Name="warehouseLabel"
                 Text="Warehouse:"
                 HorizontalContentAlignment="Left"
@@ -77,7 +78,8 @@
                 <ComboBox Name="warehouseComboBox"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="2" />
+                Grid.Row="2"
+                SelectedValue="{Binding Warehouse}" />
                 <TextBlock Name="orderDateLabel"
                 Text="Order Date:"
                 HorizontalContentAlignment="Left"
@@ -87,7 +89,8 @@
                 <DatePicker Name="orderDatePicker"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="3" />
+                Grid.Row="3"
+                Value="{Binding OrderDatePicker}" />
                 <TextBlock Name="requiredDateLabel"
                 Text="Required:"
                 HorizontalContentAlignment="Left"
@@ -97,7 +100,8 @@
                 <DatePicker Name="requiredDatePicker"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="4" />
+                Grid.Row="4"
+                Value="{Binding RequiredDatePicker}" />
                 <TextBlock Name="statusLabel"
                 Text="Status:"
                 HorizontalContentAlignment="Left"
@@ -107,7 +111,8 @@
                 <ComboBox Name="statusComboBox"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="5" />
+                Grid.Row="5"
+                SelectedItem="{Binding Status}" />
                 <TextBlock Name="satisfactionLabel"
                 Text="Satisfaction:"
                 HorizontalContentAlignment="Left"
@@ -129,7 +134,8 @@
         Margin="3,3,3,3"
         AcceptsReturn="true"
         Height="40"
-        Width="450" />
+        Width="450"
+        Text="{Binding Notes}" />
         <!-- TODO: Unmapped control: StatusBadgeControl (statusBadge) -->
         <Panel Name="lineEntryPanel"
         Grid.Row="2"
@@ -156,7 +162,8 @@
                 Grid.Row="1"
                 Grid.Column="0"
                 Width="250"
-                DisplayMemberPath="Name" />
+                DisplayMemberPath="Name"
+                SelectedItem="{Binding ProductSearchBox}" />
                 <TextBlock Name="qtyLabel"
                 Grid.Row="0"
                 Grid.Column="1"
@@ -177,7 +184,8 @@
                 Grid.Column="2"
                 Width="90"
                 Minimum="0"
-                Maximum="100000" />
+                Maximum="100000"
+                Value="{Binding UnitPrice}" />
                 <Button Name="addLineButton"
                 Grid.Row="1"
                 Grid.Column="3"
@@ -192,6 +200,7 @@
         Width="680"
         Height="180"
         AutoGenerateColumns="false"
-        IsReadOnly="true" />
+        IsReadOnly="true"
+        Items="{Binding LinesGrid}" />
     </Grid>
 </Window>

@@ -187,4 +187,155 @@ public class ProjectFileGenerator
   </compatibility>
 </assembly>";
     }
+
+    /// <summary>
+    /// Generate Common/MessageBoxTypes.cs - the three WinForms-shaped enums
+    /// (MessageBoxButtons/MessageBoxIcon/DialogResult) MessageBoxTranspiler's rewritten calls
+    /// reference, and Dialogs.ShowAsync returns. Same member names as the WinForms originals so
+    /// a migrated call site's enum arguments need no rewriting beyond namespace-qualifying them.
+    /// Only generated when at least one form actually uses MessageBox.Show (see
+    /// ConversionOrchestrator) - most projects don't, and this would otherwise clutter every
+    /// generated project with unused types.
+    /// </summary>
+    public string GenerateMessageBoxTypes(string namespaceName)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine($"namespace {namespaceName}.Common;");
+        sb.AppendLine();
+        sb.AppendLine("public enum MessageBoxButtons");
+        sb.AppendLine("{");
+        sb.AppendLine("    OK,");
+        sb.AppendLine("    OKCancel,");
+        sb.AppendLine("    YesNo,");
+        sb.AppendLine("    YesNoCancel,");
+        sb.AppendLine("    RetryCancel,");
+        sb.AppendLine("    AbortRetryIgnore");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("public enum MessageBoxIcon");
+        sb.AppendLine("{");
+        sb.AppendLine("    None,");
+        sb.AppendLine("    Information,");
+        sb.AppendLine("    Warning,");
+        sb.AppendLine("    Error,");
+        sb.AppendLine("    Question");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("public enum DialogResult");
+        sb.AppendLine("{");
+        sb.AppendLine("    None,");
+        sb.AppendLine("    OK,");
+        sb.AppendLine("    Cancel,");
+        sb.AppendLine("    Yes,");
+        sb.AppendLine("    No,");
+        sb.AppendLine("    Retry,");
+        sb.AppendLine("    Abort,");
+        sb.AppendLine("    Ignore");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Generate Common/Dialogs.cs - the static helper MessageBoxTranspiler's rewritten
+    /// "MessageBox.Show(...)" calls target. Deliberately takes no owner-window parameter (unlike
+    /// WinForms' MessageBox.Show(owner, ...)): this is called from ViewModel code as often as
+    /// code-behind, and a ViewModel must not hold a View/Window reference - it resolves the
+    /// desktop lifetime's MainWindow itself instead. Avalonia has no synchronous modal API (by
+    /// design - a blocking wrapper around an awaited dialog risks a UI-thread deadlock), so this
+    /// is async-only; MessageBoxTranspiler forces the calling method async wherever needed.
+    /// </summary>
+    public string GenerateDialogsHelper(string namespaceName)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("using Avalonia;");
+        sb.AppendLine("using Avalonia.Controls;");
+        sb.AppendLine("using Avalonia.Controls.ApplicationLifetimes;");
+        sb.AppendLine();
+        sb.AppendLine($"namespace {namespaceName}.Common;");
+        sb.AppendLine();
+        sb.AppendLine("public static class Dialogs");
+        sb.AppendLine("{");
+        sb.AppendLine("    public static async Task<DialogResult> ShowAsync(");
+        sb.AppendLine("        string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var owner = ((IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!).MainWindow!;");
+        sb.AppendLine($"        var window = new {namespaceName}.Views.MessageBoxWindow(text, caption, buttons, icon);");
+        sb.AppendLine("        return await window.ShowDialog<DialogResult>(owner);");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Generate Views/MessageBoxWindow.axaml - the actual dialog UI Dialogs.ShowAsync shows.
+    /// Intentionally simple (message text + a row of buttons matching the requested
+    /// MessageBoxButtons combination) rather than trying to replicate the native WinForms
+    /// MessageBox's exact chrome/icon rendering.
+    /// </summary>
+    public string GenerateMessageBoxWindowAxaml(string namespaceName)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("<Window xmlns=\"https://github.com/avaloniaui\"");
+        sb.AppendLine("        xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"");
+        sb.AppendLine($"        x:Class=\"{namespaceName}.Views.MessageBoxWindow\"");
+        sb.AppendLine("        Width=\"400\" SizeToContent=\"Height\" CanResize=\"False\"");
+        sb.AppendLine("        WindowStartupLocation=\"CenterOwner\">");
+        sb.AppendLine("    <StackPanel Margin=\"20\" Spacing=\"20\">");
+        sb.AppendLine("        <TextBlock Name=\"MessageText\" TextWrapping=\"Wrap\"/>");
+        sb.AppendLine("        <StackPanel Name=\"ButtonPanel\" Orientation=\"Horizontal\" HorizontalAlignment=\"Right\" Spacing=\"8\"/>");
+        sb.AppendLine("    </StackPanel>");
+        sb.AppendLine("</Window>");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Generate Views/MessageBoxWindow.axaml.cs - builds its button row from the requested
+    /// MessageBoxButtons combination and closes with the matching DialogResult (Avalonia's
+    /// Window.Close(object? dialogResult) is what ShowDialog&lt;DialogResult&gt; in
+    /// Dialogs.ShowAsync awaits and returns).
+    /// </summary>
+    public string GenerateMessageBoxWindowCodeBehind(string namespaceName)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("using Avalonia.Controls;");
+        sb.AppendLine($"using {namespaceName}.Common;");
+        sb.AppendLine();
+        sb.AppendLine($"namespace {namespaceName}.Views;");
+        sb.AppendLine();
+        sb.AppendLine("public partial class MessageBoxWindow : Window");
+        sb.AppendLine("{");
+        sb.AppendLine("    public MessageBoxWindow(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        InitializeComponent();");
+        sb.AppendLine("        Title = caption;");
+        sb.AppendLine("        MessageText.Text = text;");
+        sb.AppendLine();
+        sb.AppendLine("        foreach (var (label, result) in GetButtons(buttons))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var button = new Button { Content = label, MinWidth = 75 };");
+        sb.AppendLine("            button.Click += (_, _) => Close(result);");
+        sb.AppendLine("            ButtonPanel.Children.Add(button);");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    private static IEnumerable<(string Label, DialogResult Result)> GetButtons(MessageBoxButtons buttons) => buttons switch");
+        sb.AppendLine("    {");
+        sb.AppendLine("        MessageBoxButtons.OKCancel => [(\"OK\", DialogResult.OK), (\"Cancel\", DialogResult.Cancel)],");
+        sb.AppendLine("        MessageBoxButtons.YesNo => [(\"Yes\", DialogResult.Yes), (\"No\", DialogResult.No)],");
+        sb.AppendLine("        MessageBoxButtons.YesNoCancel => [(\"Yes\", DialogResult.Yes), (\"No\", DialogResult.No), (\"Cancel\", DialogResult.Cancel)],");
+        sb.AppendLine("        MessageBoxButtons.RetryCancel => [(\"Retry\", DialogResult.Retry), (\"Cancel\", DialogResult.Cancel)],");
+        sb.AppendLine("        MessageBoxButtons.AbortRetryIgnore => [(\"Abort\", DialogResult.Abort), (\"Retry\", DialogResult.Retry), (\"Ignore\", DialogResult.Ignore)],");
+        sb.AppendLine("        _ => [(\"OK\", DialogResult.OK)]");
+        sb.AppendLine("    };");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
 }

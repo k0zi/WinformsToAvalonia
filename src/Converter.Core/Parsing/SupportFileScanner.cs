@@ -1,4 +1,5 @@
 using Converter.Core.Configuration;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -110,6 +111,14 @@ public static class SupportFileScanner
                 var sourceCode = await File.ReadAllTextAsync(file);
                 var root = await CSharpSyntaxTree.ParseText(sourceCode).GetRootAsync();
 
+                var splitResult = TrySplitMixedSafetyFile(root, sourceCode);
+                if (splitResult != null)
+                {
+                    copyable.Add(new CopyableSourceFile(file, relativePath, splitResult.Value.TransformedContent));
+                    skipped.Add(new SkippedSourceFile(relativePath, splitResult.Value.SkipReason));
+                    continue;
+                }
+
                 var unsafeBaseType = root.DescendantNodes()
                     .OfType<TypeDeclarationSyntax>()
                     .SelectMany(t => t.BaseList?.Types.Select(b => SimpleBaseTypeName(b.Type)) ?? [])
@@ -174,6 +183,78 @@ public static class SupportFileScanner
         }
 
         return new SupportFileScanResult { CopyableFiles = copyable, SkippedFiles = skipped };
+    }
+
+    /// <summary>
+    /// A file with two or more top-level (namespace-scoped, not nested) type declarations where
+    /// some are unsafe (bucket 1/2 below) and some aren't is a real, observed shape - e.g.
+    /// WarehouseApp.Controls.StatusBadgeControl.cs declares both a harmless "enum BadgeStyle"
+    /// and an owner-drawn "class StatusBadgeControl : Control" in the same file. The whole-file
+    /// classification below would drop the safe enum along with the unsafe control, even though
+    /// other migrated code depends on it and it has zero WinForms dependency of its own. Instead,
+    /// copy a version of the file with only the unsafe declaration(s) removed (via
+    /// SyntaxNode.RemoveNodes, so usings/namespace/other members are preserved verbatim) and
+    /// report the removal as a manual step - the whole-file skip/copy path below still handles
+    /// every other case (0 or 1 type declarations, or a file where every/no declaration is
+    /// unsafe) exactly as before. Returns null when there's nothing to split (falls through to
+    /// the existing whole-file logic).
+    /// </summary>
+    private static (string TransformedContent, string SkipReason)? TrySplitMixedSafetyFile(
+        SyntaxNode root, string sourceCode)
+    {
+        var typeDeclarations = root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>()
+            .Where(t => t.Parent is BaseNamespaceDeclarationSyntax or CompilationUnitSyntax)
+            .ToList();
+
+        if (typeDeclarations.Count < 2)
+        {
+            return null;
+        }
+
+        var unsafeDeclarations = new List<(BaseTypeDeclarationSyntax Declaration, string Reason)>();
+        foreach (var declaration in typeDeclarations)
+        {
+            var declaredBaseType = (declaration as TypeDeclarationSyntax)?.BaseList?.Types
+                .Select(b => SimpleBaseTypeName(b.Type))
+                .FirstOrDefault(name => name != null && WinFormsUiBaseTypeNames.Contains(name));
+            if (declaredBaseType != null)
+            {
+                unsafeDeclarations.Add((declaration, $"derives from WinForms '{declaredBaseType}'"));
+                continue;
+            }
+
+            var noEquivalentTypes = WinFormsTypeUsageDetector.FindReferencedTypeNames(declaration);
+            if (noEquivalentTypes.Count > 0)
+            {
+                unsafeDeclarations.Add((declaration,
+                    $"uses WinForms type(s) with no Avalonia equivalent ({string.Join(", ", noEquivalentTypes)})"));
+            }
+        }
+
+        if (unsafeDeclarations.Count == 0 || unsafeDeclarations.Count == typeDeclarations.Count)
+        {
+            // All safe or all unsafe - the existing whole-file logic already handles both
+            // correctly (copies everything / skips everything with the same reasoning).
+            return null;
+        }
+
+        var reducedRoot = root.RemoveNodes(unsafeDeclarations.Select(u => u.Declaration), SyntaxRemoveOptions.KeepNoTrivia);
+        var reducedSource = reducedRoot?.ToFullString() ?? sourceCode;
+
+        // The surviving safe declaration(s) may themselves reference bare System.Drawing.Color
+        // (e.g. a "ChartSeries" DTO next to an unsafe owner-drawn "ChartControl" in the same
+        // file) - the whole-file bucket-4 path below already handles this via the same
+        // rename-only rewrite; apply it here too instead of leaving an unqualified "Color" that
+        // doesn't resolve in the generated project.
+        var transformedContent = GdiDrawingTranspiler.TryRewriteColorOnly(reducedSource) ?? reducedSource;
+
+        var droppedNames = unsafeDeclarations.Select(u => u.Declaration.Identifier.Text).ToList();
+        var skipReason = $"Partially copied - {string.Join(", ", droppedNames)} " +
+            $"{(droppedNames.Count == 1 ? "was" : "were")} removed " +
+            $"({string.Join("; ", unsafeDeclarations.Select(u => u.Reason))}) and need a manual Avalonia port; " +
+            "every other type declared in this file was copied unchanged.";
+
+        return (transformedContent, skipReason);
     }
 
     private static bool IsInBuildOutputDirectory(string sourcePath, string filePath)

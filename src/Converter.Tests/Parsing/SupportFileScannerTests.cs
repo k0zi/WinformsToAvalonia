@@ -76,11 +76,12 @@ public class SupportFileScannerTests
     }
 
     [Fact]
-    public async Task ScanAsync_FileWithBothSafeAndUnsafeType_SkipsWholeFile()
+    public async Task ScanAsync_FileWithBothSafeAndUnsafeType_CopiesSafeTypeAndFlagsUnsafeOne()
     {
         // Mirrors the real WarehouseApp sample: a "BadgeStyle" enum and a "StatusBadgeControl :
-        // Control" class declared in the same file - file-level granularity means the whole
-        // file is skipped, not just the unsafe declaration.
+        // Control" class declared in the same file - other migrated code (e.g. a ViewModel with
+        // "using WarehouseApp.Controls;") depends on the harmless enum, so it must survive even
+        // though the owner-drawn control next to it can't be copied as-is.
         var sourceDir = CreateSourceDir();
         try
         {
@@ -97,8 +98,74 @@ public class SupportFileScannerTests
 
             var result = await SupportFileScanner.ScanAsync(sourceDir, new HashSet<string>(), []);
 
+            var copied = Assert.Single(result.CopyableFiles);
+            Assert.Contains("public enum BadgeStyle", copied.TransformedContent);
+            Assert.DoesNotContain("StatusBadgeControl", copied.TransformedContent);
+
+            var skippedEntry = Assert.Single(result.SkippedFiles);
+            Assert.Contains("StatusBadgeControl", skippedEntry.Reason);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_MultipleTypesAllUnsafe_SkipsWholeFileNotPartial()
+    {
+        // Every type declaration is unsafe - nothing to split, the whole file stays skipped
+        // exactly like the single-type case (no partial-copy manual step for an empty result).
+        var sourceDir = CreateSourceDir();
+        try
+        {
+            var path = Path.Combine(sourceDir, "TwoControls.cs");
+            await File.WriteAllTextAsync(path, """
+                namespace WarehouseApp.Controls;
+
+                public class FirstControl : Control
+                {
+                }
+
+                public class SecondControl : Control
+                {
+                }
+                """);
+
+            var result = await SupportFileScanner.ScanAsync(sourceDir, new HashSet<string>(), []);
+
             Assert.Empty(result.CopyableFiles);
-            Assert.Single(result.SkippedFiles);
+            var skippedEntry = Assert.Single(result.SkippedFiles);
+            Assert.DoesNotContain("Partially copied", skippedEntry.Reason);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_MultipleTypesAllSafe_CopiesWholeFileUnchanged()
+    {
+        var sourceDir = CreateSourceDir();
+        try
+        {
+            var path = Path.Combine(sourceDir, "Dtos.cs");
+            await File.WriteAllTextAsync(path, """
+                namespace WarehouseApp.Common;
+
+                public enum Priority { Low, High }
+
+                public class OrderDto
+                {
+                }
+                """);
+
+            var result = await SupportFileScanner.ScanAsync(sourceDir, new HashSet<string>(), []);
+
+            var copied = Assert.Single(result.CopyableFiles);
+            Assert.Null(copied.TransformedContent);
+            Assert.Empty(result.SkippedFiles);
         }
         finally
         {

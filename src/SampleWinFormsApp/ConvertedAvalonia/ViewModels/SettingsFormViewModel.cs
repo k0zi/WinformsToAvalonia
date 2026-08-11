@@ -41,7 +41,7 @@ public partial class SettingsFormViewModel : CommunityToolkit.Mvvm.ComponentMode
     internal void chooseColorButton_Click(object? sender, EventArgs e)
         {
             colorDialog.Color = colorPreviewPanel.BackColor;
-            if (colorDialog.ShowDialog(this) == DialogResult.OK)
+            if (colorDialog.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 colorPreviewPanel.BackColor = colorDialog.Color;
                 customColorRadioButton.Checked = true;
@@ -50,7 +50,7 @@ public partial class SettingsFormViewModel : CommunityToolkit.Mvvm.ComponentMode
 
     internal void browseFolderButton_Click(object? sender, EventArgs e)
         {
-            if (folderBrowserDialog.ShowDialog(this) == DialogResult.OK)
+            if (folderBrowserDialog.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 backupFolderTextBox.Text = folderBrowserDialog.SelectedPath;
             }
@@ -66,13 +66,13 @@ public partial class SettingsFormViewModel : CommunityToolkit.Mvvm.ComponentMode
             _settings.BackupFolderPath = string.IsNullOrWhiteSpace(backupFolderTextBox.Text) ? null : backupFolderTextBox.Text;
     
             await PersistSettingsAsync();
-            MessageBox.Show(this, "Settings saved.", "Settings", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            await ConvertedAvalonia.Common.Dialogs.ShowAsync("Settings saved.","Settings",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
         }
 
     internal async Task SaveAdvancedAsync()
         {
             await PersistSettingsAsync();
-            MessageBox.Show(this, "Advanced settings saved.", "Settings", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            await ConvertedAvalonia.Common.Dialogs.ShowAsync("Advanced settings saved.","Settings",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
         }
 
     internal async Task PersistSettingsAsync()

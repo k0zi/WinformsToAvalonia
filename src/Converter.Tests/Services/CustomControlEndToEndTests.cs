@@ -142,4 +142,66 @@ public class CustomControlEndToEndTests
             Directory.Delete(outputDir, recursive: true);
         }
     }
+
+    private const string OwnerDrawnControlContent = """
+        namespace SampleApp
+        {
+            public class GaugeControl : System.Windows.Forms.Control
+            {
+                protected override void OnPaint(System.Windows.Forms.PaintEventArgs e)
+                {
+                    base.OnPaint(e);
+                }
+            }
+        }
+        """;
+
+    private const string OwnerDrawnFormDesignerContent = """
+        namespace SampleApp
+        {
+            partial class GaugeForm
+            {
+                private SampleApp.GaugeControl capacityGauge;
+
+                private void InitializeComponent()
+                {
+                    this.capacityGauge = new SampleApp.GaugeControl();
+                    this.SuspendLayout();
+                    this.capacityGauge.Name = "capacityGauge";
+                    this.Controls.Add(this.capacityGauge);
+                    this.Name = "GaugeForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_FormEmbeddingOwnerDrawnControl_GetsSpecificManualStepMessage()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "GaugeControl.cs"), OwnerDrawnControlContent);
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "GaugeForm.Designer.cs"), OwnerDrawnFormDesignerContent);
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, BaselineConfig()).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            // GaugeControl has no InitializeComponent (owner-drawn, OnPaint-only) so it's never
+            // independently converted - the embedded instance stays "Unmapped Controls", but
+            // with the same specific "Custom-drawn control..." message the file-level skip gets,
+            // instead of the generic "has no Avalonia mapping".
+            var step = Assert.Single(result.Report!.ManualSteps, s => s.Category == "Unmapped Controls");
+            Assert.Contains("Custom-drawn control", step.Description);
+            Assert.Contains("no control tree to convert into AXAML", step.Description);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
 }

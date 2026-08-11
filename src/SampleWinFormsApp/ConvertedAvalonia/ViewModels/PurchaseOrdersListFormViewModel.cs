@@ -42,7 +42,7 @@ public partial class PurchaseOrdersListFormViewModel : CommunityToolkit.Mvvm.Com
     internal void AddNew()
         {
             using var form = new PurchaseOrderDetailForm();
-            if (form.ShowDialog(this) == DialogResult.OK)
+            if (form.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 _ = ReloadAsync();
             }
@@ -51,7 +51,7 @@ public partial class PurchaseOrdersListFormViewModel : CommunityToolkit.Mvvm.Com
     internal void EditEntity(PurchaseOrder entity)
         {
             using var form = new PurchaseOrderDetailForm(entity);
-            if (form.ShowDialog(this) == DialogResult.OK)
+            if (form.ShowDialog(this) == ConvertedAvalonia.Common.DialogResult.OK)
             {
                 _ = ReloadAsync();
             }

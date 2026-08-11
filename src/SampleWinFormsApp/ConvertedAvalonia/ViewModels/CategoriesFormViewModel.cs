@@ -90,7 +90,7 @@ public partial class CategoriesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
         {
             if (string.IsNullOrWhiteSpace(nameTextBox.Text))
             {
-                MessageBox.Show(this, "Category name is required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Category name is required.","Validation",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Warning);
                 return;
             }
     
@@ -125,8 +125,8 @@ public partial class CategoriesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
             }
     
             var confirm = MessageBox.Show(this, $"Delete category '{category.Name}'?", "Confirm Delete",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-            if (confirm != DialogResult.Yes)
+                ConvertedAvalonia.Common.MessageBoxButtons.YesNo, ConvertedAvalonia.Common.MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (confirm != ConvertedAvalonia.Common.DialogResult.Yes)
             {
                 return;
             }
@@ -144,8 +144,7 @@ public partial class CategoriesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Could not delete category — it may still have subcategories or products referencing it.\n\n{ex.Message}",
-                    "Delete Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync($"Could not delete category — it may still have subcategories or products referencing it.\n\n{ex.Message}",                "Delete Failed",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Error);
             }
         }
 

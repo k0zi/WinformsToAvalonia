@@ -71,14 +71,24 @@ public class WarehouseAppConversionTests
             var viewsDir = Path.Combine(outputDir, "Views");
             var viewModelsDir = Path.Combine(outputDir, "ViewModels");
 
+            // None of the WarehouseApp fixtures use DataBindings.Add, so the auto-regenerated,
+            // properties-only .g.cs is normally never written - except for these forms, whose
+            // LoadFromEntity/SaveToEntity/ValidateInput-style methods read/write the same
+            // controls across multiple members, which UsageInferredBindingDetector now promotes
+            // to real [ObservableProperty] bindings even without an explicit DataBindings call.
+            var formsWithInferredBindings = new HashSet<string>
+            {
+                "AutocompleteSearchBox", "ProductDetailForm", "PurchaseOrderDetailForm",
+                "SalesOrderDetailForm", "StockInForm", "StockOutForm", "StockTransferForm",
+                "WarehousesForm"
+            };
+
             foreach (var form in ExpectedForms)
             {
                 Assert.True(File.Exists(Path.Combine(viewsDir, $"{form}.axaml")), $"Missing AXAML for {form}");
                 Assert.True(File.Exists(Path.Combine(viewsDir, $"{form}.axaml.cs")), $"Missing code-behind for {form}");
-                // None of the WarehouseApp fixtures use DataBindings.Add, so the
-                // auto-regenerated, properties-only .g.cs is never written; the hand-editable
-                // ViewModel file is always created.
-                Assert.False(File.Exists(Path.Combine(viewModelsDir, $"{form}ViewModel.g.cs")), $"Unexpected .g.cs for {form}");
+                var expectsGeneratedViewModel = formsWithInferredBindings.Contains(form);
+                Assert.Equal(expectsGeneratedViewModel, File.Exists(Path.Combine(viewModelsDir, $"{form}ViewModel.g.cs")));
                 Assert.True(File.Exists(Path.Combine(viewModelsDir, $"{form}ViewModel.cs")), $"Missing ViewModel for {form}");
             }
 

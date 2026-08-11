@@ -1,6 +1,6 @@
 # Migration Guide: ConvertedAvalonia
 
-**Generated**: 2026-08-11 16:11:05
+**Generated**: 2026-08-11 20:21:49
 **Converter Version**: 1.0.0
 
 ---
@@ -236,125 +236,101 @@ The following items require manual attention:
 
 ### Unmapped Controls
 
-- **DetailFormBase<SalesOrder> "SalesOrderDetailForm" has no Avalonia mapping**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
-
 - **StarRatingControl "satisfactionRatingControl" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **StatusBadgeControl "statusBadge" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **LoadingSpinnerControl "loadingSpinner" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **GaugeControl "capacityGauge" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
-
-- **DetailFormBase<PurchaseOrder> "PurchaseOrderDetailForm" has no Avalonia mapping**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **StatusBadgeControl "statusBadge" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
-
-- **ListFormBase<SalesOrder> "SalesOrdersListForm" has no Avalonia mapping**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrdersListForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
-
-- **ListFormBase<Product> "ProductsListForm" has no Avalonia mapping**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductsListForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "productsTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "productDetailTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "categoriesTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "suppliersTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "customersTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "warehousesTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "stockOverviewTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "stockInTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "stockOutTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "stockTransferTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "stockAdjustmentTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "purchaseOrdersTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "purchaseOrderDetailTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "salesOrdersTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "salesOrderDetailTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "usersTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "reportsTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **CardTileControl "settingsTile" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 - **GaugeControl "capacityGauge" has no Avalonia mapping**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
-
-- **DetailFormBase<Product> "ProductDetailForm" has no Avalonia mapping**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
-
-- **ListFormBase<PurchaseOrder> "PurchaseOrdersListForm" has no Avalonia mapping**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrdersListForm.Designer.cs`
-  - Description: This control type has no built-in WinForms-to-Avalonia mapping; it was emitted as a TODO placeholder in the AXAML and needs a manual replacement.
+  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
 
 ### Custom Control Instance
 
@@ -376,31 +352,19 @@ The following items require manual attention:
 
 ### Command Logic References View-Only Control
 
-- **addLineButton.Click handler "addLineButton_Click" references productSearchBox.SelectedItem, qtyNumericUpDown.Value, unitPriceNumericUpDown.Value**
+- **addLineButton.Click handler "addLineButton_Click" references qtyNumericUpDown.Value**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
 
-- **SalesOrderDetailForm.LoadFromEntity references customerComboBox.DataSource, customerComboBox.DisplayMember, customerComboBox.ValueMember, warehouseComboBox.DataSource, warehouseComboBox.DisplayMember, warehouseComboBox.ValueMember, productSearchBox.DataSource, statusComboBox.DataSource, orderDatePicker.Value, requiredDatePicker.Value, notesTextBox.Text, satisfactionRatingControl.Value, orderNumberValueLabel.Text, statusComboBox.SelectedItem, customerComboBox.SelectedValue, warehouseComboBox.SelectedValue, statusComboBox.SelectedIndexChanged**
+- **SalesOrderDetailForm.LoadFromEntity references customerComboBox.DataSource, customerComboBox.DisplayMember, customerComboBox.ValueMember, warehouseComboBox.DataSource, warehouseComboBox.DisplayMember, warehouseComboBox.ValueMember, productSearchBox.DataSource, statusComboBox.DataSource, orderNumberValueLabel.Text, statusComboBox.SelectedIndexChanged**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **SalesOrderDetailForm.UpdateStatusBadge references statusComboBox.SelectedItem, statusBadge.Text, statusBadge.BadgeStyle**
+- **SalesOrderDetailForm.UpdateStatusBadge references statusBadge.Text, statusBadge.BadgeStyle**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **SalesOrderDetailForm.AddLineRow references linesGrid.Rows**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **SalesOrderDetailForm.ValidateInput references customerComboBox.SelectedItem, warehouseComboBox.SelectedItem, linesGrid.Rows**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **SalesOrderDetailForm.SaveToEntity references customerComboBox.SelectedValue, warehouseComboBox.SelectedValue, orderDatePicker.Value, requiredDatePicker.Value, statusComboBox.SelectedItem, satisfactionRatingControl.Value, notesTextBox.Text**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **SalesOrderDetailForm.PersistAsync references linesGrid.Rows**
+- **SalesOrderDetailForm.ValidateInput references customerComboBox.SelectedItem, warehouseComboBox.SelectedItem**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
@@ -412,67 +376,31 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **WarehousesForm.LoadTreeAsync references locationsTreeView.Nodes, locationsTreeView.ExpandAll, shelfContentsListView.Items, selectedNameLabel.Text, capacityGauge.Value, capacityDetailLabel.Text**
+- **WarehousesForm.LoadTreeAsync references locationsTreeView.Nodes, locationsTreeView.ExpandAll**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **WarehousesForm.ShowWarehouseAsync references selectedNameLabel.Text, capacityGauge.Value, capacityDetailLabel.Text**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **WarehousesForm.ShowLocationAsync references selectedNameLabel.Text, capacityGauge.Value, capacityDetailLabel.Text**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **WarehousesForm.LoadShelfContentsAsync references shelfContentsListView.Items**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **WarehousesForm.AddZone references locationsTreeView.SelectedNode**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **WarehousesForm.AddShelf references locationsTreeView.SelectedNode**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **WarehousesForm.DeleteSelectedNodeAsync references locationsTreeView.SelectedNode**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **addLineButton.Click handler "addLineButton_Click" references productSearchBox.SelectedItem, qtyNumericUpDown.Value, unitPriceNumericUpDown.Value**
+- **addLineButton.Click handler "addLineButton_Click" references qtyNumericUpDown.Value**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
 
-- **PurchaseOrderDetailForm.LoadFromEntity references supplierComboBox.DataSource, supplierComboBox.DisplayMember, supplierComboBox.ValueMember, productSearchBox.DataSource, statusComboBox.DataSource, orderDatePicker.Value, expectedDatePicker.Value, notesTextBox.Text, orderNumberValueLabel.Text, statusComboBox.SelectedItem, supplierComboBox.SelectedValue, statusComboBox.SelectedIndexChanged**
+- **PurchaseOrderDetailForm.LoadFromEntity references supplierComboBox.DataSource, supplierComboBox.DisplayMember, supplierComboBox.ValueMember, productSearchBox.DataSource, statusComboBox.DataSource, statusComboBox.SelectedIndexChanged**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **PurchaseOrderDetailForm.UpdateStatusBadge references statusComboBox.SelectedItem, statusBadge.Text, statusBadge.BadgeStyle**
+- **PurchaseOrderDetailForm.UpdateStatusBadge references statusBadge.Text, statusBadge.BadgeStyle**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **PurchaseOrderDetailForm.AddLineRow references linesGrid.Rows**
+- **PurchaseOrderDetailForm.ValidateInput references supplierComboBox.SelectedItem**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **PurchaseOrderDetailForm.ValidateInput references supplierComboBox.SelectedItem, linesGrid.Rows**
+- **PurchaseOrderDetailForm.PrintDocument_PrintPage references supplierComboBox.Text**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **PurchaseOrderDetailForm.SaveToEntity references supplierComboBox.SelectedValue, orderDatePicker.Value, expectedDatePicker.Value, statusComboBox.SelectedItem, notesTextBox.Text**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **PurchaseOrderDetailForm.PersistAsync references linesGrid.Rows**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **PurchaseOrderDetailForm.PrintDocument_PrintPage references orderNumberValueLabel.Text, supplierComboBox.Text, orderDatePicker.Value, expectedDatePicker.Value, linesGrid.Rows**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, warehouseComboBox.SelectedItem, quantityStepper.Value, linesGrid.Rows, statusLabel.Text**
+- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, warehouseComboBox.SelectedItem, quantityStepper.Value**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
   - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
 
@@ -480,15 +408,15 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **StockInForm.RemoveSelectedLine references linesGrid.CurrentRow, linesGrid.Rows**
+- **StockInForm.RemoveSelectedLine references linesGrid.CurrentRow**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **StockInForm.PostReceiptAsync references linesGrid.Rows, postButton.Enabled, receiptDatePicker.Value, statusLabel.Text**
+- **StockInForm.PostReceiptAsync references postButton.Enabled, receiptDatePicker.Value**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, fromWarehouseComboBox.SelectedItem, toWarehouseComboBox.SelectedItem, quantityNumericUpDown.Value, linesGrid.Rows, statusLabel.Text**
+- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, fromWarehouseComboBox.SelectedItem, toWarehouseComboBox.SelectedItem, quantityNumericUpDown.Value**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
   - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
 
@@ -500,11 +428,11 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **StockTransferForm.RemoveSelectedLine references linesGrid.CurrentRow, linesGrid.Rows**
+- **StockTransferForm.RemoveSelectedLine references linesGrid.CurrentRow**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **StockTransferForm.PostTransferAsync references linesGrid.Rows, postButton.Enabled, statusLabel.Text**
+- **StockTransferForm.PostTransferAsync references postButton.Enabled**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
@@ -516,19 +444,19 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
 
-- **ProductDetailForm.LoadFromEntity references categoryComboBox.DataSource, categoryComboBox.DisplayMember, categoryComboBox.ValueMember, supplierComboBox.DataSource, supplierComboBox.DisplayMember, supplierComboBox.ValueMember, skuTextBox.Text, nameTextBox.Text, descriptionTextBox.Text, unitPriceNumericUpDown.Value, reorderLevelNumericUpDown.Value, isActiveCheckBox.Checked, categoryComboBox.SelectedValue, supplierComboBox.SelectedValue, unitOfMeasureDomainUpDown.Items, unitOfMeasureDomainUpDown.SelectedIndex**
+- **ProductDetailForm.LoadFromEntity references categoryComboBox.DataSource, categoryComboBox.DisplayMember, categoryComboBox.ValueMember, supplierComboBox.DataSource, supplierComboBox.DisplayMember, supplierComboBox.ValueMember, unitOfMeasureDomainUpDown.Items, unitOfMeasureDomainUpDown.SelectedIndex**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **ProductDetailForm.ValidateInput references skuTextBox.Text, nameTextBox.Text, categoryComboBox.SelectedItem, supplierComboBox.SelectedItem**
+- **ProductDetailForm.ValidateInput references categoryComboBox.SelectedItem, supplierComboBox.SelectedItem**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **ProductDetailForm.SaveToEntity references skuTextBox.Text, nameTextBox.Text, descriptionTextBox.Text, categoryComboBox.SelectedValue, supplierComboBox.SelectedValue, unitOfMeasureDomainUpDown.SelectedItem, unitPriceNumericUpDown.Value, reorderLevelNumericUpDown.Value, isActiveCheckBox.Checked**
+- **ProductDetailForm.SaveToEntity references unitOfMeasureDomainUpDown.SelectedItem**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, warehouseComboBox.SelectedItem, quantityStepper.Value, linesGrid.Rows, statusLabel.Text**
+- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, warehouseComboBox.SelectedItem, quantityStepper.Value**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
   - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
 
@@ -536,11 +464,11 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **StockOutForm.RemoveSelectedLine references linesGrid.CurrentRow, linesGrid.Rows**
+- **StockOutForm.RemoveSelectedLine references linesGrid.CurrentRow**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **StockOutForm.PostIssueAsync references linesGrid.Rows, postButton.Enabled, statusLabel.Text**
+- **StockOutForm.PostIssueAsync references postButton.Enabled**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
@@ -548,7 +476,7 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
-- **AutocompleteSearchBox.CommitSelection references _textBox.Text, _textBox.SelectionStart**
+- **AutocompleteSearchBox.CommitSelection references _textBox.SelectionStart**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
   - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
@@ -570,10 +498,6 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ReportsForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references ListViewItem - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
-- **ReportsForm.exportCsvButton_Click references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ReportsForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references DialogResult, MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
 - **ReportsForm.chooseFontButton_Click references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ReportsForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
@@ -590,29 +514,9 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references ListViewItem - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
-- **WarehousesForm.AddZone references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **WarehousesForm.AddShelf references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **WarehousesForm.DeleteSelectedNodeAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
 - **CustomersForm.LoadOrdersForCustomerAsync references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CustomersForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references ListViewItem - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **CustomersForm.SaveCustomerAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CustomersForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **CustomersForm.DeleteCustomerAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CustomersForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
 - **PurchaseOrderDetailForm.ValidateInput references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
@@ -634,17 +538,9 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CategoriesForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references TreeViewEventArgs - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
-- **CategoriesForm.SaveCategoryAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CategoriesForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **CategoriesForm.DeleteCategoryAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/CategoriesForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
 - **StockInForm.PostReceiptAsync references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DataGridViewRow - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
+  - Description: This method was migrated as live code, but its body references DataGridViewRow - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
 - **SalesOrdersListForm.AddNew references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrdersListForm.Designer.cs`
@@ -664,7 +560,7 @@ The following items require manual attention:
 
 - **StockTransferForm.PostTransferAsync references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DataGridViewRow - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
+  - Description: This method was migrated as live code, but its body references DataGridViewRow - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
 - **ProductsListForm.AddNew references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductsListForm.Designer.cs`
@@ -678,10 +574,6 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductsListForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references DataGridViewCellFormattingEventArgs - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
-- **ProductsListForm.quickAddDuplicate_Click references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductsListForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
 - **DashboardForm.DashboardForm_FormClosing references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references FormClosingEventArgs - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
@@ -694,21 +586,13 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SuppliersForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references ListViewItem - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
-- **SuppliersForm.SaveSupplierAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SuppliersForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **SuppliersForm.DeleteSupplierAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SuppliersForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
 - **SuppliersForm.EmailLinkLabel_LinkClicked references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SuppliersForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references LinkLabelLinkClickedEventArgs, MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
+  - Description: This method was migrated as live code, but its body references LinkLabelLinkClickedEventArgs - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
 - **StockOutForm.PostIssueAsync references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DataGridViewRow - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
+  - Description: This method was migrated as live code, but its body references DataGridViewRow - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
 - **PurchaseOrdersListForm.AddNew references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrdersListForm.Designer.cs`
@@ -726,14 +610,6 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/UsersForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references DataGridViewCellFormattingEventArgs - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
-- **UsersForm.SaveUserAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/UsersForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **UsersForm.DeleteUserAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/UsersForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
 - **SettingsForm.chooseColorButton_Click references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SettingsForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
@@ -742,25 +618,21 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SettingsForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references DialogResult - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
-- **SettingsForm.SaveGeneralAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SettingsForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **SettingsForm.SaveAdvancedAsync references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SettingsForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
-- **StockAdjustmentForm.StartCountSession references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockAdjustmentForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
 - **StockAdjustmentForm.PostAdjustmentAsync references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockAdjustmentForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references MessageBox, MessageBoxButtons, MessageBoxIcon, DataGridViewRow - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
+  - Description: This method was migrated as live code, but its body references DataGridViewRow - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
 - **AutocompleteSearchBox.ShowPopup references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
   - Description: This method was migrated as live code, but its body references ListBox, Form - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
+
+- **AutocompleteSearchBox._popup references WinForms type(s) with no Avalonia equivalent**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
+  - Description: This field was migrated as live code, but its declared type references Form - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this field's type manually.
+
+- **AutocompleteSearchBox._popupList references WinForms type(s) with no Avalonia equivalent**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
+  - Description: This field was migrated as live code, but its declared type references ListBox - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this field's type manually.
 
 ### Custom Property Logic
 
@@ -830,7 +702,7 @@ The following items require manual attention:
 
 - **"Controls/ChartControl.cs" was not copied**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/ChartControl.cs`
-  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
+  - Description: Partially copied - ChartControl was removed (derives from WinForms 'Control') and need a manual Avalonia port; every other type declared in this file was copied unchanged.
 
 - **"Controls/GaugeControl.cs" was not copied**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/GaugeControl.cs`
@@ -846,7 +718,7 @@ The following items require manual attention:
 
 - **"Controls/StatusBadgeControl.cs" was not copied**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/StatusBadgeControl.cs`
-  - Description: Custom-drawn control (derives from WinForms 'Control', overrides OnPaint, no InitializeComponent/child controls) - there is no control tree to convert into AXAML. Needs a hand-written Avalonia control with its own render logic (e.g. a Control subclass overriding Render(DrawingContext)).
+  - Description: Partially copied - StatusBadgeControl was removed (derives from WinForms 'Control') and need a manual Avalonia port; every other type declared in this file was copied unchanged.
 
 - **"Controls/ToggleSwitchControl.cs" was not copied**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/ToggleSwitchControl.cs`

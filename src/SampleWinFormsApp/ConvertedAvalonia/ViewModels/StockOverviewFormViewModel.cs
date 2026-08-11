@@ -23,6 +23,15 @@ public partial class StockOverviewFormViewModel : CommunityToolkit.Mvvm.Componen
 
     internal List<StockLevel> _allStockLevels = [];
 
+    internal sealed class StockRow
+        {
+            public required string ProductName { get; init; }
+            public required string WarehouseName { get; init; }
+            public int OnHand { get; init; }
+            public int Reserved { get; init; }
+            public int ReorderLevel { get; init; }
+        }
+
     internal async Task LoadStockAsync()
         {
             var (stockLevels, warehouses, totalCapacity) = await Task.Run(() =>

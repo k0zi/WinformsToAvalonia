@@ -41,43 +41,43 @@ public partial class WarehousesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
             }
             locationsTreeView.ExpandAll();
             recordCountLabel.Text = $"{warehouses.Count} warehouse(s), {locations.Count} location(s)";
-            shelfContentsListView.Items.Clear();
-            selectedNameLabel.Text = "Select a warehouse or location";
-            capacityGauge.Value = 0;
-            capacityDetailLabel.Text = string.Empty;
+            ShelfContents.Clear();
+            SelectedName = "Select a warehouse or location";
+            CapacityGauge = 0;
+            CapacityDetail = string.Empty;
         }
 
     internal async Task ShowWarehouseAsync(Warehouse warehouse)
         {
-            selectedNameLabel.Text = $"{warehouse.Name} ({warehouse.Code})";
+            SelectedName = $"{warehouse.Name} ({warehouse.Code})";
             var onHand = await Task.Run(() =>
             {
                 using var ctx = Db.CreateContext();
                 return ctx.StockLevels.Where(s => s.WarehouseId == warehouse.Id).Sum(s => (int?)s.QuantityOnHand) ?? 0;
             });
             var percent = warehouse.CapacityUnits == 0 ? 0 : Math.Min(100.0, onHand * 100.0 / warehouse.CapacityUnits);
-            capacityGauge.Value = percent;
-            capacityDetailLabel.Text = $"{onHand} / {warehouse.CapacityUnits} units";
+            CapacityGauge = percent;
+            CapacityDetail = $"{onHand} / {warehouse.CapacityUnits} units";
             await LoadShelfContentsAsync(null);
         }
 
     internal async Task ShowLocationAsync(Location location)
         {
-            selectedNameLabel.Text = $"{location.Name} ({location.LocationType})";
+            SelectedName = $"{location.Name} ({location.LocationType})";
             var onHand = await Task.Run(() =>
             {
                 using var ctx = Db.CreateContext();
                 return ctx.StockLevels.Where(s => s.LocationId == location.Id).Sum(s => (int?)s.QuantityOnHand) ?? 0;
             });
             var percent = location.CapacityUnits == 0 ? 0 : Math.Min(100.0, onHand * 100.0 / location.CapacityUnits);
-            capacityGauge.Value = percent;
-            capacityDetailLabel.Text = $"{onHand} / {location.CapacityUnits} units";
+            CapacityGauge = percent;
+            CapacityDetail = $"{onHand} / {location.CapacityUnits} units";
             await LoadShelfContentsAsync(location.Id);
         }
 
     internal async Task LoadShelfContentsAsync(int? locationId)
         {
-            shelfContentsListView.Items.Clear();
+            ShelfContents.Clear();
             if (locationId is null)
             {
                 return;
@@ -94,7 +94,7 @@ public partial class WarehousesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
                 var item = new ListViewItem(stock.Product.Name);
                 item.SubItems.Add(stock.QuantityOnHand.ToString());
                 item.SubItems.Add(stock.QuantityReserved.ToString());
-                shelfContentsListView.Items.Add(item);
+                ShelfContents.Add(item);
             }
         }
 
@@ -115,9 +115,9 @@ public partial class WarehousesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
 
     internal async void AddZone()
         {
-            if (locationsTreeView.SelectedNode?.Tag is not Warehouse warehouse)
+            if (Locations?.Tag is not Warehouse warehouse)
             {
-                MessageBox.Show(this, "Select a warehouse first.", "New Zone", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Select a warehouse first.","New Zone",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
                 return;
             }
     
@@ -142,9 +142,9 @@ public partial class WarehousesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
 
     internal async void AddShelf()
         {
-            if (locationsTreeView.SelectedNode?.Tag is not Location zone || zone.LocationType != LocationType.Zone)
+            if (Locations?.Tag is not Location zone || zone.LocationType != LocationType.Zone)
             {
-                MessageBox.Show(this, "Select a zone first.", "New Shelf", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync("Select a zone first.","New Shelf",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Information);
                 return;
             }
     
@@ -170,15 +170,15 @@ public partial class WarehousesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
 
     internal async Task DeleteSelectedNodeAsync()
         {
-            var tag = locationsTreeView.SelectedNode?.Tag;
+            var tag = Locations?.Tag;
             if (tag is null)
             {
                 return;
             }
     
             var confirm = MessageBox.Show(this, "Delete the selected node?", "Confirm Delete",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-            if (confirm != DialogResult.Yes)
+                ConvertedAvalonia.Common.MessageBoxButtons.YesNo, ConvertedAvalonia.Common.MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (confirm != ConvertedAvalonia.Common.DialogResult.Yes)
             {
                 return;
             }
@@ -208,8 +208,7 @@ public partial class WarehousesFormViewModel : CommunityToolkit.Mvvm.ComponentMo
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Could not delete — it may still contain sub-locations or stock.\n\n{ex.Message}",
-                    "Delete Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                await ConvertedAvalonia.Common.Dialogs.ShowAsync($"Could not delete — it may still contain sub-locations or stock.\n\n{ex.Message}",                "Delete Failed",ConvertedAvalonia.Common.MessageBoxButtons.OK,ConvertedAvalonia.Common.MessageBoxIcon.Error);
             }
         }
 

@@ -10,6 +10,7 @@
 
     <DockPanel>
         <TextBox Name="_textBox"
+        Text="{Binding _textBox}"
         KeyDown="TextBox_KeyDown"
         LostFocus="_textBox_LostFocus_InlineHandler" />
     </DockPanel>

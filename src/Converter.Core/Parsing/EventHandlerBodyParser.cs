@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -114,5 +115,39 @@ public static class EventHandlerBodyParser
     {
         var signaturePart = fullMethodSource.Split('{', 2)[0];
         return Regex.IsMatch(signaturePart, @"\basync\b");
+    }
+
+    /// <summary>
+    /// Adds the "async" modifier to a full method-source string if it isn't already present -
+    /// used when a rewrite (e.g. MessageBoxTranspiler turning "MessageBox.Show(...)" into
+    /// "await Dialogs.ShowAsync(...)") introduces an "await" into a method whose original
+    /// signature wasn't async. Unlike IsAsyncMethodSignature's text-based check, this needs to
+    /// actually edit the signature, so it re-parses the method (mirroring ExtractBodyText's own
+    /// wrap-and-parse approach) and inserts the modifier via the syntax tree rather than a
+    /// regex, since the accessibility/other modifiers already on the text can vary (this
+    /// generator's own EnsureInternalAccessibility rewrite, an original "protected", etc.).
+    /// Best-effort: any parse failure returns the input unchanged rather than throwing.
+    /// </summary>
+    public static string EnsureAsyncModifier(string fullMethodSource)
+    {
+        try
+        {
+            var wrapper = $"class __Wrapper {{ {fullMethodSource} }}";
+            var method = CSharpSyntaxTree.ParseText(wrapper).GetRoot()
+                .DescendantNodes().OfType<MethodDeclarationSyntax>().FirstOrDefault();
+
+            if (method == null || method.Modifiers.Any(m => m.IsKind(SyntaxKind.AsyncKeyword)))
+            {
+                return fullMethodSource;
+            }
+
+            var asyncToken = SyntaxFactory.Token(SyntaxKind.AsyncKeyword).WithTrailingTrivia(SyntaxFactory.Space);
+            var newMethod = method.WithModifiers(method.Modifiers.Add(asyncToken));
+            return newMethod.ToFullString().Trim();
+        }
+        catch
+        {
+            return fullMethodSource;
+        }
     }
 }
