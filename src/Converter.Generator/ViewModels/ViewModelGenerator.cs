@@ -78,15 +78,19 @@ public class ViewModelGenerator
     /// [RelayCommand] methods for ConvertToCommand-bucket events with their real bodies as
     /// live code (falling back to a TODO when no original body was found).
     /// </summary>
+    private static readonly HashSet<(string FormName, string DialogResultValue)> EmptyDialogResultButtons = [];
+
     public EditableClassContent BuildEditableClass(
         ControlNode root, string namespaceName, string className,
         PluginMappingOverrides? overrides = null,
         IReadOnlyDictionary<string, string>? handlerBodies = null,
         CodeBehindMembers? codeBehindMembers = null,
-        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null)
+        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null,
+        IReadOnlySet<(string FormName, string DialogResultValue)>? formsWithDialogResultButton = null)
     {
         overrides ??= PluginMappingOverrides.Empty;
         codeBehindMembers ??= CodeBehindMembers.Empty;
+        formsWithDialogResultButton ??= EmptyDialogResultButtons;
         var boundControlProperties = BuildBoundControlPropertyLookup(root, inferredBindings);
 
         var memberNames = new List<string>();
@@ -141,8 +145,13 @@ public class ViewModelGenerator
             // an "await" goes through EnsureAsyncModifier's own syntax-tree edit rather than a
             // string-built signature.
             var helperTranspiled = MessageBoxTranspiler.TranspileMethod(rewritten, namespaceName);
-            var helperSource = EnsureInternalAccessibility(helperTranspiled.TransformedBody);
-            if (helperTranspiled.AddedAwait)
+            // Same "recognize a fixed shape, rewrite it" treatment for the "show a child form
+            // modally, check DialogResult" idiom - run on MessageBoxTranspiler's own output so
+            // the two compose (a method can use both patterns).
+            var childDialogTranspiled = ChildDialogTranspiler.TranspileMethod(
+                helperTranspiled.TransformedBody, namespaceName, formsWithDialogResultButton);
+            var helperSource = EnsureInternalAccessibility(childDialogTranspiled.TransformedBody);
+            if (helperTranspiled.AddedAwait || childDialogTranspiled.AddedAwait)
             {
                 helperSource = EventHandlerBodyParser.EnsureAsyncModifier(helperSource);
             }
@@ -167,7 +176,9 @@ public class ViewModelGenerator
                 body = RewriteBoundControlReferences(body, boundControlProperties);
                 var transpiled = MessageBoxTranspiler.Transpile(body, namespaceName);
                 body = transpiled.TransformedBody;
-                addedAwait = transpiled.AddedAwait;
+                var childDialogTranspiled = ChildDialogTranspiler.Transpile(body, namespaceName, formsWithDialogResultButton);
+                body = childDialogTranspiled.TransformedBody;
+                addedAwait = transpiled.AddedAwait || childDialogTranspiled.AddedAwait;
             }
 
             // The original handler is commonly "async void" (WinForms event handlers are

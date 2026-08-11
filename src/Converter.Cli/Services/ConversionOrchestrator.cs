@@ -296,6 +296,18 @@ public class ConversionOrchestrator
                                 (singleFileCustomControlPaths.Contains(file) ? file : null);
                             if (codeBehindPath != null)
                             {
+                                // A form's own lifecycle events (Load/FormClosing/Resize/...)
+                                // are just as commonly wired manually in the regular
+                                // constructor as via the Designer - invisible to WinFormsParser
+                                // (Designer.cs-only), so without this the handler still gets
+                                // migrated but is either dead code or a build error (e.g.
+                                // FormClosingEventArgs). Merges into the same EventHandlers
+                                // dict Designer.cs wiring populates, before the handler-name
+                                // collection below, so every downstream step picks it up for
+                                // free.
+                                await CodeBehindEventSubscriptionDetector.MergeConstructorEventSubscriptionsAsync(
+                                    result.RootControl, codeBehindPath);
+
                                 var handlerNames = CollectHandlerMethodNames(result.RootControl);
                                 if (handlerNames.Count > 0)
                                 {
@@ -372,6 +384,22 @@ public class ConversionOrchestrator
             var ownerDrawnControlClassNames = await SingleFileCustomControlDiscovery
                 .DiscoverOwnerDrawnControlClassNamesAsync(_sourcePath, _config.ExcludePatterns);
 
+            // Every (FormName, DialogResultValue) pair where that form has a button whose
+            // Designer-declared DialogResult property isn't None - WinForms' fully declarative
+            // "OK/Cancel dialog" idiom, auto-closing the form with that result on click, no
+            // code needed. Computed once, globally, across every parsed form (not just the
+            // current one being generated) because ChildDialogTranspiler needs to know - from
+            // a *different* form's calling code - whether the form it's constructing can
+            // actually close with the result being compared against.
+            var formsWithDialogResultButton = new HashSet<(string FormName, string DialogResultValue)>();
+            foreach (var result in parseResults)
+            {
+                if (result.RootControl != null)
+                {
+                    CollectDialogResultButtons(result.RootControl, result.RootControl.Name, formsWithDialogResultButton);
+                }
+            }
+
             // Calculate total files to generate: 3 per form + 5 project files
             var totalForms = parseResults.Count;
             var totalFilesToGenerate = (totalForms * 3) + 5;
@@ -430,13 +458,13 @@ public class ConversionOrchestrator
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
                     resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
-                    customControlBindableProperties, ownerDrawnControlClassNames,
+                    customControlBindableProperties, ownerDrawnControlClassNames, formsWithDialogResultButton,
                     _config.ParallelProcessing.MaxDegreeOfParallelism, cancellationToken)
                 : await ConvertFormsSequentiallyAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
                     resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
-                    customControlBindableProperties, ownerDrawnControlClassNames,
+                    customControlBindableProperties, ownerDrawnControlClassNames, formsWithDialogResultButton,
                     progress, statistics, totalForms,
                     totalFilesToGenerate, cancellationToken, checkpointManager, state);
 
@@ -477,6 +505,13 @@ public class ConversionOrchestrator
 
             var usesMessageBoxDialogs = outcomes.Any(o => o.UsesMessageBoxDialogs);
 
+            // Global (run-level, not per-form): only actually needed when at least one form
+            // has a qualifying button *and* some form's migrated code has the ".ShowDialog("
+            // shape at all - see the comment on formsWithDialogResultButton above for why the
+            // set itself is computed globally.
+            var usesDialogResultButtons = formsWithDialogResultButton.Count > 0;
+            var usesChildDialogs = usesDialogResultButtons && outcomes.Any(o => o.UsesChildDialogPattern);
+
             ReportProgress(OperationType.ConvertingForm, progress, statistics, totalForms, totalFilesToGenerate,
                 formsProcessed, filesGenerated, force: true);
 
@@ -487,7 +522,8 @@ public class ConversionOrchestrator
 
             _logger?.LogInformation("Generating project files...");
             await GenerateProjectFilesAsync(
-                rollbackManager, formReports, manualSteps, convertedCustomControlClassNames, usesMessageBoxDialogs);
+                rollbackManager, formReports, manualSteps, convertedCustomControlClassNames, usesMessageBoxDialogs,
+                usesDialogResultButtons, usesChildDialogs);
             filesGenerated += 5; // Project files generated
 
             _logger?.LogInformation("Copying non-Form support files...");
@@ -682,7 +718,8 @@ public class ConversionOrchestrator
         string SourceFile,
         Exception? Error,
         IReadOnlyList<ManualStepInfo> ManualSteps,
-        bool UsesMessageBoxDialogs = false);
+        bool UsesMessageBoxDialogs = false,
+        bool UsesChildDialogPattern = false);
 
     /// <summary>
     /// Converts a single form. Pure with respect to shared orchestrator state - reads only
@@ -713,7 +750,8 @@ public class ConversionOrchestrator
         int avaloniaMajorVersion,
         IReadOnlySet<string> convertedCustomControlClassNames,
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
-        IReadOnlySet<string> ownerDrawnControlClassNames)
+        IReadOnlySet<string> ownerDrawnControlClassNames,
+        IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton)
     {
         try
         {
@@ -811,7 +849,7 @@ public class ConversionOrchestrator
             // would have seeded but isn't already present is instead surfaced as a manual step.
             var editable = vmGenerator.BuildEditableClass(
                 rootControl, namespaceName, className, overrides, parseResult.EventHandlerBodies, codeBehindMembers,
-                inferredBindings);
+                inferredBindings, formsWithDialogResultButton);
             var vmUserPath = Path.Combine(viewModelsDir, $"{className}{viewModelSuffix}.cs");
 
             if (!File.Exists(vmUserPath))
@@ -977,8 +1015,16 @@ public class ConversionOrchestrator
             var usesMessageBoxDialogs = UsesMessageBoxShow(parseResult.EventHandlerBodies.Values) ||
                 UsesMessageBoxShow(codeBehindMembers.HelperMethods.Values);
 
+            // Same cheap-presence-check spirit, for ChildDialogTranspiler's ".ShowDialog(...)"
+            // shape - whether the transpile actually fires additionally depends on
+            // formsWithDialogResultButton (checked by the transpiler itself), but that's a
+            // global, run-level condition already folded into usesDialogResultButtons below.
+            var usesChildDialogPattern = UsesShowDialog(parseResult.EventHandlerBodies.Values) ||
+                UsesShowDialog(codeBehindMembers.HelperMethods.Values);
+
             return new FormConversionOutcome(
-                report, controlCount, parseResult.FilePath, null, manualSteps, usesMessageBoxDialogs);
+                report, controlCount, parseResult.FilePath, null, manualSteps, usesMessageBoxDialogs,
+                usesChildDialogPattern);
         }
         catch (Exception ex)
         {
@@ -1143,6 +1189,39 @@ public class ConversionOrchestrator
 
     private static bool UsesMessageBoxShow(IEnumerable<string> sources) =>
         sources.Any(source => MessageBoxShowPattern.IsMatch(source));
+
+    // Cheap textual presence check mirroring UsesMessageBoxShow's own role - just decides
+    // whether ChildDialogTranspiler's infrastructure (Common/Dialogs.cs's ShowChildAsync) is
+    // worth generating for this form at all, not whether the transpile will actually fire
+    // (that also needs a matching entry in formsWithDialogResultButton, checked by the
+    // transpiler itself).
+    private static readonly Regex ShowDialogPattern = new(@"\.\s*ShowDialog\s*\(", RegexOptions.Compiled);
+
+    private static bool UsesShowDialog(IEnumerable<string> sources) =>
+        sources.Any(source => ShowDialogPattern.IsMatch(source));
+
+    /// <summary>
+    /// Every (controlName, dialogResultValue) pair for a control with a Designer-declared
+    /// DialogResult property that isn't None and no existing Click wiring (never claim a
+    /// control whose Click handler already does something real) - see
+    /// CodeBehindGenerator/AxamlGenerator's matching TryGetDialogResultValue-based wiring,
+    /// which this must stay in lockstep with, and the module-level
+    /// formsWithDialogResultButton pre-pass this feeds.
+    /// </summary>
+    private static void CollectDialogResultButtons(
+        ControlNode control, string formName, HashSet<(string FormName, string DialogResultValue)> results)
+    {
+        if (!control.EventHandlers.ContainsKey("Click") &&
+            DialogResultButtonHelper.TryGetDialogResultValue(control, out var value))
+        {
+            results.Add((formName, value));
+        }
+
+        foreach (var child in control.Children)
+        {
+            CollectDialogResultButtons(child, formName, results);
+        }
+    }
 
     private static HashSet<string> CollectControlNames(ControlNode root)
     {
@@ -1553,6 +1632,7 @@ public class ConversionOrchestrator
         IReadOnlySet<string> convertedCustomControlClassNames,
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         IReadOnlySet<string> ownerDrawnControlClassNames,
+        IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton,
         IProgress<ConversionProgress>? progress,
         ConversionStatistics statistics,
         int totalForms,
@@ -1577,7 +1657,7 @@ public class ConversionOrchestrator
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
                 avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties,
-                ownerDrawnControlClassNames);
+                ownerDrawnControlClassNames, formsWithDialogResultButton);
 
             outcomes.Add(outcome);
             formsProcessed++;
@@ -1638,6 +1718,7 @@ public class ConversionOrchestrator
         IReadOnlySet<string> convertedCustomControlClassNames,
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         IReadOnlySet<string> ownerDrawnControlClassNames,
+        IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton,
         int? maxDegreeOfParallelism,
         CancellationToken cancellationToken)
     {
@@ -1655,7 +1736,7 @@ public class ConversionOrchestrator
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
                 avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties,
-                ownerDrawnControlClassNames);
+                ownerDrawnControlClassNames, formsWithDialogResultButton);
         });
 
         return outcomes.Select(o => o!.Value).ToList();
@@ -1694,7 +1775,8 @@ public class ConversionOrchestrator
 
     private async Task GenerateProjectFilesAsync(
         RollbackManager rollbackManager, List<FormReportInfo> formReports, List<ManualStepInfo> manualSteps,
-        IReadOnlySet<string> convertedCustomControlClassNames, bool usesMessageBoxDialogs)
+        IReadOnlySet<string> convertedCustomControlClassNames, bool usesMessageBoxDialogs,
+        bool usesDialogResultButtons, bool usesChildDialogs)
     {
         var projectGenerator = new ProjectFileGenerator();
         var projectName = Path.GetFileName(_outputPath);
@@ -1748,24 +1830,40 @@ public class ConversionOrchestrator
         await File.WriteAllTextAsync(manifestPath, manifestContent);
         rollbackManager.TrackFileCreation(manifestPath);
 
-        // Only when at least one form's migrated logic actually calls MessageBox.Show -
-        // MessageBoxTranspiler's rewrite targets these types, but most projects never use
-        // MessageBox at all, and generating unused dialog infrastructure into every project
-        // would just be clutter.
-        if (usesMessageBoxDialogs)
+        // MessageBoxTranspiler needs the enum types + Dialogs.ShowAsync + MessageBoxWindow;
+        // a Designer-declared DialogResult-close button (no MessageBox involved at all) still
+        // needs the enum types for its Close(...) stub; ChildDialogTranspiler's rewrite needs
+        // the enum types + Dialogs.ShowChildAsync but never MessageBoxWindow (that's
+        // MessageBox-popup-specific UI, unrelated to showing an arbitrary child form). Kept as
+        // three independent flags so a project that only uses one of these idioms doesn't get
+        // the other's unused infrastructure as clutter.
+        var needsDialogResultTypes = usesMessageBoxDialogs || usesDialogResultButtons;
+        var needsDialogsHelper = usesMessageBoxDialogs || usesChildDialogs;
+
+        if (needsDialogResultTypes || needsDialogsHelper)
         {
             var commonDir = Path.Combine(_outputPath, "Common");
-            var viewsDir = Path.Combine(_outputPath, "Views");
             Directory.CreateDirectory(commonDir);
+
+            if (needsDialogResultTypes)
+            {
+                var messageBoxTypesPath = Path.Combine(commonDir, "MessageBoxTypes.cs");
+                await File.WriteAllTextAsync(messageBoxTypesPath, projectGenerator.GenerateMessageBoxTypes(projectName));
+                rollbackManager.TrackFileCreation(messageBoxTypesPath);
+            }
+
+            if (needsDialogsHelper)
+            {
+                var dialogsPath = Path.Combine(commonDir, "Dialogs.cs");
+                await File.WriteAllTextAsync(dialogsPath, projectGenerator.GenerateDialogsHelper(projectName));
+                rollbackManager.TrackFileCreation(dialogsPath);
+            }
+        }
+
+        if (usesMessageBoxDialogs)
+        {
+            var viewsDir = Path.Combine(_outputPath, "Views");
             Directory.CreateDirectory(viewsDir);
-
-            var messageBoxTypesPath = Path.Combine(commonDir, "MessageBoxTypes.cs");
-            await File.WriteAllTextAsync(messageBoxTypesPath, projectGenerator.GenerateMessageBoxTypes(projectName));
-            rollbackManager.TrackFileCreation(messageBoxTypesPath);
-
-            var dialogsPath = Path.Combine(commonDir, "Dialogs.cs");
-            await File.WriteAllTextAsync(dialogsPath, projectGenerator.GenerateDialogsHelper(projectName));
-            rollbackManager.TrackFileCreation(dialogsPath);
 
             var messageBoxWindowAxamlPath = Path.Combine(viewsDir, "MessageBoxWindow.axaml");
             await File.WriteAllTextAsync(messageBoxWindowAxamlPath, projectGenerator.GenerateMessageBoxWindowAxaml(projectName));

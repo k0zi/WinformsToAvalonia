@@ -78,6 +78,7 @@ public class AxamlGenerator
         // never leak onto it even if a Form.Location property happens to be present.
         WriteControlProperties(sb, root, LayoutType.Custom, indent: "        ", namespaceName, overrides, inferredBindings);
         WriteEventAttributes(sb, root, indent: "        ", overrides);
+        WriteDialogResultCloseAttribute(sb, root, indent: "        ");
 
         sb.AppendLine("        >");
 
@@ -284,6 +285,7 @@ public class AxamlGenerator
         // Write properties
         WriteControlProperties(sb, control, layoutInfo.LayoutType, indent, namespaceName, overrides, inferredBindings);
         WriteEventAttributes(sb, control, indent, overrides);
+        WriteDialogResultCloseAttribute(sb, control, indent);
 
         if (control.Children.Count > 0)
         {
@@ -526,6 +528,29 @@ public class AxamlGenerator
 
             AppendAttribute(sb, indent, mapping.AvaloniaEvent, handlerName);
         }
+    }
+
+    /// <summary>
+    /// WinForms' fully declarative "OK/Cancel dialog" idiom: a button whose Designer-declared
+    /// DialogResult property isn't None auto-closes the containing form with that result on
+    /// click, with no click handler needed at all. Wires a synthetic Click attribute pointing
+    /// at a stub CodeBehindGenerator emits (see DialogResultButtonHelper, shared by both, so
+    /// they can't drift out of sync about which controls qualify) - skipped entirely when the
+    /// control already has real Click wiring of its own, which must never be clobbered.
+    /// </summary>
+    private void WriteDialogResultCloseAttribute(StringBuilder sb, ControlNode control, string indent)
+    {
+        if (control.EventHandlers.ContainsKey("Click"))
+        {
+            return;
+        }
+
+        if (!DialogResultButtonHelper.TryGetDialogResultValue(control, out _))
+        {
+            return;
+        }
+
+        AppendAttribute(sb, indent, "Click", $"{control.Name}_DialogResultClick");
     }
 
     private void AppendAttribute(StringBuilder sb, string indent, string name, string? value)

@@ -10,7 +10,10 @@
         MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Title="Dashboard — WarehouseApp"
-        WindowState="Maximized"        >
+        WindowState="Maximized"
+        Loaded="DashboardForm_Load"
+        Closing="DashboardForm_FormClosing"
+        SizeChanged="DashboardForm_Resize"        >
     <Design.DataContext>
         <vm:DashboardFormViewModel/>
     </Design.DataContext>

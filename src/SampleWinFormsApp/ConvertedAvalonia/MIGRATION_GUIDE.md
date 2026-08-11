@@ -1,6 +1,6 @@
 # Migration Guide: ConvertedAvalonia
 
-**Generated**: 2026-08-11 20:21:49
+**Generated**: 2026-08-11 21:15:08
 **Converter Version**: 1.0.0
 
 ---
@@ -574,10 +574,6 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductsListForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references DataGridViewCellFormattingEventArgs - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
 
-- **DashboardForm.DashboardForm_FormClosing references WinForms type(s) with no Avalonia equivalent**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This method was migrated as live code, but its body references FormClosingEventArgs - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
-
 - **DashboardForm.OpenForm references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
   - Description: This method was migrated as live code, but its body references Form - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this logic manually.
@@ -640,13 +636,19 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
   - Description: Maps toward 'Resources' but the automatic converter could not fully translate this property; review the generated AXAML.
 
-### Custom Event Logic
-
-- **_textBox.TextChanged handler "TextBox_TextChanged" requires custom conversion logic**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
-  - Description: Bind to Text property changes
-
 ### Preserved Event Handlers
+
+- **DashboardForm.Load handler "DashboardForm_Load" needs manual review**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps to Avalonia's 'Loaded' event. The original handler body was embedded as live code, with best-effort identifier rewriting for any fields/methods that moved to the ViewModel - verify this compiles (the original code may call WinForms-only APIs that don't exist in Avalonia) and double-check the rewritten identifiers before shipping.
+
+- **DashboardForm.FormClosing handler "DashboardForm_FormClosing" needs manual review**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps to Avalonia's 'Closing' event. The original handler body was embedded as live code, with best-effort identifier rewriting for any fields/methods that moved to the ViewModel - verify this compiles (the original code may call WinForms-only APIs that don't exist in Avalonia) and double-check the rewritten identifiers before shipping.
+
+- **DashboardForm.Resize handler "DashboardForm_Resize" needs manual review**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: Maps to Avalonia's 'SizeChanged' event. The original handler body was embedded as live code, with best-effort identifier rewriting for any fields/methods that moved to the ViewModel - verify this compiles (the original code may call WinForms-only APIs that don't exist in Avalonia) and double-check the rewritten identifiers before shipping.
 
 - **_textBox.KeyDown handler "TextBox_KeyDown" needs manual review**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
@@ -671,6 +673,12 @@ The following items require manual attention:
 - **_decrementButton.MouseUp handler "_decrementButton_MouseUp_InlineHandler" needs manual review**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/NumericStepperControl.cs`
   - Description: Maps to Avalonia's 'PointerReleased' event. The original handler body was embedded as live code, with best-effort identifier rewriting for any fields/methods that moved to the ViewModel - verify this compiles (the original code may call WinForms-only APIs that don't exist in Avalonia) and double-check the rewritten identifiers before shipping.
+
+### Custom Event Logic
+
+- **_textBox.TextChanged handler "TextBox_TextChanged" requires custom conversion logic**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
+  - Description: Bind to Text property changes
 
 ### Skipped Override Methods
 

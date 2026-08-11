@@ -265,6 +265,15 @@ public class ProjectFileGenerator
         sb.AppendLine($"        var window = new {namespaceName}.Views.MessageBoxWindow(text, caption, buttons, icon);");
         sb.AppendLine("        return await window.ShowDialog<DialogResult>(owner);");
         sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    public static async Task<DialogResult?> ShowChildAsync<TView, TViewModel>()");
+        sb.AppendLine("        where TView : Window, new()");
+        sb.AppendLine("        where TViewModel : new()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var owner = ((IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!).MainWindow!;");
+        sb.AppendLine("        var view = new TView { DataContext = new TViewModel() };");
+        sb.AppendLine("        return await view.ShowDialog<DialogResult?>(owner);");
+        sb.AppendLine("    }");
         sb.AppendLine("}");
 
         return sb.ToString();

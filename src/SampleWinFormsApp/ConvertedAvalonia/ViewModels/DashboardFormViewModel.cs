@@ -15,30 +15,6 @@ namespace ConvertedAvalonia.ViewModels;
 /// </summary>
 public partial class DashboardFormViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
-    internal async void DashboardForm_Load(object? sender, EventArgs e)
-        {
-            userStatusLabel.Text = Session.CurrentUser is { } user
-                ? $"Logged in as {user.DisplayName} ({user.Role?.Name ?? "—"})"
-                : "Not logged in";
-            clockTimer.Start();
-            clockStatusLabel.Text = DateTime.Now.ToString("f");
-            await RefreshCapacityAsync();
-        }
-
-    internal void DashboardForm_Resize(object? sender, EventArgs e)
-        {
-            if (WindowState == FormWindowState.Minimized)
-            {
-                Hide();
-                notifyIcon.ShowBalloonTip(1000, "WarehouseApp", "Minimized to tray. Double-click the icon to restore.", ToolTipIcon.Info);
-            }
-        }
-
-    internal void DashboardForm_FormClosing(object? sender, FormClosingEventArgs e)
-        {
-            notifyIcon.Visible = false;
-        }
-
     internal void clockTimer_Tick(object? sender, EventArgs e)
         {
             clockStatusLabel.Text = DateTime.Now.ToString("f");

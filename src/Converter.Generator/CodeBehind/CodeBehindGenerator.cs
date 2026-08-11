@@ -142,9 +142,39 @@ public class CodeBehindGenerator
             }
         }
 
+        // WinForms' fully declarative "OK/Cancel dialog" idiom: a button whose Designer-
+        // declared DialogResult property isn't None auto-closes the containing form with that
+        // result on click, no handler needed at all - the stub here is what
+        // AxamlGenerator.WriteDialogResultCloseAttribute's synthetic "Click=" attribute
+        // actually targets. DialogResultButtonHelper (same check both generators share) keeps
+        // the two from ever disagreeing about which controls qualify.
+        var dialogResultButtons = new List<(string ControlName, string Value)>();
+        CollectDialogResultCloseButtons(root, dialogResultButtons);
+
+        foreach (var (controlName, value) in dialogResultButtons.DistinctBy(b => b.ControlName))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"    private void {controlName}_DialogResultClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>");
+            sb.AppendLine($"        Close({namespaceName}.Common.DialogResult.{value});");
+        }
+
         sb.AppendLine("}");
 
         return sb.ToString();
+    }
+
+    private static void CollectDialogResultCloseButtons(ControlNode control, List<(string ControlName, string Value)> results)
+    {
+        if (!control.EventHandlers.ContainsKey("Click") &&
+            DialogResultButtonHelper.TryGetDialogResultValue(control, out var value))
+        {
+            results.Add((control.Name, value));
+        }
+
+        foreach (var child in control.Children)
+        {
+            CollectDialogResultCloseButtons(child, results);
+        }
     }
 
     private static void CollectPreservedHandlers(
