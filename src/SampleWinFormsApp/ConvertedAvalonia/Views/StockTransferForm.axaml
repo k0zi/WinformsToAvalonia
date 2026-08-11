@@ -15,8 +15,7 @@
     <DockPanel>
         <DataGrid Name="linesGrid"
         AutoGenerateColumns="false"
-        IsReadOnly="true"
-        Items="{Binding LinesGrid}" />
+        IsReadOnly="true" />
         <Panel Name="actionPanel"
         DockPanel.Dock="Bottom"
         Height="52">

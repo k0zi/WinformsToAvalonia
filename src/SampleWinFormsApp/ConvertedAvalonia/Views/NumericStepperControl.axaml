@@ -10,8 +10,8 @@
 
     <DockPanel>
         <TextBlock Name="_valueLabel"
-        HorizontalContentAlignment="Center"
-        VerticalContentAlignment="Center"
+        TextAlignment="Center"
+        VerticalAlignment="Center"
         FontFamily="Segoe UI"
         FontSize="10" />
         <Button Name="_incrementButton"

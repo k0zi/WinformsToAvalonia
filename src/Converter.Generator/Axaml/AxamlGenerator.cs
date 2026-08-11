@@ -57,6 +57,18 @@ public class AxamlGenerator
         // unrecognized (e.g. a custom base Form subclass).
         var rootElement = ControlMappingRegistry.GetMapping(root.ControlType)?.AvaloniaType ?? "Window";
 
+        // PropertyMappingRegistry's control-specific overrides (e.g. "Form"/"Text" -> "Title")
+        // are keyed by the WinForms type name, not the resolved Avalonia element above - for a
+        // form deriving from a custom base class (e.g. "SalesOrderDetailForm : DetailFormBase<T>"),
+        // root.ControlType is that custom base class's own name, not literally "Form", so the
+        // "Form" overrides would otherwise never fire even though rootElement already correctly
+        // resolved to "Window". Re-deriving the effective type from rootElement (rather than
+        // root.ControlType directly) keeps the element-tag and property-mapping decisions in
+        // agreement - only the Window case needs this: a UserControl root's ControlType is
+        // always already the literal string "UserControl" (see ControlMappingRegistry), and no
+        // other resolved element type is possible for a root today.
+        var effectiveRootControlType = rootElement == "Window" ? "Form" : root.ControlType;
+
         // Write AXAML header
         sb.AppendLine($"<{rootElement} xmlns=\"https://github.com/avaloniaui\"");
         sb.AppendLine("        xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"");
@@ -76,7 +88,7 @@ public class AxamlGenerator
         // Add window/control properties. LayoutType.Custom is used purely as a "not Canvas"
         // sentinel here - the root element has no container of its own, so Canvas.Left/Top must
         // never leak onto it even if a Form.Location property happens to be present.
-        WriteControlProperties(sb, root, LayoutType.Custom, indent: "        ", namespaceName, overrides, inferredBindings);
+        WriteControlProperties(sb, root, LayoutType.Custom, indent: "        ", namespaceName, overrides, inferredBindings, effectiveRootControlType);
         WriteEventAttributes(sb, root, indent: "        ", overrides);
         WriteDialogResultCloseAttribute(sb, root, indent: "        ");
 
@@ -408,7 +420,7 @@ public class AxamlGenerator
         AppendAttribute(sb, indent, "Grid.Column", cell.Column.ToString());
     }
 
-    private void WriteControlProperties(StringBuilder sb, ControlNode control, LayoutType containerLayoutType, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteControlProperties(StringBuilder sb, ControlNode control, LayoutType containerLayoutType, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, string? controlTypeOverride = null)
     {
         foreach (var prop in control.Properties)
         {
@@ -418,7 +430,7 @@ public class AxamlGenerator
                 continue;
             }
 
-            var mapping = PropertyMappingRegistry.GetMapping(prop.Key, control.ControlType);
+            var mapping = PropertyMappingRegistry.GetMapping(prop.Key, controlTypeOverride ?? control.ControlType);
             if (mapping == null) continue;
 
             if (mapping.DirectMapping && !mapping.RequiresCustomLogic)
@@ -453,7 +465,7 @@ public class AxamlGenerator
             }
         }
 
-        WriteInferredBindingAttributes(sb, control, containerLayoutType, indent, inferredBindings);
+        WriteInferredBindingAttributes(sb, control, containerLayoutType, indent, inferredBindings, controlTypeOverride);
     }
 
     /// <summary>
@@ -462,9 +474,13 @@ public class AxamlGenerator
     /// methods rather than an explicit Designer.cs value or `.DataBindings.Add(...)` call, so
     /// the loop above (which only ever visits control.Properties) never reaches them on its own.
     /// Skipped when the property already has a literal Designer.cs value - that value takes
-    /// precedence and was already written above.
+    /// precedence and was already written above. Also skipped entirely (not emitted under the
+    /// raw WinForms property name) when PropertyMappingRegistry has no real mapping for it -
+    /// unlike the main per-property loop above, this path used to fall back to the unmapped
+    /// name itself (e.g. a WinForms-only "SelectedNode" leaking straight onto a TreeView, which
+    /// has no such property), guaranteeing invalid AXAML instead of just omitting the binding.
     /// </summary>
-    private void WriteInferredBindingAttributes(StringBuilder sb, ControlNode control, LayoutType containerLayoutType, string indent, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteInferredBindingAttributes(StringBuilder sb, ControlNode control, LayoutType containerLayoutType, string indent, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, string? controlTypeOverride = null)
     {
         if (inferredBindings.Count == 0) return;
 
@@ -475,8 +491,17 @@ public class AxamlGenerator
                 continue;
             }
 
-            var avaloniaProperty = PropertyMappingRegistry.GetMapping(property, control.ControlType)?.AvaloniaProperty ?? property;
-            AppendPlacementAwareAttribute(sb, indent, avaloniaProperty, $"{{Binding {observablePropertyName}}}", containerLayoutType);
+            var mapping = PropertyMappingRegistry.GetMapping(property, controlTypeOverride ?? control.ControlType);
+            // A binding markup extension can only target a single simple Avalonia property -
+            // a RequiresCustomLogic/RequiresConversion mapping's AvaloniaProperty is commonly a
+            // comma-separated compound target (e.g. "FontFamily,FontSize,FontWeight"), which
+            // would emit as one garbled, invalid attribute name if used here verbatim.
+            if (mapping is not { DirectMapping: true, RequiresCustomLogic: false })
+            {
+                continue;
+            }
+
+            AppendPlacementAwareAttribute(sb, indent, mapping.AvaloniaProperty, $"{{Binding {observablePropertyName}}}", containerLayoutType);
         }
     }
 

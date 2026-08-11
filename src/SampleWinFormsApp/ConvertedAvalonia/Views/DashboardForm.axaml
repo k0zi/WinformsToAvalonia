@@ -50,8 +50,8 @@
                 <TextBlock Name="capacityLabel"
                 Text="Overall Capacity"
                 DockPanel.Dock="Top"
-                HorizontalContentAlignment="Center"
-                VerticalContentAlignment="Center"
+                TextAlignment="Center"
+                VerticalAlignment="Center"
                 FontFamily="Segoe UI"
                 FontSize="9" />
             </DockPanel>

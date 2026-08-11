@@ -4,7 +4,7 @@
         x:Class="ConvertedAvalonia.Views.ProductsListForm"
         x:DataType="vm:ProductsListFormViewModel"
 
-        Text="Products — WarehouseApp"        >
+        Title="Products — WarehouseApp"        >
     <Design.DataContext>
         <vm:ProductsListFormViewModel/>
     </Design.DataContext>

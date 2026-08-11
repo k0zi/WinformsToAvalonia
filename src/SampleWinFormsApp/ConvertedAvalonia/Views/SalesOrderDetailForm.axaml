@@ -5,7 +5,9 @@
         x:Class="ConvertedAvalonia.Views.SalesOrderDetailForm"
         x:DataType="vm:SalesOrderDetailFormViewModel"
 
-        Text="Sales Order Detail — WarehouseApp"        >
+        Width="704"
+        Height="590"
+        Title="Sales Order Detail — WarehouseApp"        >
     <Design.DataContext>
         <vm:SalesOrderDetailFormViewModel/>
     </Design.DataContext>
@@ -46,44 +48,42 @@
 
                 <TextBlock Name="orderNumberLabel"
                 Text="Order #:"
-                HorizontalContentAlignment="Left"
-                VerticalContentAlignment="Center"
+                TextAlignment="Left"
+                VerticalAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="0" />
                 <TextBlock Name="orderNumberValueLabel"
                 Text="(new)"
-                HorizontalContentAlignment="Left"
-                VerticalContentAlignment="Center"
+                TextAlignment="Left"
+                VerticalAlignment="Center"
                 FontFamily="Segoe UI"
                 FontSize="9"
                 Grid.Column="1"
                 Grid.Row="0" />
                 <TextBlock Name="customerLabel"
                 Text="Customer:"
-                HorizontalContentAlignment="Left"
-                VerticalContentAlignment="Center"
+                TextAlignment="Left"
+                VerticalAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="1" />
                 <ComboBox Name="customerComboBox"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="1"
-                SelectedValue="{Binding Customer}" />
+                Grid.Row="1" />
                 <TextBlock Name="warehouseLabel"
                 Text="Warehouse:"
-                HorizontalContentAlignment="Left"
-                VerticalContentAlignment="Center"
+                TextAlignment="Left"
+                VerticalAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="2" />
                 <ComboBox Name="warehouseComboBox"
                 Margin="3,3,3,3"
                 Grid.Column="1"
-                Grid.Row="2"
-                SelectedValue="{Binding Warehouse}" />
+                Grid.Row="2" />
                 <TextBlock Name="orderDateLabel"
                 Text="Order Date:"
-                HorizontalContentAlignment="Left"
-                VerticalContentAlignment="Center"
+                TextAlignment="Left"
+                VerticalAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="3" />
                 <DatePicker Name="orderDatePicker"
@@ -93,8 +93,8 @@
                 Value="{Binding OrderDatePicker}" />
                 <TextBlock Name="requiredDateLabel"
                 Text="Required:"
-                HorizontalContentAlignment="Left"
-                VerticalContentAlignment="Center"
+                TextAlignment="Left"
+                VerticalAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="4" />
                 <DatePicker Name="requiredDatePicker"
@@ -104,8 +104,8 @@
                 Value="{Binding RequiredDatePicker}" />
                 <TextBlock Name="statusLabel"
                 Text="Status:"
-                HorizontalContentAlignment="Left"
-                VerticalContentAlignment="Center"
+                TextAlignment="Left"
+                VerticalAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="5" />
                 <ComboBox Name="statusComboBox"
@@ -115,8 +115,8 @@
                 SelectedItem="{Binding Status}" />
                 <TextBlock Name="satisfactionLabel"
                 Text="Satisfaction:"
-                HorizontalContentAlignment="Left"
-                VerticalContentAlignment="Center"
+                TextAlignment="Left"
+                VerticalAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="6" />
                 <!-- TODO: Unmapped control: StarRatingControl (satisfactionRatingControl) -->
@@ -126,8 +126,8 @@
         Grid.Row="1"
         Grid.Column="1"
         Text="Notes:"
-        HorizontalContentAlignment="Left"
-        VerticalContentAlignment="Center" />
+        TextAlignment="Left"
+        VerticalAlignment="Center" />
         <TextBox Name="notesTextBox"
         Grid.Row="1"
         Grid.Column="2"
@@ -200,7 +200,6 @@
         Width="680"
         Height="180"
         AutoGenerateColumns="false"
-        IsReadOnly="true"
-        Items="{Binding LinesGrid}" />
+        IsReadOnly="true" />
     </Grid>
 </Window>

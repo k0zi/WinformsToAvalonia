@@ -128,4 +128,101 @@ public class PropertyValueConverterTests
 
         Assert.Null(result);
     }
+
+    [Theory]
+    [InlineData("TopLeft", "Left", "Top")]
+    [InlineData("MiddleCenter", "Center", "Center")]
+    [InlineData("BottomRight", "Right", "Bottom")]
+    public void Convert_LabelTextAlign_ConvertsToTextAlignmentAndVerticalAlignment(
+        string contentAlignmentValue, string expectedHorizontal, string expectedVertical)
+    {
+        // Label maps to Avalonia TextBlock, which has no HorizontalContentAlignment/
+        // VerticalContentAlignment at all (unlike CheckBox/RadioButton) - must resolve to a
+        // different mapping than the plain "TextAlign" lookup above.
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "Label")!;
+
+        var result = PropertyValueConverter.Convert(mapping, $"System.Drawing.ContentAlignment.{contentAlignmentValue}");
+
+        Assert.NotNull(result);
+        Assert.Contains(("TextAlignment", expectedHorizontal), result);
+        Assert.Contains(("VerticalAlignment", expectedVertical), result);
+        Assert.DoesNotContain(result, p => p.AttributeName is "HorizontalContentAlignment" or "VerticalContentAlignment");
+    }
+
+    [Fact]
+    public void Convert_ToolStripLabelTextAlign_AlsoUsesTextBlockConversion()
+    {
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "ToolStripLabel")!;
+
+        var result = PropertyValueConverter.Convert(mapping, "System.Drawing.ContentAlignment.MiddleLeft");
+
+        Assert.NotNull(result);
+        Assert.Contains(("TextAlignment", "Left"), result);
+        Assert.Contains(("VerticalAlignment", "Center"), result);
+    }
+
+    [Fact]
+    public void Convert_LabelTextAlign_MalformedValue_ReturnsNull()
+    {
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "Label")!;
+
+        var result = PropertyValueConverter.Convert(mapping, "not an alignment");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void Convert_CheckBoxTextAlign_StillUsesContentAlignmentMapping()
+    {
+        // Regression guard: CheckBox/RadioButton are genuine ContentControl-derived Avalonia
+        // types, so they must keep resolving to the common HorizontalContentAlignment/
+        // VerticalContentAlignment mapping, not accidentally pick up Label's TextBlock-specific
+        // override.
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "CheckBox")!;
+
+        var result = PropertyValueConverter.Convert(mapping, "System.Drawing.ContentAlignment.MiddleCenter");
+
+        Assert.NotNull(result);
+        Assert.Contains(("HorizontalContentAlignment", "Center"), result);
+        Assert.Contains(("VerticalContentAlignment", "Center"), result);
+    }
+
+    [Theory]
+    [InlineData("Left", "Left")]
+    [InlineData("Right", "Right")]
+    [InlineData("Center", "Center")]
+    public void Convert_TextBoxTextAlign_ConvertsToTextAlignment(string horizontalAlignmentValue, string expected)
+    {
+        // TextBox.TextAlign uses a different WinForms enum from Label's (System.Windows.Forms.
+        // HorizontalAlignment, not System.Drawing.ContentAlignment) - no vertical component.
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "TextBox")!;
+
+        var result = PropertyValueConverter.Convert(mapping, $"System.Windows.Forms.HorizontalAlignment.{horizontalAlignmentValue}");
+
+        Assert.NotNull(result);
+        Assert.Contains(("TextAlignment", expected), result);
+        Assert.Single(result);
+    }
+
+    [Fact]
+    public void Convert_TextBoxTextAlign_MalformedValue_ReturnsNull()
+    {
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "TextBox")!;
+
+        var result = PropertyValueConverter.Convert(mapping, "not an alignment");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void Convert_TextBoxTextAlign_ContentAlignmentShapedValue_DoesNotMatch()
+    {
+        // TextBox's converter must not accidentally match Label's ContentAlignment shape (or
+        // vice versa) despite sharing the WinForms property name "TextAlign".
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "TextBox")!;
+
+        var result = PropertyValueConverter.Convert(mapping, "System.Drawing.ContentAlignment.MiddleCenter");
+
+        Assert.Null(result);
+    }
 }

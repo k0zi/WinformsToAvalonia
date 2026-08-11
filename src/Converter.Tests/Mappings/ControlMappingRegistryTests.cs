@@ -104,4 +104,80 @@ public class PropertyMappingRegistryTests
         Assert.NotNull(mapping);
         Assert.Equal("Padding", mapping!.AvaloniaProperty);
     }
+
+    [Fact]
+    public void GetMapping_TreeViewSelectedNode_MapsToSelectedItem()
+    {
+        // WinForms TreeView.SelectedNode is single-selection - Avalonia's exact match is
+        // SelectedItem, not SelectedItems (the separate multi-select collection). Previously
+        // unmapped entirely, which let AxamlGenerator's usage-inferred-binding fallback leak
+        // the raw WinForms name "SelectedNode" straight into generated AXAML (found via a real
+        // WarehouseApp sample conversion - not a real Avalonia TreeView property).
+        var mapping = PropertyMappingRegistry.GetMapping("SelectedNode", "TreeView");
+
+        Assert.NotNull(mapping);
+        Assert.Equal("SelectedItem", mapping!.AvaloniaProperty);
+        Assert.True(mapping.DirectMapping);
+    }
+
+    [Theory]
+    [InlineData("Label")]
+    [InlineData("ToolStripLabel")]
+    public void GetMapping_TextAlignOnTextBlockControls_TargetsTextAlignmentNotContentAlignment(string controlType)
+    {
+        // Label/ToolStripLabel map to Avalonia TextBlock, which - unlike a ContentControl -
+        // has no HorizontalContentAlignment/VerticalContentAlignment at all. Previously fell
+        // through to the common TextAlign mapping and emitted attributes that don't compile
+        // (found via a real WarehouseApp sample conversion).
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", controlType);
+
+        Assert.NotNull(mapping);
+        Assert.Equal("TextAlignment,VerticalAlignment", mapping!.AvaloniaProperty);
+    }
+
+    [Fact]
+    public void GetMapping_TextAlignOnCheckBox_StillUsesCommonContentAlignmentMapping()
+    {
+        // Regression guard: CheckBox/RadioButton are genuine ContentControl-derived Avalonia
+        // types, so HorizontalContentAlignment/VerticalContentAlignment is correct for them -
+        // must not accidentally inherit Label's TextBlock-specific override.
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "CheckBox");
+
+        Assert.NotNull(mapping);
+        Assert.Equal("HorizontalContentAlignment,VerticalContentAlignment", mapping!.AvaloniaProperty);
+    }
+
+    [Fact]
+    public void GetMapping_TextBoxTextAlign_TargetsTextAlignment()
+    {
+        // TextBox.TextAlign uses a different WinForms enum from Label's TextAlign
+        // (System.Windows.Forms.HorizontalAlignment, not System.Drawing.ContentAlignment) and
+        // TextBox (not ContentControl-derived either) has its own TextAlignment property.
+        var mapping = PropertyMappingRegistry.GetMapping("TextAlign", "TextBox");
+
+        Assert.NotNull(mapping);
+        Assert.Equal("TextAlignment", mapping!.AvaloniaProperty);
+    }
+
+    [Fact]
+    public void GetMapping_DataGridViewRows_TargetsItemsSourceNotItems()
+    {
+        // Avalonia's DataGrid has no "Items" property, only the bindable "ItemsSource" (found
+        // via inspection while fixing the TreeView/SelectedNode and Label/TextAlign bugs above -
+        // not reproducible in WarehouseApp itself, since its DataGridView lives entirely inside
+        // a hand-rolled base class the parser never sees, but wrong on its face regardless).
+        var mapping = PropertyMappingRegistry.GetMapping("Rows", "DataGridView");
+
+        Assert.NotNull(mapping);
+        Assert.Equal("ItemsSource", mapping!.AvaloniaProperty);
+    }
+
+    [Fact]
+    public void GetMapping_FormText_StillMapsToTitle()
+    {
+        var mapping = PropertyMappingRegistry.GetMapping("Text", "Form");
+
+        Assert.NotNull(mapping);
+        Assert.Equal("Title", mapping!.AvaloniaProperty);
+    }
 }

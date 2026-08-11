@@ -4,7 +4,7 @@
         x:Class="ConvertedAvalonia.Views.SalesOrdersListForm"
         x:DataType="vm:SalesOrdersListFormViewModel"
 
-        Text="Sales Orders — WarehouseApp"        >
+        Title="Sales Orders — WarehouseApp"        >
     <Design.DataContext>
         <vm:SalesOrdersListFormViewModel/>
     </Design.DataContext>

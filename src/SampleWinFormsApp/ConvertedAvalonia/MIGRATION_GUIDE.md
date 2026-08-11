@@ -1,6 +1,6 @@
 # Migration Guide: ConvertedAvalonia
 
-**Generated**: 2026-08-11 21:15:08
+**Generated**: 2026-08-11 21:52:05
 **Converter Version**: 1.0.0
 
 ---

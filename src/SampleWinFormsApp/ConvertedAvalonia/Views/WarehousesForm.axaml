@@ -18,7 +18,7 @@
         Width="300">
             <DockPanel>
                 <TreeView Name="locationsTreeView"
-                SelectedNode="{Binding Locations}" />
+                SelectedItem="{Binding Locations}" />
             </DockPanel>
         </Panel>
         <GridSplitter Name="splitter"
@@ -26,8 +26,7 @@
         Width="4" />
         <Panel Name="detailFillPanel">
             <DockPanel>
-                <ListBox Name="shelfContentsListView"
-                Items="{Binding ShelfContents}" />
+                <ListBox Name="shelfContentsListView" />
                 <Panel Name="gaugePanel"
                 DockPanel.Dock="Top"
                 Height="170">

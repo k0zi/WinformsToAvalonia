@@ -98,7 +98,13 @@ public static class PropertyMappingRegistry
         ["DataGridView"] = new()
         {
             ["Columns"] = new("Columns") { RequiresCustomLogic = true },
-            ["Rows"] = new("Items") { RequiresCustomLogic = true },
+            // Avalonia's DataGrid has no "Items" property - only the bindable "ItemsSource"
+            // (matching DataSource's own mapping below/in the common table). "Rows" itself has
+            // no clean 1:1 Designer-time equivalent (it's a live collection manipulated at
+            // runtime, never a literal Designer.cs property value) - RequiresCustomLogic with
+            // no matching PropertyValueConverter case means this is currently inert either
+            // way; this just fixes what the target name claims.
+            ["Rows"] = new("ItemsSource") { RequiresCustomLogic = true },
             ["AutoGenerateColumns"] = new("AutoGenerateColumns") { DirectMapping = true },
             ["SelectionMode"] = new("SelectionMode") { RequiresConversion = true }
         },
@@ -129,6 +135,29 @@ public static class PropertyMappingRegistry
         ["Button"] = new() { ["Text"] = new("Content") { DirectMapping = true } },
         ["CheckBox"] = new() { ["Text"] = new("Content") { DirectMapping = true } },
         ["RadioButton"] = new() { ["Text"] = new("Content") { DirectMapping = true } },
+
+        // WinForms TreeView.SelectedNode is single-selection - Avalonia TreeView.SelectedItem
+        // is its exact match (SelectedItems is the separate multi-select collection, with no
+        // WinForms equivalent here).
+        ["TreeView"] = new() { ["SelectedNode"] = new("SelectedItem") { DirectMapping = true } },
+
+        // Label/ToolStripLabel map to Avalonia's TextBlock, which - unlike a ContentControl -
+        // has no HorizontalContentAlignment/VerticalContentAlignment at all: the common
+        // "TextAlign" mapping below (correct for CheckBox/RadioButton, genuine
+        // ContentControl-derived types) would emit attributes that don't compile. TextBlock's
+        // own equivalents are TextAlignment (horizontal - text alignment within the block) and
+        // the inherited Layoutable VerticalAlignment (positions the block itself within its
+        // parent - the closest approximation available, since TextBlock has no native
+        // vertical-text-alignment concept of its own).
+        ["Label"] = new() { ["TextAlign"] = new("TextAlignment,VerticalAlignment") { RequiresCustomLogic = true } },
+        ["ToolStripLabel"] = new() { ["TextAlign"] = new("TextAlignment,VerticalAlignment") { RequiresCustomLogic = true } },
+
+        // TextBox.TextAlign uses a different WinForms enum entirely (System.Windows.Forms.
+        // HorizontalAlignment - Left/Right/Center only, no vertical component) from Label's
+        // 9-way System.Drawing.ContentAlignment, and TextBox (not ContentControl-derived
+        // either) has its own TextAlignment property - a distinct target/converter from
+        // Label's above, despite the shared WinForms property name.
+        ["TextBox"] = new() { ["TextAlign"] = new("TextAlignment") { RequiresCustomLogic = true } },
 
         // GroupBox maps to a plain Border (no wrapper support is wired up in AxamlGenerator
         // yet, despite ControlMapping.RequiresWrapper/WrapperType existing on the record), and

@@ -41,6 +41,8 @@ public static class PropertyValueConverter
                 "HorizontalContentAlignment,VerticalContentAlignment" => TryConvertContentAlignment(rawValue),
                 "BorderBrush,BorderThickness" => TryConvertControlBorderStyle(rawValue),
                 "HorizontalAlignment,VerticalAlignment" => TryConvertAutoSize(rawValue),
+                "TextAlignment,VerticalAlignment" => TryConvertTextBlockTextAlign(rawValue),
+                "TextAlignment" => TryConvertTextBoxTextAlign(rawValue),
                 _ => null
             };
         }
@@ -244,6 +246,77 @@ public static class PropertyValueConverter
             ("HorizontalContentAlignment", horizontal),
             ("VerticalContentAlignment", vertical!)
         ];
+    }
+
+    /// <summary>
+    /// Label/ToolStripLabel's TextAlign, targeting Avalonia TextBlock - same source enum shape
+    /// as TryConvertContentAlignment (reuses its regex/value table), but TextBlock has no
+    /// HorizontalContentAlignment/VerticalContentAlignment at all (not a ContentControl), so
+    /// the horizontal component maps to TextAlignment (text alignment within the block) and
+    /// the vertical component to the inherited Layoutable VerticalAlignment (positions the
+    /// block itself within its parent - the closest approximation available, since TextBlock
+    /// has no native vertical-text-alignment concept).
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertTextBlockTextAlign(string rawValue)
+    {
+        var match = ContentAlignmentPattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var (horizontal, vertical) = match.Groups["value"].Value switch
+        {
+            "TopLeft" => ("Left", "Top"),
+            "TopCenter" => ("Center", "Top"),
+            "TopRight" => ("Right", "Top"),
+            "MiddleLeft" => ("Left", "Center"),
+            "MiddleCenter" => ("Center", "Center"),
+            "MiddleRight" => ("Right", "Center"),
+            "BottomLeft" => ("Left", "Bottom"),
+            "BottomCenter" => ("Center", "Bottom"),
+            "BottomRight" => ("Right", "Bottom"),
+            _ => (null, null)
+        };
+
+        if (horizontal == null)
+        {
+            return null;
+        }
+
+        return
+        [
+            ("TextAlignment", horizontal),
+            ("VerticalAlignment", vertical!)
+        ];
+    }
+
+    private static readonly Regex HorizontalAlignmentPattern = new(@"HorizontalAlignment\.(?<value>[A-Za-z]+)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// TextBox.TextAlign uses a different WinForms enum from Label's TextAlign -
+    /// System.Windows.Forms.HorizontalAlignment (Left/Right/Center only, no vertical
+    /// component) - so it needs its own regex/value table, distinct from
+    /// TryConvertTextBlockTextAlign's ContentAlignment-based one despite the shared WinForms
+    /// property name. Avalonia TextBox's own TextAlignment property uses the same member names.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertTextBoxTextAlign(string rawValue)
+    {
+        var match = HorizontalAlignmentPattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var value = match.Groups["value"].Value switch
+        {
+            "Left" => "Left",
+            "Right" => "Right",
+            "Center" => "Center",
+            _ => null
+        };
+
+        return value == null ? null : [("TextAlignment", value)];
     }
 
     private static readonly Regex ControlBorderStylePattern = new(@"BorderStyle\.(?<value>[A-Za-z0-9]+)", RegexOptions.Compiled);
