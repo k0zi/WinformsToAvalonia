@@ -76,6 +76,14 @@ public class WinFormsParser
     }
 
     /// <summary>
+    /// Per-parse accumulator for inline-lambda handler bodies (see GetEventHandlerName) - reset
+    /// at the top of every ParseDesignerFileAsync call, since a single WinFormsParser instance
+    /// is reused across every designer file in a run (ConversionOrchestrator's parsing loop
+    /// constructs one parser and calls ParseDesignerFileAsync per file, sequentially).
+    /// </summary>
+    private Dictionary<string, string> _inlineLambdaBodies = [];
+
+    /// <summary>
     /// Parse a Designer.cs file into a control tree. When <paramref name="resources"/> is
     /// provided (the sibling .resx file's parsed entries), resx-backed property values
     /// (`resources.GetObject("key")`/`GetString("key")`/`ApplyResources(target, "prefix")`)
@@ -86,6 +94,8 @@ public class WinFormsParser
     {
         try
         {
+            _inlineLambdaBodies = [];
+
             var sourceCode = await File.ReadAllTextAsync(filePath);
             var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
             var root = await syntaxTree.GetRootAsync();
@@ -177,6 +187,7 @@ public class WinFormsParser
                 .Prepend(rootControl)
                 .Distinct()
                 .ToList();
+            result.InlineLambdaBodies = _inlineLambdaBodies;
 
             _logger?.LogInformation("Parsed {ControlCount} controls from {FilePath}",
                 result.AllControls.Count, filePath);
@@ -315,14 +326,14 @@ public class WinFormsParser
             return;
         }
 
-        var handlerName = GetEventHandlerName(assignment.Right);
+        var handlerName = GetEventHandlerName(assignment.Right, controlName, eventName);
         if (!string.IsNullOrEmpty(handlerName))
         {
             control.EventHandlers[eventName] = handlerName;
         }
     }
 
-    private string GetEventHandlerName(ExpressionSyntax right)
+    private string GetEventHandlerName(ExpressionSyntax right, string controlName, string eventName)
     {
         // e.g. new System.EventHandler(this.button1_Click)
         if (right is ObjectCreationExpressionSyntax objectCreation)
@@ -332,13 +343,55 @@ public class WinFormsParser
         }
 
         // e.g. button1.Click += button1_Click; (bare method group)
-        // e.g. button1.Click += (s, e) => { ... }; (inline lambda - no stable name to extract)
-        if (right is LambdaExpressionSyntax)
+        // e.g. button1.Click += (s, e) => { ... }; (inline lambda) - the body is right here in
+        // InitializeComponent, so rather than discarding it behind InlineLambdaHandlerMarker,
+        // synthesize a stable name and extract the body now; downstream (ViewModelGenerator/
+        // CodeBehindGenerator) then treats it exactly like any other named handler.
+        if (right is LambdaExpressionSyntax lambda)
         {
-            return InlineLambdaHandlerMarker;
+            return RegisterInlineLambdaHandler(controlName, eventName, lambda);
         }
 
         return GetControlNameFromExpression(right);
+    }
+
+    /// <summary>
+    /// Synthesizes a stable, valid-C#-identifier handler name for an inline lambda event
+    /// subscription (e.g. "button1_Click_InlineHandler", with a numeric suffix on collision -
+    /// unlikely but possible if the same control/event pair is subscribed more than once) and
+    /// stashes a full method-source string for its body into _inlineLambdaBodies, in the exact
+    /// shape EventHandlerBodyParser.ExtractAsync would have produced for a real named method -
+    /// so EventHandlerBodyParser.ExtractBodyText/IsAsyncMethodSignature work on it unchanged.
+    /// </summary>
+    private string RegisterInlineLambdaHandler(string controlName, string eventName, LambdaExpressionSyntax lambda)
+    {
+        var baseName = $"{controlName}_{eventName}_InlineHandler";
+        var handlerName = baseName;
+        var suffix = 2;
+        while (_inlineLambdaBodies.ContainsKey(handlerName))
+        {
+            handlerName = $"{baseName}{suffix}";
+            suffix++;
+        }
+
+        var parameters = lambda switch
+        {
+            ParenthesizedLambdaExpressionSyntax parenthesized => parenthesized.ParameterList.ToString(),
+            SimpleLambdaExpressionSyntax simple => $"({simple.Parameter})",
+            _ => "(object? sender, System.EventArgs e)"
+        };
+
+        var asyncPrefix = lambda.AsyncKeyword.IsKind(SyntaxKind.AsyncKeyword) ? "async " : "";
+
+        var body = lambda.Body switch
+        {
+            BlockSyntax block => block.ToString(),
+            ExpressionSyntax expression => "{\n    " + expression + ";\n}",
+            _ => "{ }"
+        };
+
+        _inlineLambdaBodies[handlerName] = $"private {asyncPrefix}void {handlerName}{parameters}\n{body}";
+        return handlerName;
     }
 
     private void ParseMethodInvocation(InvocationExpressionSyntax invocation,
@@ -783,4 +836,15 @@ public class ParseResult
     /// alongside EventHandlerBodies, same gating and empty-default rationale.
     /// </summary>
     public CodeBehindMembers CodeBehindMembers { get; set; } = CodeBehindMembers.Empty;
+
+    /// <summary>
+    /// Handler bodies for inline lambda event subscriptions (e.g. "button1.Click += (s, e) =>
+    /// { ... };"), keyed by the synthesized name WinFormsParser.RegisterInlineLambdaHandler
+    /// generated for that subscription (already the value stored in the owning ControlNode's
+    /// EventHandlers). Populated directly by WinFormsParser itself (unlike EventHandlerBodies,
+    /// this doesn't need the sibling code-behind file - the lambda's body lives right in the
+    /// .Designer.cs file being parsed). The orchestrator merges this into EventHandlerBodies
+    /// before generation, gated the same way (EventHandlerMigration.Enabled).
+    /// </summary>
+    public Dictionary<string, string> InlineLambdaBodies { get; set; } = [];
 }

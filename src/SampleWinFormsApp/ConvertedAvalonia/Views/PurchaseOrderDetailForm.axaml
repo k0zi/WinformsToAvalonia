@@ -45,16 +45,22 @@
 
                 <TextBlock Name="orderNumberLabel"
                 Text="Order #:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="0" />
                 <TextBlock Name="orderNumberValueLabel"
                 Text="(new)"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 FontFamily="Segoe UI"
                 FontSize="9"
                 Grid.Column="1"
                 Grid.Row="0" />
                 <TextBlock Name="supplierLabel"
                 Text="Supplier:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="1" />
                 <ComboBox Name="supplierComboBox"
@@ -63,6 +69,8 @@
                 Grid.Row="1" />
                 <TextBlock Name="orderDateLabel"
                 Text="Order Date:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="2" />
                 <DatePicker Name="orderDatePicker"
@@ -71,6 +79,8 @@
                 Grid.Row="2" />
                 <TextBlock Name="expectedDateLabel"
                 Text="Expected:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="3" />
                 <DatePicker Name="expectedDatePicker"
@@ -79,6 +89,8 @@
                 Grid.Row="3" />
                 <TextBlock Name="statusLabel"
                 Text="Status:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="4" />
                 <ComboBox Name="statusComboBox"
@@ -87,6 +99,8 @@
                 Grid.Row="4" />
                 <TextBlock Name="notesLabel"
                 Text="Notes:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="5" />
                 <TextBox Name="notesTextBox"

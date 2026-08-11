@@ -433,6 +433,164 @@ public class EventHandlerMigrationEndToEndTests
             var migrationGuide = await File.ReadAllTextAsync(Path.Combine(outputDir, "MIGRATION_GUIDE.md"));
             Assert.Contains("Skipped Override Methods", migrationGuide);
             Assert.Contains("OnLoad", migrationGuide);
+
+            Assert.Contains(result.Report!.ManualSteps, s => s.Category == "Skipped Override Methods");
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    private const string BusinessLogicOverrideDesignerContent = """
+        namespace SampleApp
+        {
+            partial class DetailForm
+            {
+                private System.Windows.Forms.TextBox nameTextBox;
+
+                private void InitializeComponent()
+                {
+                    this.nameTextBox = new System.Windows.Forms.TextBox();
+                    this.SuspendLayout();
+                    this.nameTextBox.Name = "nameTextBox";
+                    this.Controls.Add(this.nameTextBox);
+                    this.Name = "DetailForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    private const string BusinessLogicOverrideCodeBehindContent = """
+        namespace SampleApp
+        {
+            partial class DetailForm
+            {
+                protected override void SaveToEntity()
+                {
+                    Entity.Name = nameTextBox.Text;
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_OverrideOfProjectLocalBaseClassMember_MigratedAsLiveViewModelMethod()
+    {
+        // Distinguishes a genuine WinForms lifecycle override (OnLoad, above - stays skipped)
+        // from an override of the project's own base class member (SaveToEntity here - real
+        // business logic that happens to use the "override" keyword) - the real-world case that
+        // motivated this: DetailFormBase<T>-derived forms in the WarehouseApp sample had their
+        // entire LoadFromEntity/SaveToEntity/ValidateInput/PersistAsync logic silently dropped.
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "DetailForm.Designer.cs"), BusinessLogicOverrideDesignerContent);
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "DetailForm.cs"), BusinessLogicOverrideCodeBehindContent);
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = true },
+                NamingConventions = new NamingConventionsConfig { RootNamespace = "SampleApp" }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var vmContent = await File.ReadAllTextAsync(
+                Path.Combine(outputDir, "ViewModels", "DetailFormViewModel.cs"));
+            Assert.Contains("internal void SaveToEntity()", vmContent);
+            Assert.Contains("Entity.Name = nameTextBox.Text;", vmContent);
+            Assert.DoesNotContain("override", vmContent);
+
+            Assert.DoesNotContain(result.Report!.ManualSteps, s => s.Category == "Skipped Override Methods");
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    private const string TreeNodeOverrideDesignerContent = """
+        namespace SampleApp
+        {
+            partial class WarehousesForm
+            {
+                private System.Windows.Forms.TreeView locationsTreeView;
+
+                private void InitializeComponent()
+                {
+                    this.locationsTreeView = new System.Windows.Forms.TreeView();
+                    this.SuspendLayout();
+                    this.locationsTreeView.Name = "locationsTreeView";
+                    this.Controls.Add(this.locationsTreeView);
+                    this.Name = "WarehousesForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    private const string TreeNodeOverrideCodeBehindContent = """
+        namespace SampleApp
+        {
+            partial class WarehousesForm
+            {
+                protected override void LoadTree()
+                {
+                    var node = new TreeNode("root");
+                    locationsTreeView.Nodes.Add(node);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_MigratedOverrideBodyReferencesTreeNode_StillMigratedButFlagged()
+    {
+        // The real WarehousesFormViewModel.LoadTreeAsync case: a business-logic override (not
+        // a WinForms framework override, so it's migrated as live code per the test above) that
+        // happens to build raw TreeNode objects - no Avalonia equivalent, will not compile, but
+        // previously gave zero signal that this had happened.
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "WarehousesForm.Designer.cs"), TreeNodeOverrideDesignerContent);
+            await File.WriteAllTextAsync(
+                Path.Combine(sourceDir, "WarehousesForm.cs"), TreeNodeOverrideCodeBehindContent);
+
+            var config = new ConverterConfig
+            {
+                GitIntegration = new GitIntegrationConfig { Enabled = false },
+                Documentation = new DocumentationConfig { Enabled = true },
+                NamingConventions = new NamingConventionsConfig { RootNamespace = "SampleApp" }
+            };
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, config).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var vmContent = await File.ReadAllTextAsync(
+                Path.Combine(outputDir, "ViewModels", "WarehousesFormViewModel.cs"));
+            Assert.Contains("internal void LoadTree()", vmContent);
+            Assert.Contains("new TreeNode(\"root\")", vmContent);
+
+            var step = Assert.Single(result.Report!.ManualSteps, s => s.Category == "Migrated Logic May Not Compile");
+            Assert.Contains("LoadTree", step.Title);
+            Assert.Contains("TreeNode", step.Description);
+
+            var migrationGuide = await File.ReadAllTextAsync(Path.Combine(outputDir, "MIGRATION_GUIDE.md"));
+            Assert.Contains("Migrated Logic May Not Compile", migrationGuide);
         }
         finally
         {

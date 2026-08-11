@@ -260,11 +260,3 @@ public class FormConversionInfo
     public required string LayoutReason { get; init; }
     public required string Status { get; init; }
 }
-
-public class ManualStepInfo
-{
-    public required string Category { get; init; }
-    public required string Title { get; init; }
-    public required string Location { get; init; }
-    public required string Description { get; init; }
-}

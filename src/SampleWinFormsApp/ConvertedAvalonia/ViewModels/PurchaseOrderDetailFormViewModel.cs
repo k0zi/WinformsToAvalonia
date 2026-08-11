@@ -21,6 +21,47 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
 
     internal List<Product> _products = [];
 
+    internal void LoadFromEntity()
+        {
+            using var ctx = Db.CreateContext();
+            _suppliers = ctx.Suppliers.Where(s => s.IsActive).OrderBy(s => s.Name).ToList();
+            _products = ctx.Products.Where(p => p.IsActive).OrderBy(p => p.Name).ToList();
+    
+            supplierComboBox.DataSource = _suppliers;
+            supplierComboBox.DisplayMember = nameof(Supplier.Name);
+            supplierComboBox.ValueMember = nameof(Supplier.Id);
+    
+            productSearchBox.DataSource = _products;
+    
+            statusComboBox.DataSource = Enum.GetValues<PurchaseOrderStatus>();
+    
+            orderDatePicker.Value = IsNew ? DateTime.Today : Entity.OrderDate;
+            expectedDatePicker.Value = Entity.ExpectedDate ?? DateTime.Today.AddDays(7);
+            notesTextBox.Text = Entity.Notes;
+    
+            if (IsNew)
+            {
+                orderNumberValueLabel.Text = "(assigned on save)";
+                statusComboBox.SelectedItem = PurchaseOrderStatus.Draft;
+            }
+            else
+            {
+                orderNumberValueLabel.Text = Entity.OrderNumber;
+                supplierComboBox.SelectedValue = Entity.SupplierId;
+                statusComboBox.SelectedItem = Entity.Status;
+    
+                using var detailCtx = Db.CreateContext();
+                var lines = detailCtx.PurchaseOrderLines.Include(l => l.Product).Where(l => l.PurchaseOrderId == Entity.Id).ToList();
+                foreach (var line in lines)
+                {
+                    AddLineRow(line.Product.Name, line.QuantityOrdered, line.UnitPrice, existingLine: line);
+                }
+            }
+    
+            UpdateStatusBadge();
+            statusComboBox.SelectedIndexChanged += (_, _) => UpdateStatusBadge();
+        }
+
     internal void UpdateStatusBadge()
         {
             if (statusComboBox.SelectedItem is not PurchaseOrderStatus status)
@@ -43,6 +84,71 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
             var total = quantity * unitPrice;
             var rowIndex = linesGrid.Rows.Add(productName, quantity, unitPrice, total);
             linesGrid.Rows[rowIndex].Tag = (object?)existingLine ?? newLine;
+        }
+
+    internal bool ValidateInput()
+        {
+            if (supplierComboBox.SelectedItem is null)
+            {
+                Validation.SetError(supplierComboBox, "Choose a supplier.");
+                return false;
+            }
+            if (IsNew && linesGrid.Rows.Count == 0)
+            {
+                MessageBox.Show(this, "Add at least one line item.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+            return true;
+        }
+
+    internal void SaveToEntity()
+        {
+            Entity.SupplierId = (int)supplierComboBox.SelectedValue!;
+            Entity.OrderDate = orderDatePicker.Value;
+            Entity.ExpectedDate = expectedDatePicker.Value;
+            Entity.Status = (PurchaseOrderStatus)statusComboBox.SelectedItem!;
+            Entity.Notes = notesTextBox.Text.Trim();
+            if (IsNew)
+            {
+                Entity.OrderNumber = $"PO-{DateTime.UtcNow:yyyyMMddHHmmss}";
+                Entity.CreatedByUserId = Session.CurrentUser?.Id ?? 0;
+            }
+        }
+
+    internal async Task PersistAsync()
+        {
+            using var ctx = Db.CreateContext();
+    
+            if (IsNew)
+            {
+                foreach (DataGridViewRow row in linesGrid.Rows)
+                {
+                    if (row.Tag is NewLine newLine)
+                    {
+                        Entity.Lines.Add(new PurchaseOrderLine { ProductId = newLine.Product.Id, QuantityOrdered = newLine.Quantity, UnitPrice = newLine.UnitPrice });
+                    }
+                }
+                ctx.PurchaseOrders.Add(Entity);
+            }
+            else
+            {
+                var tracked = await ctx.PurchaseOrders.Include(p => p.Lines).FirstAsync(p => p.Id == Entity.Id);
+                tracked.SupplierId = Entity.SupplierId;
+                tracked.OrderDate = Entity.OrderDate;
+                tracked.ExpectedDate = Entity.ExpectedDate;
+                tracked.Status = Entity.Status;
+                tracked.Notes = Entity.Notes;
+    
+                foreach (DataGridViewRow row in linesGrid.Rows)
+                {
+                    if (row.Tag is NewLine newLine)
+                    {
+                        tracked.Lines.Add(new PurchaseOrderLine { ProductId = newLine.Product.Id, QuantityOrdered = newLine.Quantity, UnitPrice = newLine.UnitPrice });
+                    }
+                }
+            }
+    
+            await ctx.SaveChangesAsync();
         }
 
     internal void PrintDocument_PrintPage(object? sender, PrintPageEventArgs e)

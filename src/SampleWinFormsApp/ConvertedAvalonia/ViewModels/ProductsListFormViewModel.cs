@@ -27,6 +27,59 @@ public partial class ProductsListFormViewModel : CommunityToolkit.Mvvm.Component
             categoryFilterComboBox.SelectedIndex = 0;
         }
 
+    internal async Task<List<Product>> LoadDataAsync(string? searchText)
+        {
+            var selectedCategory = categoryFilterComboBox.SelectedIndex > 0
+                ? categoryFilterComboBox.SelectedItem?.ToString()
+                : null;
+    
+            return await Task.Run(() =>
+            {
+                using var ctx = Db.CreateContext();
+                var query = ctx.Products.Include(p => p.Category).Include(p => p.Supplier).AsQueryable();
+    
+                if (!string.IsNullOrWhiteSpace(searchText))
+                {
+                    query = query.Where(p => p.Sku.Contains(searchText) || p.Name.Contains(searchText));
+                }
+                if (!string.IsNullOrEmpty(selectedCategory))
+                {
+                    query = query.Where(p => p.Category.Name == selectedCategory);
+                }
+    
+                return query.OrderBy(p => p.Sku).ToList();
+            });
+        }
+
+    internal void AddNew()
+        {
+            using var form = new ProductDetailForm();
+            if (form.ShowDialog(this) == DialogResult.OK)
+            {
+                _ = ReloadAsync();
+            }
+        }
+
+    internal void EditEntity(Product entity)
+        {
+            using var form = new ProductDetailForm(entity);
+            if (form.ShowDialog(this) == DialogResult.OK)
+            {
+                _ = ReloadAsync();
+            }
+        }
+
+    internal async Task DeleteEntityAsync(Product entity)
+        {
+            using var ctx = Db.CreateContext();
+            var tracked = await ctx.Products.FindAsync(entity.Id);
+            if (tracked is not null)
+            {
+                ctx.Products.Remove(tracked);
+                await ctx.SaveChangesAsync();
+            }
+        }
+
     internal void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (Grid.Rows[e.RowIndex].DataBoundItem is not Product product)

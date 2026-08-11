@@ -16,6 +16,7 @@ using Converter.Generator.ViewModels;
 using Converter.Mappings.BuiltIn;
 using Converter.Plugin.Abstractions;
 using Converter.Reporting.Builders;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using Converter.Cli.Models;
@@ -274,6 +275,13 @@ public class ConversionOrchestrator
                                 result.CodeBehindMembers =
                                     await CodeBehindMemberExtractor.ExtractAsync(codeBehindPath, handlerNames);
                             }
+
+                            // Inline lambda bodies live in the .Designer.cs file itself (no
+                            // sibling code-behind needed) - merge them in under the same flag.
+                            foreach (var (handlerName, body) in result.InlineLambdaBodies)
+                            {
+                                result.EventHandlerBodies[handlerName] = body;
+                            }
                         }
                     }
                 }
@@ -447,7 +455,8 @@ public class ConversionOrchestrator
                 Statistics = statistics,
                 Forms = formReports,
                 Warnings = warnings,
-                Errors = errors
+                Errors = errors,
+                ManualSteps = manualSteps
             };
 
             rollbackManager.CommitTransaction();
@@ -730,6 +739,33 @@ public class ConversionOrchestrator
                 });
             }
 
+            // A migrated helper method/reclassified override (see CodeBehindMemberExtractor) is
+            // real business logic and gets migrated as live code regardless of what it
+            // references - correct, it shouldn't be silently dropped - but a body referencing a
+            // WinForms type with no Avalonia equivalent (e.g. building TreeNode objects to
+            // populate a TreeView) will not compile as-is, and previously gave zero signal that
+            // this had happened. Flag it, mirroring "Preserved Event Handlers"'s tone.
+            foreach (var (methodName, methodSource) in codeBehindMembers.HelperMethods)
+            {
+                var referencedTypes = WinFormsTypeUsageDetector.FindReferencedTypeNames(
+                    CSharpSyntaxTree.ParseText(methodSource).GetRoot());
+                if (referencedTypes.Count == 0)
+                {
+                    continue;
+                }
+
+                vmManualSteps.Add(new ManualStepInfo
+                {
+                    Category = "Migrated Logic May Not Compile",
+                    Title = $"{className}.{methodName} references WinForms type(s) with no Avalonia equivalent",
+                    Location = parseResult.FilePath,
+                    Description = $"This method was migrated as live code, but its body references " +
+                        $"{string.Join(", ", referencedTypes)} - which have no Avalonia equivalent (a " +
+                        "different UI/control model entirely). It will not compile as-is; review and " +
+                        "redesign this logic manually."
+                });
+            }
+
             if (_config.StyleExtraction.Enabled)
             {
                 var stylesContent = styleGenerator.GenerateStyles(rootControl, _config.StyleExtraction.MinimumOccurrence, overrides);
@@ -942,15 +978,27 @@ public class ConversionOrchestrator
             var propMapping = PropertyMappingRegistry.GetMapping(propName, control.ControlType);
             if (propMapping?.RequiresCustomLogic == true)
             {
-                steps.Add(new ManualStepInfo
+                // Mirrors AxamlGenerator.WriteControlProperties's own check - PropertyValueConverter
+                // already successfully converts several RequiresCustomLogic mappings (Font, Location,
+                // Size, Dock, Padding/Margin, FormBorderStyle, WindowState, ...); flagging every
+                // RequiresCustomLogic occurrence regardless was a false positive for all of those.
+                var rawValue = control.Properties[propName].Value?.ToString();
+                var converted = !string.IsNullOrEmpty(rawValue)
+                    ? PropertyValueConverter.Convert(propMapping, rawValue)
+                    : null;
+
+                if (converted == null)
                 {
-                    Category = "Custom Property Logic",
-                    Title = $"{control.Name}.{propName} requires custom conversion logic",
-                    Location = sourceFile,
-                    Description = propMapping.Notes ??
-                        $"Maps toward '{propMapping.AvaloniaProperty}' but the automatic converter could not " +
-                        "fully translate this property; review the generated AXAML."
-                });
+                    steps.Add(new ManualStepInfo
+                    {
+                        Category = "Custom Property Logic",
+                        Title = $"{control.Name}.{propName} requires custom conversion logic",
+                        Location = sourceFile,
+                        Description = propMapping.Notes ??
+                            $"Maps toward '{propMapping.AvaloniaProperty}' but the automatic converter could not " +
+                            "fully translate this property; review the generated AXAML."
+                    });
+                }
             }
         }
 
@@ -995,6 +1043,30 @@ public class ConversionOrchestrator
                           "body was found in the sibling code-behind file; a TODO stub was generated and " +
                           "must be ported manually.")
                 });
+            }
+            else if (eventMapping?.RequiresCustomLogic == true)
+            {
+                // TextChanged/ValueChanged/CheckedChanged are automated as a live
+                // CommunityToolkit property-changed hook when the same control has a matching
+                // DataBindings entry (ViewModelGenerator.ExtractPropertyChangedHooks) - only
+                // flag this when that didn't happen. Events with no such automation path at all
+                // (e.g. Paint - a fundamentally different rendering model) always land here.
+                var handlerName = control.EventHandlers[eventName];
+                var autoWired = EventMappingRegistry.FindBoundPropertyName(control, eventName) != null &&
+                    handlerBodies.ContainsKey(handlerName);
+
+                if (!autoWired)
+                {
+                    steps.Add(new ManualStepInfo
+                    {
+                        Category = "Custom Event Logic",
+                        Title = $"{control.Name}.{eventName} handler \"{handlerName}\" requires custom conversion logic",
+                        Location = sourceFile,
+                        Description = eventMapping.Notes ??
+                            $"Maps toward Avalonia's '{eventMapping.AvaloniaEvent}' but the automatic converter " +
+                            "could not fully translate this event; review and port the original handler manually."
+                    });
+                }
             }
         }
 
@@ -1228,7 +1300,14 @@ public class ConversionOrchestrator
                 Directory.CreateDirectory(destinationDir);
             }
 
-            File.Copy(file.AbsolutePath, destinationPath, overwrite: true);
+            if (file.TransformedContent != null)
+            {
+                await File.WriteAllTextAsync(destinationPath, file.TransformedContent);
+            }
+            else
+            {
+                File.Copy(file.AbsolutePath, destinationPath, overwrite: true);
+            }
             rollbackManager.TrackFileCreation(destinationPath);
         }
 

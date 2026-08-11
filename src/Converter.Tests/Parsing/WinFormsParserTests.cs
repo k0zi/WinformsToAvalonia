@@ -210,4 +210,156 @@ public class WinFormsParserTests
             File.Delete(path);
         }
     }
+
+    private const string InlineLambdaDesignerContent = """
+        namespace SampleApp
+        {
+            partial class Form1
+            {
+                private System.Windows.Forms.Button button1;
+
+                private void InitializeComponent()
+                {
+                    this.button1 = new System.Windows.Forms.Button();
+                    this.SuspendLayout();
+                    this.button1.Name = "button1";
+                    this.button1.Click += (sender, e) => { DoSomething(sender); };
+                    this.Controls.Add(this.button1);
+                    this.Name = "Form1";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_InlineLambdaSubscription_SynthesizesStableHandlerName()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"wf2av-inlinelambda-{Path.GetRandomFileName()}.cs");
+        await File.WriteAllTextAsync(path, InlineLambdaDesignerContent);
+
+        try
+        {
+            var parser = new WinFormsParser();
+            var result = await parser.ParseDesignerFileAsync(path);
+
+            var button1 = result.AllControls.Single(c => c.Name == "button1");
+            Assert.True(button1.EventHandlers.TryGetValue("Click", out var handlerName));
+            Assert.NotEqual(WinFormsParser.InlineLambdaHandlerMarker, handlerName);
+            Assert.Equal("button1_Click_InlineHandler", handlerName);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_InlineLambdaSubscription_CapturesBodyInInlineLambdaBodies()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"wf2av-inlinelambda-{Path.GetRandomFileName()}.cs");
+        await File.WriteAllTextAsync(path, InlineLambdaDesignerContent);
+
+        try
+        {
+            var parser = new WinFormsParser();
+            var result = await parser.ParseDesignerFileAsync(path);
+
+            Assert.True(result.InlineLambdaBodies.TryGetValue("button1_Click_InlineHandler", out var source));
+            Assert.Contains("DoSomething(sender);", source);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_TwoInlineLambdasSameControlAndEvent_GetDistinctSynthesizedNames()
+    {
+        const string content = """
+            namespace SampleApp
+            {
+                partial class Form1
+                {
+                    private System.Windows.Forms.Button button1;
+                    private System.Windows.Forms.Button button2;
+
+                    private void InitializeComponent()
+                    {
+                        this.button1 = new System.Windows.Forms.Button();
+                        this.button2 = new System.Windows.Forms.Button();
+                        this.SuspendLayout();
+                        this.button1.Name = "button1";
+                        this.button1.Click += (sender, e) => { First(); };
+                        this.button2.Name = "button2";
+                        this.button2.Click += (sender, e) => { Second(); };
+                        this.Controls.Add(this.button1);
+                        this.Controls.Add(this.button2);
+                        this.Name = "Form1";
+                        this.ResumeLayout(false);
+                    }
+                }
+            }
+            """;
+        var path = Path.Combine(Path.GetTempPath(), $"wf2av-inlinelambda-{Path.GetRandomFileName()}.cs");
+        await File.WriteAllTextAsync(path, content);
+
+        try
+        {
+            var parser = new WinFormsParser();
+            var result = await parser.ParseDesignerFileAsync(path);
+
+            var button1 = result.AllControls.Single(c => c.Name == "button1");
+            var button2 = result.AllControls.Single(c => c.Name == "button2");
+
+            Assert.NotEqual(button1.EventHandlers["Click"], button2.EventHandlers["Click"]);
+            Assert.Equal(2, result.InlineLambdaBodies.Count);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ParseDesignerFileAsync_AsyncInlineLambda_PreservesAsyncKeyword()
+    {
+        const string content = """
+            namespace SampleApp
+            {
+                partial class Form1
+                {
+                    private System.Windows.Forms.Button button1;
+
+                    private void InitializeComponent()
+                    {
+                        this.button1 = new System.Windows.Forms.Button();
+                        this.SuspendLayout();
+                        this.button1.Name = "button1";
+                        this.button1.Click += async (sender, e) => { await DoWorkAsync(); };
+                        this.Controls.Add(this.button1);
+                        this.Name = "Form1";
+                        this.ResumeLayout(false);
+                    }
+                }
+            }
+            """;
+        var path = Path.Combine(Path.GetTempPath(), $"wf2av-inlinelambda-{Path.GetRandomFileName()}.cs");
+        await File.WriteAllTextAsync(path, content);
+
+        try
+        {
+            var parser = new WinFormsParser();
+            var result = await parser.ParseDesignerFileAsync(path);
+
+            var button1 = result.AllControls.Single(c => c.Name == "button1");
+            var handlerName = button1.EventHandlers["Click"];
+            Assert.True(EventHandlerBodyParser.IsAsyncMethodSignature(result.InlineLambdaBodies[handlerName]));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

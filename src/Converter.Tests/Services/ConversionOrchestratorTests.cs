@@ -690,8 +690,12 @@ public class ConversionOrchestratorTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_EventSubscribedViaInlineLambda_FlagsManualStepInMigrationGuide()
+    public async Task ExecuteAsync_EventSubscribedViaInlineLambda_AutoMigratesAsLiveRelayCommand()
     {
+        // Was: inline lambda subscriptions had no stable method name to hang a body on, so the
+        // whole handler was dropped and flagged as a manual step. Now the lambda body is
+        // extracted directly from the Designer.cs subscription site and migrated exactly like
+        // any other Click handler - no manual step for this case anymore.
         var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
         var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
 
@@ -709,7 +713,7 @@ public class ConversionOrchestratorTests
                             this.button1 = new System.Windows.Forms.Button();
                             this.SuspendLayout();
                             this.button1.Name = "button1";
-                            this.button1.Click += (sender, args) => { };
+                            this.button1.Click += (sender, args) => { DoSomething(); };
                             this.Controls.Add(this.button1);
                             this.Name = "Form1";
                             this.ResumeLayout(false);
@@ -735,9 +739,11 @@ public class ConversionOrchestratorTests
             var viewModelContent = await File.ReadAllTextAsync(
                 Path.Combine(outputDir, "ViewModels", "Form1ViewModel.cs"));
             Assert.DoesNotContain("inline lambda", viewModelContent);
+            Assert.Contains("RelayCommand", viewModelContent);
+            Assert.Contains("DoSomething();", viewModelContent);
+            Assert.DoesNotContain("TODO: Implement Click logic", viewModelContent);
 
-            var migrationGuide = await File.ReadAllTextAsync(Path.Combine(outputDir, "MIGRATION_GUIDE.md"));
-            Assert.Contains("Inline Lambda Event Handlers", migrationGuide);
+            Assert.DoesNotContain(result.Report!.ManualSteps, s => s.Category == "Inline Lambda Event Handlers");
         }
         finally
         {

@@ -212,4 +212,166 @@ public class SupportFileScannerTests
             Directory.Delete(sourceDir, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task ScanAsync_PlainUtilityClass_CopyableFileHasNoTransformedContent()
+    {
+        var sourceDir = CreateSourceDir();
+        try
+        {
+            var path = Path.Combine(sourceDir, "Db.cs");
+            await File.WriteAllTextAsync(path, "namespace WarehouseApp.Common;\n\npublic static class Db\n{\n}\n");
+
+            var result = await SupportFileScanner.ScanAsync(sourceDir, new HashSet<string>(), []);
+
+            var file = Assert.Single(result.CopyableFiles);
+            Assert.Null(file.TransformedContent);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_StaticHelperUsingWinFormsUiTypesWithoutDerivingFromAnything_IsSkippedWithSpecificTypes()
+    {
+        // The real Common/InputBoxHelper.cs shape - a static class building a WinForms Form
+        // imperatively, without itself deriving from anything, so the base-type-only check
+        // alone would have let it slip through and get copied broken (the exact silent-failure
+        // bug this test guards against).
+        var sourceDir = CreateSourceDir();
+        try
+        {
+            var path = Path.Combine(sourceDir, "InputBoxHelper.cs");
+            await File.WriteAllTextAsync(path, """
+                namespace WarehouseApp.Common;
+
+                public static class InputBoxHelper
+                {
+                    public static string? Show(IWin32Window owner, string title)
+                    {
+                        using var form = new Form { Text = title };
+                        var label = new Label { Text = "Value" };
+                        var textBox = new TextBox();
+                        var okButton = new Button { DialogResult = DialogResult.OK };
+                        return form.ShowDialog(owner) == DialogResult.OK ? textBox.Text : null;
+                    }
+                }
+                """);
+
+            var result = await SupportFileScanner.ScanAsync(sourceDir, new HashSet<string>(), []);
+
+            Assert.Empty(result.CopyableFiles);
+            var skipped = Assert.Single(result.SkippedFiles);
+            Assert.Contains("Form", skipped.Reason);
+            Assert.Contains("no Avalonia equivalent", skipped.Reason);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_GdiDrawingFileWithinRecognizedVocabulary_IsCopyableWithTransformedContent()
+    {
+        var sourceDir = CreateSourceDir();
+        try
+        {
+            var path = Path.Combine(sourceDir, "AppIcons.cs");
+            await File.WriteAllTextAsync(path, """
+                namespace WarehouseApp.Common;
+
+                public static class AppIcons
+                {
+                    public static Bitmap CreateLogo(int size = 64)
+                    {
+                        var bmp = new Bitmap(size, size);
+                        using var g = Graphics.FromImage(bmp);
+                        using var bgBrush = new SolidBrush(Color.White);
+                        g.FillEllipse(bgBrush, 0, 0, size, size);
+                        return bmp;
+                    }
+                }
+                """);
+
+            var result = await SupportFileScanner.ScanAsync(sourceDir, new HashSet<string>(), []);
+
+            var file = Assert.Single(result.CopyableFiles);
+            Assert.NotNull(file.TransformedContent);
+            Assert.Contains("RenderTargetBitmap", file.TransformedContent);
+            Assert.DoesNotContain("System.Drawing", file.TransformedContent);
+            Assert.Empty(result.SkippedFiles);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_GdiDrawingFileOutsideRecognizedVocabulary_IsSkippedNotCopiedBroken()
+    {
+        var sourceDir = CreateSourceDir();
+        try
+        {
+            var path = Path.Combine(sourceDir, "Weird.cs");
+            await File.WriteAllTextAsync(path, """
+                namespace WarehouseApp.Common;
+
+                public static class Weird
+                {
+                    public static Bitmap DrawSomething(Bitmap source)
+                    {
+                        var bmp = new Bitmap(10, 10);
+                        using var g = Graphics.FromImage(bmp);
+                        g.DrawImage(source, 0, 0);
+                        return bmp;
+                    }
+                }
+                """);
+
+            var result = await SupportFileScanner.ScanAsync(sourceDir, new HashSet<string>(), []);
+
+            Assert.Empty(result.CopyableFiles);
+            var skipped = Assert.Single(result.SkippedFiles);
+            Assert.Contains("GDI+", skipped.Reason);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_ColorOnlyFile_IsCopyableWithRewrittenColorReferences()
+    {
+        var sourceDir = CreateSourceDir();
+        try
+        {
+            var path = Path.Combine(sourceDir, "Palette.cs");
+            await File.WriteAllTextAsync(path, """
+                using System.Drawing;
+
+                namespace WarehouseApp.Common;
+
+                public static class Palette
+                {
+                    public static Color Highlight => Color.CornflowerBlue;
+                }
+                """);
+
+            var result = await SupportFileScanner.ScanAsync(sourceDir, new HashSet<string>(), []);
+
+            var file = Assert.Single(result.CopyableFiles);
+            Assert.NotNull(file.TransformedContent);
+            Assert.Contains("Colors.CornflowerBlue", file.TransformedContent);
+            Assert.Empty(result.SkippedFiles);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
 }

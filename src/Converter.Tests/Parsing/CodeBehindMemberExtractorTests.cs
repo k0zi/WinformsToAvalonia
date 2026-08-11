@@ -213,6 +213,62 @@ public class CodeBehindMemberExtractorTests
         }
     }
 
+    private const string ProjectLocalBaseClassOverrideContent = """
+        namespace SampleApp
+        {
+            partial class ProductDetailForm
+            {
+                protected override void LoadFromEntity()
+                {
+                    nameTextBox.Text = Entity.Name;
+                }
+
+                protected override async System.Threading.Tasks.Task PersistAsync()
+                {
+                    await Db.SaveAsync(Entity);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExtractAsync_OverrideOfProjectLocalBaseClassMember_MigratedAsHelperMethodWithOverrideStripped()
+    {
+        var path = await WriteTempFileAsync(ProjectLocalBaseClassOverrideContent);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string>());
+
+            Assert.True(result.HelperMethods.TryGetValue("LoadFromEntity", out var source));
+            Assert.DoesNotContain("override", source);
+            Assert.Contains("nameTextBox.Text = Entity.Name;", source);
+            Assert.DoesNotContain("LoadFromEntity", result.SkippedOverrideMethodNames);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractAsync_AsyncOverrideOfProjectLocalBaseClassMember_PreservesAsyncAndStripsOverride()
+    {
+        var path = await WriteTempFileAsync(ProjectLocalBaseClassOverrideContent);
+        try
+        {
+            var result = await CodeBehindMemberExtractor.ExtractAsync(path, new HashSet<string>());
+
+            Assert.True(result.HelperMethods.TryGetValue("PersistAsync", out var source));
+            Assert.DoesNotContain("override", source);
+            Assert.Contains("async", source);
+            Assert.Contains("await Db.SaveAsync(Entity);", source);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task ExtractAsync_MissingFile_ReturnsEmptyWithoutThrowing()
     {

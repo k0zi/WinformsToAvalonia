@@ -96,6 +96,24 @@ public partial class StockTransferFormViewModel : CommunityToolkit.Mvvm.Componen
         }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void removeLineButtonClickInlineHandler()
+    {
+        this.RemoveSelectedLine();
+    }
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private async void postButtonClickInlineHandler()
+    {
+        await this.PostTransferAsync();
+    }
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void swapButtonClickInlineHandler()
+    {
+        this.SwapWarehouses();
+    }
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
     private void addLineButtonClick()
     {
             if (productComboBox.SelectedItem is not Product product

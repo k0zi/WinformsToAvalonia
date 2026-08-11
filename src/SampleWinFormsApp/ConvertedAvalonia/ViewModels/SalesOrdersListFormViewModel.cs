@@ -16,6 +16,58 @@ namespace ConvertedAvalonia.ViewModels;
 /// </summary>
 public partial class SalesOrdersListFormViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
+    internal async Task<List<SalesOrder>> LoadDataAsync(string? searchText)
+        {
+            var statusFilter = statusFilterComboBox.SelectedIndex > 0 ? statusFilterComboBox.SelectedItem?.ToString() : null;
+    
+            return await Task.Run(() =>
+            {
+                using var ctx = Db.CreateContext();
+                var query = ctx.SalesOrders.Include(o => o.Customer).AsQueryable();
+    
+                if (!string.IsNullOrWhiteSpace(searchText))
+                {
+                    query = query.Where(o => o.OrderNumber.Contains(searchText) || o.Customer.Name.Contains(searchText));
+                }
+                if (!string.IsNullOrEmpty(statusFilter))
+                {
+                    var status = Enum.Parse<SalesOrderStatus>(statusFilter);
+                    query = query.Where(o => o.Status == status);
+                }
+    
+                return query.OrderByDescending(o => o.OrderDate).ToList();
+            });
+        }
+
+    internal void AddNew()
+        {
+            using var form = new SalesOrderDetailForm();
+            if (form.ShowDialog(this) == DialogResult.OK)
+            {
+                _ = ReloadAsync();
+            }
+        }
+
+    internal void EditEntity(SalesOrder entity)
+        {
+            using var form = new SalesOrderDetailForm(entity);
+            if (form.ShowDialog(this) == DialogResult.OK)
+            {
+                _ = ReloadAsync();
+            }
+        }
+
+    internal async Task DeleteEntityAsync(SalesOrder entity)
+        {
+            using var ctx = Db.CreateContext();
+            var tracked = await ctx.SalesOrders.FindAsync(entity.Id);
+            if (tracked is not null)
+            {
+                ctx.SalesOrders.Remove(tracked);
+                await ctx.SaveChangesAsync();
+            }
+        }
+
     internal void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (Grid.Rows[e.RowIndex].DataBoundItem is not SalesOrder order)

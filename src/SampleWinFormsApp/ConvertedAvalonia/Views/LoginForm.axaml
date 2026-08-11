@@ -65,6 +65,8 @@
 
                 <TextBlock Name="usernameLabel"
                 Text="Username:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="0" />
                 <TextBox Name="usernameTextBox"
@@ -73,6 +75,8 @@
                 Grid.Row="0" />
                 <TextBlock Name="passwordLabel"
                 Text="Password:"
+                HorizontalContentAlignment="Left"
+                VerticalContentAlignment="Center"
                 Grid.Column="0"
                 Grid.Row="1" />
                 <TextBox Name="passwordTextBox"

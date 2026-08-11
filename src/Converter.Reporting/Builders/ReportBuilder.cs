@@ -86,6 +86,21 @@ public class ReportBuilder
             sb.AppendLine();
         }
 
+        // Manual steps - a clean run with zero Errors above does not mean the generated
+        // project builds; this is the list that actually signals that.
+        if (report.ManualSteps.Count > 0)
+        {
+            sb.AppendLine($"## Manual Steps Required ({report.ManualSteps.Count})");
+            sb.AppendLine();
+            sb.AppendLine("The generated project may not build until these are addressed - see MIGRATION_GUIDE.md for full details.");
+            sb.AppendLine();
+            foreach (var step in report.ManualSteps)
+            {
+                sb.AppendLine($"- **[{step.Category}] {step.Title}** ({step.Location}): {step.Description}");
+            }
+            sb.AppendLine();
+        }
+
         return sb.ToString();
     }
 
@@ -165,6 +180,19 @@ public class ReportBuilder
             }
         }
 
+        // Manual steps - a clean run with zero Errors above does not mean the generated
+        // project builds; this is the list that actually signals that.
+        if (report.ManualSteps.Count > 0)
+        {
+            sb.AppendLine($"    <h2>Manual Steps Required ({report.ManualSteps.Count})</h2>");
+            sb.AppendLine("    <p>The generated project may not build until these are addressed.</p>");
+            foreach (var step in report.ManualSteps)
+            {
+                sb.AppendLine(
+                    $"    <div class=\"warning\"><strong>[{step.Category}] {step.Title}</strong> ({step.Location}): {step.Description}</div>");
+            }
+        }
+
         sb.AppendLine("</body>");
         sb.AppendLine("</html>");
 
@@ -226,6 +254,14 @@ public class ConversionReport
     public List<FormReportInfo> Forms { get; init; } = [];
     public List<ReportMessage> Warnings { get; init; } = [];
     public List<ReportMessage> Errors { get; init; } = [];
+
+    /// <summary>
+    /// "You need to do this by hand" items (unmapped controls, preserved event handlers,
+    /// skipped overrides, unconverted support files, ...). Errors/Warnings above only ever
+    /// reflect conversion-time exceptions - a clean run with zero of those does NOT mean the
+    /// generated project builds; a non-empty ManualSteps list is the real signal for that.
+    /// </summary>
+    public List<ManualStepInfo> ManualSteps { get; init; } = [];
 }
 
 public class FormReportInfo

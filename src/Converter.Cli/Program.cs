@@ -645,12 +645,22 @@ class Program
                 return;
             }
 
-            // Success - display summary
-            AnsiConsole.Write(new Panel(
-                new Markup($"[{theme.Success}]{theme.SuccessIcon} Conversion completed successfully![/]"))
+            // Success - display summary. "Completed successfully" means the conversion process
+            // itself ran without exceptions - it is NOT a claim that the generated C# compiles.
+            // Manual steps (unmapped controls, preserved event handlers, custom WinForms
+            // controls that need a real Avalonia port, ...) are the actual signal for that, so
+            // a non-zero count changes both the banner and its color instead of a bare success
+            // checkmark that would otherwise read as "done, nothing left to do."
+            var manualStepCount = result.Report?.ManualSteps.Count ?? 0;
+            var bannerMessage = manualStepCount > 0
+                ? $"{theme.WarningIcon} Conversion completed - {manualStepCount} manual step(s) required before this project will build"
+                : $"{theme.SuccessIcon} Conversion completed successfully!";
+            var bannerColor = manualStepCount > 0 ? theme.Warning : theme.Success;
+
+            AnsiConsole.Write(new Panel(new Markup($"[{bannerColor}]{bannerMessage}[/]"))
             {
                 Border = BoxBorder.Rounded,
-                BorderStyle = new Style(theme.Success),
+                BorderStyle = new Style(bannerColor),
                 Padding = new Padding(1, 0)
             });
 
@@ -687,6 +697,9 @@ class Program
 
                 // Display summary panel
                 AnsiConsole.WriteLine();
+                var manualStepsValue = manualStepCount > 0
+                    ? $"[{theme.Warning}]{manualStepCount}[/]"
+                    : $"[{theme.Success}]0[/]";
                 var summaryGrid = new Grid()
                     .AddColumn()
                     .AddColumn()
@@ -694,6 +707,7 @@ class Program
                     .AddRow("[bold]Controls:[/]", $"[{theme.Info}]{result.Report.Statistics.ConvertedControls}[/]")
                     .AddRow("[bold]Properties:[/]", $"[{theme.Info}]{result.Report.Statistics.MappedProperties}[/]")
                     .AddRow("[bold]Events:[/]", $"[{theme.Info}]{result.Report.Statistics.ConvertedToCommands}[/]")
+                    .AddRow("[bold]Manual Steps:[/]", manualStepsValue)
                     .AddRow("[bold]Duration:[/]", $"[dim]{result.Report.Duration.TotalSeconds:F2}s[/]")
                     .AddRow("[bold]Output:[/]", $"[dim]{Markup.Escape(result.OutputPath ?? "")}[/]");
 
@@ -701,8 +715,25 @@ class Program
                 {
                     Header = new PanelHeader("Conversion Summary", Justify.Left),
                     Border = BoxBorder.Rounded,
-                    BorderStyle = new Style(theme.Success)
+                    BorderStyle = new Style(manualStepCount > 0 ? theme.Warning : theme.Success)
                 });
+
+                if (manualStepCount > 0)
+                {
+                    AnsiConsole.WriteLine();
+                    var guidance = converterConfig.Documentation.Enabled
+                        ? $"[{theme.Warning}]{theme.WarningIcon} {manualStepCount} manual step(s) required - " +
+                          "see [bold]MIGRATION_GUIDE.md[/] in the output directory before building.[/]"
+                        : $"[{theme.Warning}]{theme.WarningIcon} {manualStepCount} manual step(s) required, but " +
+                          "documentation generation is disabled - re-run with it enabled (or check " +
+                          "--report) to see what they are.[/]";
+                    AnsiConsole.Write(new Panel(new Markup(guidance))
+                    {
+                        Border = BoxBorder.Rounded,
+                        BorderStyle = new Style(theme.Warning),
+                        Padding = new Padding(1, 0)
+                    });
+                }
 
                 // Generate report if requested
                 if (report != null)

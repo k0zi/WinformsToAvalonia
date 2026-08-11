@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -46,12 +47,57 @@ public class CodeBehindMembers(
 public static class CodeBehindMemberExtractor
 {
     /// <summary>
-    /// Extracts every field declaration and every non-handler, non-override method from
+    /// Well-known System.Windows.Forms.Control/Form virtual/protected method names - an
+    /// "override" with one of these names is (almost certainly) a genuine WinForms
+    /// lifecycle/rendering hook with no clean ViewModel equivalent (different rendering model,
+    /// raw Win32 message plumbing, etc.), so it's excluded from migration. An "override" whose
+    /// name is NOT on this list is (almost certainly) the project's own base class member
+    /// instead - e.g. a shared "DetailFormBase&lt;T&gt;.SaveToEntity()" abstract method a
+    /// concrete Form overrides - i.e. ordinary business logic that merely happens to use the
+    /// "override" keyword, and gets migrated like any other helper method. Best-effort, not
+    /// exhaustive: a real WinForms override name missing from this list would be migrated as
+    /// live code and might not compile - the same "verify this compiles" risk this codebase
+    /// already accepts for every other live-code migration path.
+    /// </summary>
+    private static readonly HashSet<string> KnownWinFormsOverrideMethodNames = new(StringComparer.Ordinal)
+    {
+        // Mouse
+        "OnClick", "OnDoubleClick", "OnMouseClick", "OnMouseDoubleClick", "OnMouseDown", "OnMouseUp",
+        "OnMouseMove", "OnMouseEnter", "OnMouseLeave", "OnMouseHover", "OnMouseWheel", "OnMouseCaptureChanged",
+        // Keyboard
+        "OnKeyDown", "OnKeyUp", "OnKeyPress", "OnPreviewKeyDown",
+        // Focus / validation
+        "OnGotFocus", "OnLostFocus", "OnEnter", "OnLeave", "OnValidating", "OnValidated",
+        // Paint / rendering
+        "OnPaint", "OnPaintBackground", "OnInvalidated",
+        // Layout / geometry
+        "OnResize", "OnSizeChanged", "OnClientSizeChanged", "OnLocationChanged", "OnMove", "OnLayout",
+        "OnDockChanged", "OnAnchorChanged",
+        // Appearance / state change notifications
+        "OnTextChanged", "OnEnabledChanged", "OnVisibleChanged", "OnBackColorChanged", "OnForeColorChanged",
+        "OnFontChanged", "OnCursorChanged", "OnStyleChanged",
+        // Handle / control lifecycle
+        "OnHandleCreated", "OnHandleDestroyed", "OnCreateControl", "OnControlAdded", "OnControlRemoved",
+        "OnParentChanged",
+        // Form lifecycle
+        "OnLoad", "OnShown", "OnActivated", "OnDeactivate", "OnClosing", "OnClosed",
+        "OnFormClosing", "OnFormClosed",
+        // Drag and drop
+        "OnDragEnter", "OnDragOver", "OnDragLeave", "OnDragDrop", "OnGiveFeedback", "OnQueryContinueDrag",
+        // Misc Win32 / framework plumbing
+        "OnScroll", "OnNotifyMessage", "OnHelpRequested", "Dispose", "ProcessCmdKey", "ProcessDialogKey",
+        "ProcessKeyPreview", "ProcessMnemonic", "WndProc", "IsInputKey", "IsInputChar", "DefWndProc",
+    };
+
+    /// <summary>
+    /// Extracts every field declaration and every non-handler method from
     /// <paramref name="codeBehindFilePath"/>. Methods whose name appears in
     /// <paramref name="handlerMethodNames"/> are skipped (EventHandlerBodyParser already owns
-    /// those); methods marked "override" (e.g. OnClosing/OnLoad lifecycle hooks) are skipped
-    /// from HelperMethods and reported in SkippedOverrideMethodNames instead, since they're
-    /// typically Form/Control-lifecycle-tied and have no clean ViewModel equivalent.
+    /// those). A method marked "override" whose name is a known WinForms Control/Form virtual
+    /// method (see KnownWinFormsOverrideMethodNames) is skipped from HelperMethods and reported
+    /// in SkippedOverrideMethodNames instead; any other override is treated as ordinary
+    /// business logic (the project's own base class member) and migrated into HelperMethods
+    /// with "override" stripped - there's nothing to override in the ViewModel's own hierarchy.
     /// </summary>
     public static async Task<CodeBehindMembers> ExtractAsync(
         string codeBehindFilePath, IReadOnlySet<string> handlerMethodNames)
@@ -98,7 +144,16 @@ public static class CodeBehindMemberExtractor
 
                 if (method.Modifiers.Any(m => m.IsKind(SyntaxKind.OverrideKeyword)))
                 {
-                    skippedOverrides.Add(name);
+                    if (KnownWinFormsOverrideMethodNames.Contains(name))
+                    {
+                        skippedOverrides.Add(name);
+                        continue;
+                    }
+
+                    if (!helperMethods.ContainsKey(name))
+                    {
+                        helperMethods[name] = StripOverrideModifier(method.ToString().Trim());
+                    }
                     continue;
                 }
 
@@ -116,4 +171,12 @@ public static class CodeBehindMemberExtractor
 
         return new CodeBehindMembers(fields, helperMethods, skippedOverrides, usingDirectives);
     }
+
+    /// <summary>
+    /// Removes the "override" modifier token from a full method-source string - there's
+    /// nothing to override in the ViewModel's own class hierarchy once a project-local base
+    /// class member is migrated there as ordinary business logic.
+    /// </summary>
+    private static string StripOverrideModifier(string methodSource) =>
+        Regex.Replace(methodSource, @"\boverride\s+", "", RegexOptions.None, TimeSpan.FromSeconds(1));
 }

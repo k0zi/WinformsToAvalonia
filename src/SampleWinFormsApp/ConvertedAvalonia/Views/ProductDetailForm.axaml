@@ -58,6 +58,8 @@
 
                         <TextBlock Name="skuLabel"
                         Text="SKU:"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
                         Grid.Column="0"
                         Grid.Row="0" />
                         <TextBox Name="skuTextBox"
@@ -66,6 +68,8 @@
                         Grid.Row="0" />
                         <TextBlock Name="nameLabel"
                         Text="Name:"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
                         Grid.Column="0"
                         Grid.Row="1" />
                         <TextBox Name="nameTextBox"
@@ -74,6 +78,8 @@
                         Grid.Row="1" />
                         <TextBlock Name="descriptionLabel"
                         Text="Description:"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
                         Grid.Column="0"
                         Grid.Row="2" />
                         <TextBox Name="descriptionTextBox"
@@ -82,6 +88,8 @@
                         Grid.Row="2" />
                         <TextBlock Name="categoryLabel"
                         Text="Category:"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
                         Grid.Column="0"
                         Grid.Row="3" />
                         <ComboBox Name="categoryComboBox"
@@ -90,6 +98,8 @@
                         Grid.Row="3" />
                         <TextBlock Name="supplierLabel"
                         Text="Supplier:"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
                         Grid.Column="0"
                         Grid.Row="4" />
                         <ComboBox Name="supplierComboBox"
@@ -98,6 +108,8 @@
                         Grid.Row="4" />
                         <TextBlock Name="unitOfMeasureLabel"
                         Text="Unit:"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
                         Grid.Column="0"
                         Grid.Row="5" />
                         <ComboBox Name="unitOfMeasureDomainUpDown"
@@ -107,6 +119,8 @@
                         Grid.Row="5" />
                         <TextBlock Name="unitPriceLabel"
                         Text="Unit Price ($):"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
                         Grid.Column="0"
                         Grid.Row="6" />
                         <NumericUpDown Name="unitPriceNumericUpDown"
@@ -117,6 +131,8 @@
                         Grid.Row="6" />
                         <TextBlock Name="reorderLevelLabel"
                         Text="Reorder Level:"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
                         Grid.Column="0"
                         Grid.Row="7" />
                         <NumericUpDown Name="reorderLevelNumericUpDown"
@@ -138,7 +154,8 @@
         Grid.Row="0"
         Grid.Column="1"
         Width="120"
-        Height="120" />
+        Height="120"
+        BorderThickness="1" />
         <Button Name="chooseImageButton"
         Grid.Row="1"
         Grid.Column="1"

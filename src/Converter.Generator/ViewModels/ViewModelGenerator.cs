@@ -154,6 +154,31 @@ public class ViewModelGenerator
             memberNames.Add(command.MethodName);
         }
 
+        foreach (var hook in ExtractPropertyChangedHooks(root))
+        {
+            string? originalSource = null;
+            var hasOriginalSource = handlerBodies != null &&
+                handlerBodies.TryGetValue(hook.OriginalHandlerMethodName, out originalSource);
+            if (!hasOriginalSource)
+            {
+                // No body to migrate - fall through to the "RequiresCustomLogic" manual step
+                // ConversionOrchestrator.CollectManualStepsRecursive emits for this case instead
+                // of emitting an empty/TODO hook here.
+                continue;
+            }
+
+            // CommunityToolkit.Mvvm's source generator always declares this hook's partial
+            // signature as plain "partial void" (never async) - an "async" implementation is
+            // legal C# (partial method halves only need matching name/params/return type, not
+            // matching async-ness) but muddies a feature that's already best-effort, so this
+            // intentionally does not add an async modifier even if the original handler had one.
+            sb.AppendLine($"    partial void On{hook.BoundPropertyName}Changed({hook.ParameterType} value)");
+            var body = EventHandlerBodyParser.ExtractBodyText(originalSource!);
+            sb.AppendLine("    " + IndentContinuationLines(body));
+            sb.AppendLine();
+            memberNames.Add($"On{hook.BoundPropertyName}Changed");
+        }
+
         sb.AppendLine("}");
 
         return new EditableClassContent(sb.ToString(), memberNames);
@@ -246,6 +271,56 @@ public class ViewModelGenerator
         foreach (var child in control.Children)
         {
             ExtractCommandsRecursive(child, commands, overrides);
+        }
+    }
+
+    /// <summary>
+    /// Finds TextChanged/ValueChanged/CheckedChanged handlers whose control has a matching
+    /// DataBindings entry (see EventMappingRegistry.FindBoundPropertyName) - these are
+    /// automatable as a CommunityToolkit property-changed hook instead of staying a manual
+    /// step, since the property is already an [ObservableProperty] in the .g.cs partial.
+    /// </summary>
+    private List<PropertyChangedHookInfo> ExtractPropertyChangedHooks(ControlNode root)
+    {
+        var hooks = new List<PropertyChangedHookInfo>();
+        ExtractPropertyChangedHooksRecursive(root, hooks);
+        return hooks.DistinctBy(h => h.BoundPropertyName).ToList();
+    }
+
+    private void ExtractPropertyChangedHooksRecursive(ControlNode control, List<PropertyChangedHookInfo> hooks)
+    {
+        foreach (var (eventName, handlerName) in control.EventHandlers)
+        {
+            if (handlerName == WinFormsParser.InlineLambdaHandlerMarker)
+            {
+                continue;
+            }
+
+            var boundPropertyName = EventMappingRegistry.FindBoundPropertyName(control, eventName);
+            if (boundPropertyName == null)
+            {
+                continue;
+            }
+
+            var winFormsPropertyName = eventName switch
+            {
+                "TextChanged" => "Text",
+                "ValueChanged" => "Value",
+                "CheckedChanged" => "Checked",
+                _ => "Text"
+            };
+
+            hooks.Add(new PropertyChangedHookInfo
+            {
+                OriginalHandlerMethodName = handlerName,
+                BoundPropertyName = boundPropertyName,
+                ParameterType = InferPropertyType(winFormsPropertyName)
+            });
+        }
+
+        foreach (var child in control.Children)
+        {
+            ExtractPropertyChangedHooksRecursive(child, hooks);
         }
     }
 
@@ -346,23 +421,26 @@ public class ViewModelGenerator
     }
 
     /// <summary>
-    /// Migrated fields/helper methods are "private" (explicit or implicit) in the original
-    /// WinForms code-behind class. Re-emitted verbatim as "private" here, CodeBehindGenerator's
-    /// "ViewModel.someField" accessor rewrite (a different class, in a different file) would
-    /// not compile - private members aren't visible cross-class even through a typed property.
-    /// Upgrading to "internal" (same assembly, so still safely reachable) fixes that. Only ever
-    /// applied to migrated fields/helper methods - freshly generated [RelayCommand] methods
-    /// stay "private" exactly as before, since code-behind never calls them directly (AXAML
-    /// binds through the source-generator's ICommand property instead).
+    /// Migrated fields/helper methods are "private" or "protected" (explicit or implicit) in
+    /// the original WinForms code-behind class (a migrated business-logic override - see
+    /// CodeBehindMemberExtractor.KnownWinFormsOverrideMethodNames - is commonly "protected
+    /// override"). Re-emitted verbatim here, CodeBehindGenerator's "ViewModel.someField"
+    /// accessor rewrite (a different class, in a different file) would not compile - neither
+    /// "private" nor "protected" members are visible cross-class through a typed property
+    /// (protected only reaches derived classes, which this isn't). Upgrading to "internal"
+    /// (same assembly, so still safely reachable) fixes that. Only ever applied to migrated
+    /// fields/helper methods - freshly generated [RelayCommand] methods stay "private" exactly
+    /// as before, since code-behind never calls them directly (AXAML binds through the
+    /// source-generator's ICommand property instead).
     /// </summary>
     private static string EnsureInternalAccessibility(string declarationText)
     {
-        if (Regex.IsMatch(declarationText, @"^\s*private\b"))
+        if (Regex.IsMatch(declarationText, @"^\s*(private|protected)\b"))
         {
-            return Regex.Replace(declarationText, @"^\s*private\b", "internal");
+            return Regex.Replace(declarationText, @"^\s*(private|protected)\b", "internal");
         }
 
-        if (Regex.IsMatch(declarationText, @"^\s*(public|protected|internal)\b"))
+        if (Regex.IsMatch(declarationText, @"^\s*(public|internal)\b"))
         {
             return declarationText;
         }
@@ -394,5 +472,12 @@ public class ViewModelGenerator
         public required string CommandName { get; init; }
         public bool HasParameter { get; init; }
         public string ParameterType { get; init; } = "object";
+    }
+
+    private record PropertyChangedHookInfo
+    {
+        public required string OriginalHandlerMethodName { get; init; }
+        public required string BoundPropertyName { get; init; }
+        public required string ParameterType { get; init; }
     }
 }

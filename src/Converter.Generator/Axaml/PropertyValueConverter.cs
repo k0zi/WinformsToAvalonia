@@ -36,6 +36,11 @@ public static class PropertyValueConverter
                 "Padding" or "Margin" => TryConvertThickness(mapping, rawValue),
                 "CanResize" => TryConvertFormBorderStyle(rawValue),
                 "WindowState" => TryConvertWindowState(mapping, rawValue),
+                "MinWidth,MinHeight" => TryConvertMinMaxSize(rawValue, "MinWidth", "MinHeight"),
+                "MaxWidth,MaxHeight" => TryConvertMinMaxSize(rawValue, "MaxWidth", "MaxHeight"),
+                "HorizontalContentAlignment,VerticalContentAlignment" => TryConvertContentAlignment(rawValue),
+                "BorderBrush,BorderThickness" => TryConvertControlBorderStyle(rawValue),
+                "HorizontalAlignment,VerticalAlignment" => TryConvertAutoSize(rawValue),
                 _ => null
             };
         }
@@ -177,6 +182,115 @@ public static class PropertyValueConverter
             ("Width", match.Groups["width"].Value),
             ("Height", match.Groups["height"].Value)
         ];
+    }
+
+    /// <summary>
+    /// MinimumSize/MaximumSize are both "new Size(w, h)", exactly like Size itself - only the
+    /// target attribute names differ (MinWidth/MinHeight vs MaxWidth/MaxHeight), so this reuses
+    /// SizePattern rather than duplicating it.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertMinMaxSize(
+        string rawValue, string widthAttribute, string heightAttribute)
+    {
+        var match = SizePattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return
+        [
+            (widthAttribute, match.Groups["width"].Value),
+            (heightAttribute, match.Groups["height"].Value)
+        ];
+    }
+
+    private static readonly Regex ContentAlignmentPattern = new(@"ContentAlignment\.(?<value>[A-Za-z]+)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// WinForms ContentAlignment is a single 9-value enum (Top/Middle/Bottom x Left/Center/
+    /// Right combined into one name, e.g. "MiddleCenter") - Avalonia splits horizontal/vertical
+    /// content alignment into two separate properties.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertContentAlignment(string rawValue)
+    {
+        var match = ContentAlignmentPattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var (horizontal, vertical) = match.Groups["value"].Value switch
+        {
+            "TopLeft" => ("Left", "Top"),
+            "TopCenter" => ("Center", "Top"),
+            "TopRight" => ("Right", "Top"),
+            "MiddleLeft" => ("Left", "Center"),
+            "MiddleCenter" => ("Center", "Center"),
+            "MiddleRight" => ("Right", "Center"),
+            "BottomLeft" => ("Left", "Bottom"),
+            "BottomCenter" => ("Center", "Bottom"),
+            "BottomRight" => ("Right", "Bottom"),
+            _ => (null, null)
+        };
+
+        if (horizontal == null)
+        {
+            return null;
+        }
+
+        return
+        [
+            ("HorizontalContentAlignment", horizontal),
+            ("VerticalContentAlignment", vertical!)
+        ];
+    }
+
+    private static readonly Regex ControlBorderStylePattern = new(@"BorderStyle\.(?<value>[A-Za-z0-9]+)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// A plain control's System.Windows.Forms.BorderStyle (None/FixedSingle/Fixed3D) - distinct
+    /// from FormBorderStyle (see TryConvertFormBorderStyle), which has its own richer enum and
+    /// already-registered converter under a different PropertyMappingRegistry key ("CanResize"),
+    /// so Convert's switch already routes each to the right method - no ambiguity to resolve
+    /// here despite both raw values containing the substring "BorderStyle.". No BorderBrush is
+    /// emitted - there's no color to infer from the WinForms value, and AxamlGenerator
+    /// tolerates a partial attribute set.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertControlBorderStyle(string rawValue)
+    {
+        var match = ControlBorderStylePattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return match.Groups["value"].Value switch
+        {
+            "None" => [("BorderThickness", "0")],
+            "FixedSingle" or "Fixed3D" => [("BorderThickness", "1")],
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// WinForms AutoSize is about content-based sizing, not alignment - despite
+    /// PropertyMappingRegistry's AutoSize entry targeting "HorizontalAlignment,
+    /// VerticalAlignment" (a pre-existing, slightly-mismatched mapping target this method just
+    /// works with rather than renaming). AutoSize=true needs no explicit attribute at all in
+    /// the common case: an Avalonia control with no Width/Height set already sizes to its
+    /// content, matching WinForms' behavior - recognized-but-no-attribute, same precedent as
+    /// Dock="Fill". AutoSize=false has no single clean equivalent here (disabling auto-size
+    /// needs explicit dimensions this property alone doesn't carry) - falls through to null so
+    /// the "Custom Property Logic" manual step still fires for that case.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertAutoSize(string rawValue)
+    {
+        return rawValue.Trim() switch
+        {
+            "true" => [],
+            _ => null
+        };
     }
 
     // WinForms Padding's 4-arg constructor is (left, top, right, bottom) - the exact order

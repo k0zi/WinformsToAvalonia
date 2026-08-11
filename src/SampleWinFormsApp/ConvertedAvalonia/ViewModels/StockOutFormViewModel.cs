@@ -82,6 +82,18 @@ public partial class StockOutFormViewModel : CommunityToolkit.Mvvm.ComponentMode
         }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void removeLineButtonClickInlineHandler()
+    {
+        this.RemoveSelectedLine();
+    }
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private async void postButtonClickInlineHandler()
+    {
+        await this.PostIssueAsync();
+    }
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
     private void addLineButtonClick()
     {
             if (productComboBox.SelectedItem is not Product product || warehouseComboBox.SelectedItem is not Warehouse warehouse)

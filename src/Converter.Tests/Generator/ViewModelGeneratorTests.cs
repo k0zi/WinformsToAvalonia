@@ -118,6 +118,28 @@ public class ViewModelGeneratorTests
     }
 
     [Fact]
+    public void BuildEditableClass_MigratesProtectedHelperMethod_UpgradesToInternal()
+    {
+        // A migrated business-logic override (see CodeBehindMemberExtractor.
+        // KnownWinFormsOverrideMethodNames) is commonly "protected" (with "override" already
+        // stripped by the extractor by the time it reaches here) - "protected" isn't reachable
+        // from CodeBehindGenerator's "ViewModel.X" accessor rewrite (a different class), so it
+        // needs the same private->internal upgrade treatment.
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var codeBehindMembers = new CodeBehindMembers(
+            helperMethods: new Dictionary<string, string>
+            {
+                ["SaveToEntity"] = "protected void SaveToEntity()\n{\n    Entity.Name = nameTextBox.Text;\n}"
+            });
+
+        var output = new ViewModelGenerator().BuildEditableClass(
+            root, "SampleApp", "Form1", codeBehindMembers: codeBehindMembers).Source;
+
+        Assert.Contains("internal void SaveToEntity()", output);
+        Assert.DoesNotContain("protected void SaveToEntity", output);
+    }
+
+    [Fact]
     public async Task BuildEditableClass_HandlerBodyFound_UsesLiveBodyNotComment()
     {
         var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
@@ -248,5 +270,43 @@ public class ViewModelGeneratorTests
             root, "SampleApp", "Form1", codeBehindMembers: codeBehindMembers).Source;
 
         Assert.Single(output.Split('\n'), line => line.Trim() == "using System.Linq;");
+    }
+
+    [Fact]
+    public void BuildEditableClass_TextChangedWithBoundProperty_EmitsLivePropertyChangedHook()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var textBox = new ControlNode { ControlType = "TextBox", FullTypeName = "System.Windows.Forms.TextBox", Name = "textBox1" };
+        textBox.EventHandlers["TextChanged"] = "textBox1_TextChanged";
+        textBox.DataBindings.Add(new DataBinding { PropertyName = "Text", DataSource = "bindingSource1", DataMember = "CustomerName" });
+        root.Children.Add(textBox);
+
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["textBox1_TextChanged"] = "private void textBox1_TextChanged(object sender, System.EventArgs e)\n{\n    Validate();\n}"
+        };
+
+        var output = new ViewModelGenerator().BuildEditableClass(root, "SampleApp", "Form1", handlerBodies: handlerBodies).Source;
+
+        Assert.Contains("partial void OnCustomerNameChanged(string value)", output);
+        Assert.Contains("Validate();", output);
+    }
+
+    [Fact]
+    public void BuildEditableClass_TextChangedWithoutBoundProperty_EmitsNoHook()
+    {
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "Form1" };
+        var textBox = new ControlNode { ControlType = "TextBox", FullTypeName = "System.Windows.Forms.TextBox", Name = "textBox1" };
+        textBox.EventHandlers["TextChanged"] = "textBox1_TextChanged";
+        root.Children.Add(textBox);
+
+        var handlerBodies = new Dictionary<string, string>
+        {
+            ["textBox1_TextChanged"] = "private void textBox1_TextChanged(object sender, System.EventArgs e)\n{\n    Validate();\n}"
+        };
+
+        var output = new ViewModelGenerator().BuildEditableClass(root, "SampleApp", "Form1", handlerBodies: handlerBodies).Source;
+
+        Assert.DoesNotContain("partial void", output);
     }
 }

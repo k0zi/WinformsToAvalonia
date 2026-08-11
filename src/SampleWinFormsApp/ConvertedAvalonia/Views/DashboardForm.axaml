@@ -6,6 +6,8 @@
 
         Width="1100"
         Height="700"
+        MinWidth="900"
+        MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Title="Dashboard — WarehouseApp"
         WindowState="Maximized"        >
@@ -45,6 +47,8 @@
                 <TextBlock Name="capacityLabel"
                 Text="Overall Capacity"
                 DockPanel.Dock="Top"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center"
                 FontFamily="Segoe UI"
                 FontSize="9" />
             </DockPanel>
