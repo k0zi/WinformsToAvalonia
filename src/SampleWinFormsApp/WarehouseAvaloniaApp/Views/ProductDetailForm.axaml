@@ -168,6 +168,7 @@
         Grid.Column="1"
         Content="Choose Image..."
         Width="120"
-        Height="28" />
+        Height="28"
+        Click="chooseImageButton_Click" />
     </Grid>
 </Window>

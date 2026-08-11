@@ -65,10 +65,9 @@ public partial class DashboardFormViewModel : CommunityToolkit.Mvvm.ComponentMod
             Environment.Exit(0);
         }
 
-    internal void aboutMenuItem_Click(object? sender, EventArgs e)
+    internal async void aboutMenuItem_Click(object? sender, EventArgs e)
         {
-            using var settings = new SettingsForm();
-            settings.ShowDialog(this);
+            await WarehouseAvaloniaApp.Common.Dialogs.ShowChildAsync<WarehouseAvaloniaApp.Views.SettingsForm, WarehouseAvaloniaApp.ViewModels.SettingsFormViewModel>();
         }
 
 }

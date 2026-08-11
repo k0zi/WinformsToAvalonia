@@ -30,6 +30,9 @@ public class CodeBehindGenerator
     /// converter's current default generated-project target) - the only entries that currently
     /// differ by version are GotFocus/LostFocus.
     /// </summary>
+    private static readonly HashSet<string> EmptyCommandFallback = [];
+    private static readonly HashSet<string> EmptyFormClassNames = [];
+
     public string Generate(
         string namespaceName, string className, ControlNode root,
         IReadOnlyDictionary<string, string>? handlerBodies = null,
@@ -38,10 +41,14 @@ public class CodeBehindGenerator
         CodeBehindMembers? codeBehindMembers = null,
         string viewModelSuffix = "ViewModel",
         IReadOnlyList<CustomControlProperty>? bindableProperties = null,
-        IReadOnlyList<DelegatingCustomControlProperty>? delegatingProperties = null)
+        IReadOnlyList<DelegatingCustomControlProperty>? delegatingProperties = null,
+        IReadOnlySet<string>? commandFallbackHandlerNames = null,
+        IReadOnlySet<string>? convertedFormClassNames = null)
     {
         overrides ??= PluginMappingOverrides.Empty;
         codeBehindMembers ??= CodeBehindMembers.Empty;
+        commandFallbackHandlerNames ??= EmptyCommandFallback;
+        convertedFormClassNames ??= EmptyFormClassNames;
         var sb = new StringBuilder();
 
         // Using statements
@@ -136,7 +143,7 @@ public class CodeBehindGenerator
             .ToList();
 
         var handlers = new List<(string AvaloniaEvent, string HandlerName)>();
-        CollectPreservedHandlers(root, overrides, handlers);
+        CollectPreservedHandlers(root, overrides, handlers, commandFallbackHandlerNames);
 
         foreach (var (avaloniaEvent, handlerName) in handlers.DistinctBy(h => h.HandlerName))
         {
@@ -157,6 +164,15 @@ public class CodeBehindGenerator
                 var transpiled = MessageBoxTranspiler.Transpile(body, namespaceName);
                 body = transpiled.TransformedBody;
                 addedAwait = transpiled.AddedAwait;
+
+                // Same "recognize a fixed shape, rewrite it" treatment as ViewModelGenerator:
+                // a modeless `var child = new T(); child.ShowDialog();` open of another form
+                // that this run also converted becomes the generated Dialogs.ShowChildAsync
+                // helper, with its await folded into the stub's async modifier below.
+                var childDialogTranspiled = ChildDialogTranspiler.Transpile(
+                    body, namespaceName, convertedFormClassNames: convertedFormClassNames);
+                body = childDialogTranspiled.TransformedBody;
+                addedAwait |= childDialogTranspiled.AddedAwait;
             }
 
             // Mirrors ViewModelGenerator's same handling: WinForms event handlers are commonly
@@ -217,8 +233,21 @@ public class CodeBehindGenerator
         }
     }
 
+    /// <summary>
+    /// Collects every handler this file must emit a stub for: PreserveEventHandler events
+    /// (MouseDown/KeyDown/...) plus - the single-view-path safety valve counterpart to
+    /// ViewModelGenerator.FindDowngradedCommandHandlerNames - ConvertToCommand events whose
+    /// handler was downgraded back to code-behind because its migrated body references
+    /// View-only controls it cannot reach from the ViewModel (see that method for the
+    /// detection; <paramref name="commandFallbackHandlerNames"/> is its shared output). Both
+    /// kinds get the same body-migration treatment, and AxamlGenerator wires an event
+    /// attribute for both, so the stub is reachable rather than dead code. Skipped when a
+    /// plugin has already claimed the event (mirrors CollectManualSteps' same check) - v1
+    /// scope covers only the static EventMappingRegistry path.
+    /// </summary>
     private static void CollectPreservedHandlers(
-        ControlNode control, PluginMappingOverrides overrides, List<(string, string)> handlers)
+        ControlNode control, PluginMappingOverrides overrides, List<(string, string)> handlers,
+        IReadOnlySet<string> commandFallbackHandlerNames)
     {
         foreach (var (eventName, handlerName) in control.EventHandlers)
         {
@@ -238,12 +267,19 @@ public class CodeBehindGenerator
             if (mapping?.PreserveEventHandler == true)
             {
                 handlers.Add((mapping.AvaloniaEvent, handlerName));
+                continue;
+            }
+
+            if (EventMappingRegistry.ShouldConvertToCommand(eventName) &&
+                commandFallbackHandlerNames.Contains(handlerName))
+            {
+                handlers.Add((mapping?.AvaloniaEvent ?? eventName, handlerName));
             }
         }
 
         foreach (var child in control.Children)
         {
-            CollectPreservedHandlers(child, overrides, handlers);
+            CollectPreservedHandlers(child, overrides, handlers, commandFallbackHandlerNames);
         }
     }
 }

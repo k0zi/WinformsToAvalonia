@@ -11,4 +11,13 @@ public partial class ProductDetailForm : Window
     }
 
     private WarehouseAvaloniaApp.ViewModels.ProductDetailFormViewModel ViewModel => (WarehouseAvaloniaApp.ViewModels.ProductDetailFormViewModel)DataContext!;
+
+    private void chooseImageButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+            if (openFileDialog.ShowDialog(this) == WarehouseAvaloniaApp.Common.DialogResult.OK)
+            {
+                Entity.ImagePath = openFileDialog.FileName;
+                productPictureBox.Image = Image.FromFile(openFileDialog.FileName);
+            }
+        }
 }

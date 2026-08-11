@@ -169,7 +169,8 @@
                 Grid.Column="3"
                 Content="Add Line"
                 Width="90"
-                Height="28" />
+                Height="28"
+                Click="addLineButton_Click" />
             </Grid>
         </Panel>
         <DataGrid Name="linesGrid"
@@ -184,6 +185,7 @@
         Grid.Column="1"
         Content="Print..."
         Width="100"
-        Height="28" />
+        Height="28"
+        Command="{Binding PrintButtonClickCommand}" />
     </Grid>
 </Window>

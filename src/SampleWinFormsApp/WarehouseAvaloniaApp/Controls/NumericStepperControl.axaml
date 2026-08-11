@@ -19,12 +19,14 @@
         DockPanel.Dock="Right"
         Width="32"
         PointerPressed="_incrementButton_MouseDown_InlineHandler"
-        PointerReleased="_incrementButton_MouseUp_InlineHandler" />
+        PointerReleased="_incrementButton_MouseUp_InlineHandler"
+        Command="{Binding IncrementButtonClickInlineHandlerCommand}" />
         <Button Name="_decrementButton"
         Content="−"
         DockPanel.Dock="Left"
         Width="32"
         PointerPressed="_decrementButton_MouseDown_InlineHandler"
-        PointerReleased="_decrementButton_MouseUp_InlineHandler" />
+        PointerReleased="_decrementButton_MouseUp_InlineHandler"
+        Command="{Binding DecrementButtonClickInlineHandlerCommand}" />
     </DockPanel>
 </UserControl>

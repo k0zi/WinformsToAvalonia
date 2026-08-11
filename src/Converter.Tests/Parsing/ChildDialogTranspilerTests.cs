@@ -187,4 +187,125 @@ public class ChildDialogTranspilerTests
         Assert.False(result.AddedAwait);
         Assert.Equal(fullMethod, result.TransformedBody);
     }
+
+    [Fact]
+    public void Transpile_ModelessShowDialog_ConvertedForm_BecomesAwaitShowChildAsync()
+    {
+        var body = """
+            {
+                using var dashboard = new DashboardForm();
+                dashboard.ShowDialog(this);
+                RefreshTotals();
+            }
+            """;
+
+        var result = ChildDialogTranspiler.Transpile(
+            body, "SampleApp",
+            convertedFormClassNames: new HashSet<string> { "DashboardForm" });
+
+        Assert.True(result.AddedAwait);
+        Assert.Contains(
+            "await SampleApp.Common.Dialogs.ShowChildAsync<SampleApp.Views.DashboardForm, SampleApp.ViewModels.DashboardFormViewModel>()",
+            result.TransformedBody);
+        Assert.DoesNotContain("dashboard", result.TransformedBody);
+        Assert.Contains("RefreshTotals();", result.TransformedBody);
+    }
+
+    [Fact]
+    public void Transpile_ModelessShowDialog_FormNotConverted_IsLeftUntouched()
+    {
+        // The generated ShowChildAsync<Views.T, ViewModels.TViewModel> reference only exists
+        // for forms this very run converts - opening anything else can't be rewritten safely.
+        var body = """
+            {
+                var other = new SomeExternalForm();
+                other.ShowDialog();
+            }
+            """;
+
+        var result = ChildDialogTranspiler.Transpile(
+            body, "SampleApp",
+            convertedFormClassNames: new HashSet<string> { "DashboardForm" });
+
+        Assert.False(result.AddedAwait);
+        Assert.Equal(body, result.TransformedBody);
+    }
+
+    [Fact]
+    public void Transpile_ModelessShowDialog_NoConvertedFormClassNamesPassed_IsLeftUntouched()
+    {
+        // Backwards compatibility: without the converted-form gate (e.g. a caller that has no
+        // knowledge of the whole conversion), the modeless rewrite must not fire at all.
+        var body = """
+            {
+                var dashboard = new DashboardForm();
+                dashboard.ShowDialog(this);
+            }
+            """;
+
+        var result = ChildDialogTranspiler.Transpile(body, "SampleApp");
+
+        Assert.False(result.AddedAwait);
+        Assert.Equal(body, result.TransformedBody);
+    }
+
+    [Fact]
+    public void Transpile_ModelessShowDialog_VariableUsedAfterwards_IsLeftUntouched()
+    {
+        // The local is doing real work after ShowDialog - dropping the declaration would
+        // destroy it, so the rewrite must not fire.
+        var body = """
+            {
+                var dashboard = new DashboardForm();
+                dashboard.ShowDialog(this);
+                Console.WriteLine(dashboard.Title);
+            }
+            """;
+
+        var result = ChildDialogTranspiler.Transpile(
+            body, "SampleApp",
+            convertedFormClassNames: new HashSet<string> { "DashboardForm" });
+
+        Assert.False(result.AddedAwait);
+        Assert.Equal(body, result.TransformedBody);
+    }
+
+    [Fact]
+    public void Transpile_ModelessShowDialog_ConstructorWithArguments_IsLeftUntouched()
+    {
+        var body = """
+            {
+                var dashboard = new DashboardForm(account);
+                dashboard.ShowDialog();
+            }
+            """;
+
+        var result = ChildDialogTranspiler.Transpile(
+            body, "SampleApp",
+            convertedFormClassNames: new HashSet<string> { "DashboardForm" });
+
+        Assert.False(result.AddedAwait);
+        Assert.Equal(body, result.TransformedBody);
+    }
+
+    [Fact]
+    public void Transpile_ModelessShowDialog_NonAdjacentStatements_IsLeftUntouched()
+    {
+        // The declaration and the ShowDialog call must be adjacent statements - anything
+        // between them means the local is used for real work before showing.
+        var body = """
+            {
+                var dashboard = new DashboardForm();
+                Configure(dashboard);
+                dashboard.ShowDialog();
+            }
+            """;
+
+        var result = ChildDialogTranspiler.Transpile(
+            body, "SampleApp",
+            convertedFormClassNames: new HashSet<string> { "DashboardForm" });
+
+        Assert.False(result.AddedAwait);
+        Assert.Equal(body, result.TransformedBody);
+    }
 }

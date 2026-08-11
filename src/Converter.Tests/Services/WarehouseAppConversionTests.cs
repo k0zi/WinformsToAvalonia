@@ -116,9 +116,21 @@ public class WarehouseAppConversionTests
             Assert.Contains("passwordTextBox", loginAxaml);
             Assert.Contains("loginButton", loginAxaml);
 
+            // loginButton_Click reads usernameTextBox/passwordTextBox/statusLabel directly, none
+            // of which have DataBindings entries (WarehouseApp uses no .DataBindings.Add) - the
+            // single-view-path safety valve downgrades such handlers back to code-behind, where
+            // the references are legal, and wires them as AXAML event attributes instead of
+            // Command bindings.
+            var loginCodeBehind = await File.ReadAllTextAsync(Path.Combine(viewsDir, "LoginForm.axaml.cs"));
+            Assert.Contains("loginButton_Click", loginCodeBehind);
+            Assert.Contains("usernameTextBox", loginCodeBehind);
+            Assert.Contains("statusLabel", loginCodeBehind);
+            Assert.Contains("Click=\"loginButton_Click\"", loginAxaml);
+            Assert.DoesNotContain("Command=\"{Binding", loginAxaml);
+
             var loginViewModel = await File.ReadAllTextAsync(
                 Path.Combine(viewModelsDir, "LoginFormViewModel.cs"));
-            Assert.Contains("RelayCommand", loginViewModel);
+            Assert.DoesNotContain("RelayCommand", loginViewModel);
         }
         finally
         {

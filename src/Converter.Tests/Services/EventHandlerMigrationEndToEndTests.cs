@@ -756,6 +756,13 @@ public class EventHandlerMigrationEndToEndTests
             Assert.Contains("Console.WriteLine(CustomerName);", vmContent);
             Assert.DoesNotContain("textBox1", vmContent);
 
+            // A command that survived migration gets a real Command binding in the AXAML, wired
+            // to the generated command property (button1_Click -> Button1ClickCommand).
+            var axamlContent = await File.ReadAllTextAsync(
+                Path.Combine(outputDir, "Views", "BoundRefForm.axaml"));
+            Assert.Contains("Command=\"{Binding Button1ClickCommand}\"", axamlContent);
+            Assert.DoesNotContain("Click=\"button1_Click\"", axamlContent);
+
             Assert.DoesNotContain(
                 result.Report!.ManualSteps, s => s.Category == "Command Logic References View-Only Control");
         }
@@ -805,7 +812,7 @@ public class EventHandlerMigrationEndToEndTests
         """;
 
     [Fact]
-    public async Task ExecuteAsync_CommandBodyReferencesUnboundControlProperty_SurfacedAsManualStep()
+    public async Task ExecuteAsync_CommandBodyReferencesUnboundControlProperty_DowngradedToCodeBehind()
     {
         var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
         var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
@@ -827,14 +834,31 @@ public class EventHandlerMigrationEndToEndTests
             Assert.True(result.Success, result.ErrorMessage);
 
             // label1 has no DataBindings entry, so there is nothing to rewrite this reference
-            // into - left as-is it wouldn't compile (the ViewModel has no "label1"), so this
-            // must be surfaced as an explicit manual step instead of silently failing to build.
-            var step = Assert.Single(
+            // into - left in the ViewModel it wouldn't compile (the ViewModel has no "label1").
+            // The single-view-path safety valve downgrades the whole handler back to code-behind
+            // (where the reference is legal) instead of leaving a silent compile failure, so no
+            // manual step is needed for it.
+            Assert.DoesNotContain(
                 result.Report!.ManualSteps, s => s.Category == "Command Logic References View-Only Control");
-            Assert.Contains("label1", step.Title);
 
-            var migrationGuide = await File.ReadAllTextAsync(Path.Combine(outputDir, "MIGRATION_GUIDE.md"));
-            Assert.Contains("Command Logic References View-Only Control", migrationGuide);
+            // The migrated body now lives in the code-behind stub under its original name...
+            var codeBehind = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "UnboundRefForm.axaml.cs"));
+            Assert.Contains("private void button1_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)", codeBehind);
+            Assert.Contains("Console.WriteLine(label1.Text);", codeBehind);
+
+            // ...and the AXAML wires it as a plain event attribute instead of a Command binding.
+            var axaml = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "UnboundRefForm.axaml"));
+            Assert.Contains("Click=\"button1_Click\"", axaml);
+            Assert.DoesNotContain("Command=\"{Binding", axaml);
+
+            // The ViewModel must NOT host a [RelayCommand] stub for it (nothing to bind to).
+            var vmContent = await File.ReadAllTextAsync(
+                Path.Combine(outputDir, "ViewModels", "UnboundRefFormViewModel.cs"));
+            Assert.DoesNotContain("RelayCommand", vmContent);
+            Assert.DoesNotContain("button1Click", vmContent);
+
+            // No bound property means no auto-generated .g.cs either.
+            Assert.False(File.Exists(Path.Combine(outputDir, "ViewModels", "UnboundRefFormViewModel.g.cs")));
         }
         finally
         {

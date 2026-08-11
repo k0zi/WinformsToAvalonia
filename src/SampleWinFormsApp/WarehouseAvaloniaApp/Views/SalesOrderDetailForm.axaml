@@ -189,7 +189,8 @@
                 Grid.Column="3"
                 Content="Add Line"
                 Width="90"
-                Height="28" />
+                Height="28"
+                Click="addLineButton_Click" />
             </Grid>
         </Panel>
         <DataGrid Name="linesGrid"

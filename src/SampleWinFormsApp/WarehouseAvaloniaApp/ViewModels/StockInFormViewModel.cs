@@ -96,25 +96,4 @@ public partial class StockInFormViewModel : CommunityToolkit.Mvvm.ComponentModel
         await this.PostReceiptAsync();
     }
 
-    [CommunityToolkit.Mvvm.Input.RelayCommand]
-    private async void addLineButtonClick()
-    {
-            if (productComboBox.SelectedItem is not Product product || warehouseComboBox.SelectedItem is not Warehouse warehouse)
-            {
-                return;
-            }
-    
-            var quantity = (int)quantityStepper.Value;
-            if (quantity <= 0)
-            {
-                await WarehouseAvaloniaApp.Common.Dialogs.ShowAsync("Quantity must be greater than zero.","Validation",WarehouseAvaloniaApp.Common.MessageBoxButtons.OK,WarehouseAvaloniaApp.Common.MessageBoxIcon.Warning);
-                return;
-            }
-    
-            var line = new PendingLine(product.Id, product.Name, warehouse.Id, warehouse.Name, quantity);
-            var rowIndex = LinesGrid.Add(line.ProductName, line.WarehouseName, line.Quantity);
-            LinesGrid[rowIndex].Tag = line;
-            Status = string.Empty;
-        }
-
 }

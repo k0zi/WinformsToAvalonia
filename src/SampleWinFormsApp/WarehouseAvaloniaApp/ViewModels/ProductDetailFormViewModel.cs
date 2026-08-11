@@ -113,14 +113,4 @@ public partial class ProductDetailFormViewModel : CommunityToolkit.Mvvm.Componen
             await ctx.SaveChangesAsync();
         }
 
-    [CommunityToolkit.Mvvm.Input.RelayCommand]
-    private void chooseImageButtonClick()
-    {
-            if (openFileDialog.ShowDialog(this) == WarehouseAvaloniaApp.Common.DialogResult.OK)
-            {
-                Entity.ImagePath = openFileDialog.FileName;
-                productPictureBox.Image = Image.FromFile(openFileDialog.FileName);
-            }
-        }
-
 }

@@ -1,6 +1,6 @@
 # Migration Guide: WarehouseAvaloniaApp
 
-**Generated**: 2026-08-12 00:05:07
+**Generated**: 2026-08-12 00:38:15
 **Converter Version**: 1.0.0
 
 ---
@@ -13,10 +13,10 @@ This document describes the migration of **WarehouseAvaloniaApp** from Windows F
 
 - **Total Controls**: 209
 - **Successfully Converted**: 209 (100%)
-- **Partial Conversions**: 0
-- **Placeholders**: 0
-- **Total Properties Mapped**: 0/0
-- **Events Converted to Commands**: 0
+- **Partial Conversions**: 88
+- **Placeholders**: 30
+- **Total Properties Mapped**: 604/1195
+- **Events Converted to Commands**: 10
 - **Styles Extracted**: 0
 
 ## Architectural Differences
@@ -350,140 +350,6 @@ The following items require manual attention:
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
   - Description: Controls/NumericStepperControl.axaml and its ViewModel were generated from this control's own Designer.cs. These properties set on this instance were not simple public auto-properties on NumericStepperControl (or not found at all) and were not carried over: Location, Minimum, Maximum, Value. Wire them up manually if needed.
 
-### Command Logic References View-Only Control
-
-- **addLineButton.Click handler "addLineButton_Click" references qtyNumericUpDown.Value**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
-
-- **SalesOrderDetailForm.LoadFromEntity references customerComboBox.DataSource, customerComboBox.DisplayMember, customerComboBox.ValueMember, warehouseComboBox.DataSource, warehouseComboBox.DisplayMember, warehouseComboBox.ValueMember, productSearchBox.DataSource, statusComboBox.DataSource, orderNumberValueLabel.Text, statusComboBox.SelectedIndexChanged**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **SalesOrderDetailForm.UpdateStatusBadge references statusBadge.Text, statusBadge.BadgeStyle**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **SalesOrderDetailForm.ValidateInput references customerComboBox.SelectedItem, warehouseComboBox.SelectedItem**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **loginButton.Click handler "loginButton_Click" references statusLabel.Text, usernameTextBox.Text, passwordTextBox.Text**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
-  - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
-
-- **LoginForm.SetBusy references loginProgressBar.Visible, loadingSpinner.Spinning, loginButton.Enabled, usernameTextBox.Enabled, passwordTextBox.Enabled**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **WarehousesForm.LoadTreeAsync references locationsTreeView.Nodes, locationsTreeView.ExpandAll**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **addLineButton.Click handler "addLineButton_Click" references qtyNumericUpDown.Value**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
-
-- **PurchaseOrderDetailForm.LoadFromEntity references supplierComboBox.DataSource, supplierComboBox.DisplayMember, supplierComboBox.ValueMember, productSearchBox.DataSource, statusComboBox.DataSource, statusComboBox.SelectedIndexChanged**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **PurchaseOrderDetailForm.UpdateStatusBadge references statusBadge.Text, statusBadge.BadgeStyle**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **PurchaseOrderDetailForm.ValidateInput references supplierComboBox.SelectedItem**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **PurchaseOrderDetailForm.PrintDocument_PrintPage references supplierComboBox.Text**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, warehouseComboBox.SelectedItem, quantityStepper.Value**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
-  - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
-
-- **StockInForm.LoadLookupsAsync references productComboBox.DataSource, productComboBox.DisplayMember, productComboBox.ValueMember, warehouseComboBox.DataSource, warehouseComboBox.DisplayMember, warehouseComboBox.ValueMember**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **StockInForm.RemoveSelectedLine references linesGrid.CurrentRow**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **StockInForm.PostReceiptAsync references postButton.Enabled, receiptDatePicker.Value**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, fromWarehouseComboBox.SelectedItem, toWarehouseComboBox.SelectedItem, quantityNumericUpDown.Value**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
-  - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
-
-- **StockTransferForm.LoadLookupsAsync references productComboBox.DataSource, productComboBox.DisplayMember, productComboBox.ValueMember, fromWarehouseComboBox.DataSource, fromWarehouseComboBox.DisplayMember, fromWarehouseComboBox.ValueMember, toWarehouseComboBox.DataSource, toWarehouseComboBox.DisplayMember, toWarehouseComboBox.ValueMember, toWarehouseComboBox.SelectedIndex**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **StockTransferForm.SwapWarehouses references fromWarehouseComboBox.SelectedValue, toWarehouseComboBox.SelectedValue**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **StockTransferForm.RemoveSelectedLine references linesGrid.CurrentRow**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **StockTransferForm.PostTransferAsync references postButton.Enabled**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **DashboardForm.RefreshCapacityAsync references capacityGauge.Value**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **chooseImageButton.Click handler "chooseImageButton_Click" references productPictureBox.Image**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
-  - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
-
-- **ProductDetailForm.LoadFromEntity references categoryComboBox.DataSource, categoryComboBox.DisplayMember, categoryComboBox.ValueMember, supplierComboBox.DataSource, supplierComboBox.DisplayMember, supplierComboBox.ValueMember, unitOfMeasureDomainUpDown.Items, unitOfMeasureDomainUpDown.SelectedIndex**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **ProductDetailForm.ValidateInput references categoryComboBox.SelectedItem, supplierComboBox.SelectedItem**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **ProductDetailForm.SaveToEntity references unitOfMeasureDomainUpDown.SelectedItem**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **addLineButton.Click handler "addLineButton_Click" references productComboBox.SelectedItem, warehouseComboBox.SelectedItem, quantityStepper.Value**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
-  - Description: This handler was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually (e.g. an AXAML-side binding).
-
-- **StockOutForm.LoadLookupsAsync references productComboBox.DataSource, productComboBox.DisplayMember, productComboBox.ValueMember, warehouseComboBox.DataSource, warehouseComboBox.DisplayMember, warehouseComboBox.ValueMember**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **StockOutForm.RemoveSelectedLine references linesGrid.CurrentRow**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **StockOutForm.PostIssueAsync references postButton.Enabled**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **AutocompleteSearchBox.ShowPopup references _textBox.Focus**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **AutocompleteSearchBox.CommitSelection references _textBox.SelectionStart**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
-- **NumericStepperControl.UpdateLabel references _valueLabel.Text**
-  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/NumericStepperControl.cs`
-  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
-
 ### Migrated Logic May Not Compile
 
 - **SalesOrderDetailForm.ValidateInput references WinForms type(s) with no Avalonia equivalent**
@@ -629,6 +495,112 @@ The following items require manual attention:
 - **AutocompleteSearchBox._popupList references WinForms type(s) with no Avalonia equivalent**
   - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
   - Description: This field was migrated as live code, but its declared type references ListBox - which have no Avalonia equivalent (a different UI/control model entirely). It will not compile as-is; review and redesign this field's type manually.
+
+### Command Logic References View-Only Control
+
+- **SalesOrderDetailForm.LoadFromEntity references customerComboBox.DataSource, customerComboBox.DisplayMember, customerComboBox.ValueMember, warehouseComboBox.DataSource, warehouseComboBox.DisplayMember, warehouseComboBox.ValueMember, productSearchBox.DataSource, statusComboBox.DataSource, orderNumberValueLabel.Text, statusComboBox.SelectedIndexChanged**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **SalesOrderDetailForm.UpdateStatusBadge references statusBadge.Text, statusBadge.BadgeStyle**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **SalesOrderDetailForm.ValidateInput references customerComboBox.SelectedItem, warehouseComboBox.SelectedItem**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/SalesOrderDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **LoginForm.SetBusy references loginProgressBar.Visible, loadingSpinner.Spinning, loginButton.Enabled, usernameTextBox.Enabled, passwordTextBox.Enabled**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/LoginForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **WarehousesForm.LoadTreeAsync references locationsTreeView.Nodes, locationsTreeView.ExpandAll**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/WarehousesForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **PurchaseOrderDetailForm.LoadFromEntity references supplierComboBox.DataSource, supplierComboBox.DisplayMember, supplierComboBox.ValueMember, productSearchBox.DataSource, statusComboBox.DataSource, statusComboBox.SelectedIndexChanged**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **PurchaseOrderDetailForm.UpdateStatusBadge references statusBadge.Text, statusBadge.BadgeStyle**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **PurchaseOrderDetailForm.ValidateInput references supplierComboBox.SelectedItem**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **PurchaseOrderDetailForm.PrintDocument_PrintPage references supplierComboBox.Text**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/PurchaseOrderDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockInForm.LoadLookupsAsync references productComboBox.DataSource, productComboBox.DisplayMember, productComboBox.ValueMember, warehouseComboBox.DataSource, warehouseComboBox.DisplayMember, warehouseComboBox.ValueMember**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockInForm.RemoveSelectedLine references linesGrid.CurrentRow**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockInForm.PostReceiptAsync references postButton.Enabled, receiptDatePicker.Value**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockInForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockTransferForm.LoadLookupsAsync references productComboBox.DataSource, productComboBox.DisplayMember, productComboBox.ValueMember, fromWarehouseComboBox.DataSource, fromWarehouseComboBox.DisplayMember, fromWarehouseComboBox.ValueMember, toWarehouseComboBox.DataSource, toWarehouseComboBox.DisplayMember, toWarehouseComboBox.ValueMember, toWarehouseComboBox.SelectedIndex**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockTransferForm.SwapWarehouses references fromWarehouseComboBox.SelectedValue, toWarehouseComboBox.SelectedValue**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockTransferForm.RemoveSelectedLine references linesGrid.CurrentRow**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockTransferForm.PostTransferAsync references postButton.Enabled**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockTransferForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **DashboardForm.RefreshCapacityAsync references capacityGauge.Value**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/DashboardForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **ProductDetailForm.LoadFromEntity references categoryComboBox.DataSource, categoryComboBox.DisplayMember, categoryComboBox.ValueMember, supplierComboBox.DataSource, supplierComboBox.DisplayMember, supplierComboBox.ValueMember, unitOfMeasureDomainUpDown.Items, unitOfMeasureDomainUpDown.SelectedIndex**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **ProductDetailForm.ValidateInput references categoryComboBox.SelectedItem, supplierComboBox.SelectedItem**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **ProductDetailForm.SaveToEntity references unitOfMeasureDomainUpDown.SelectedItem**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/ProductDetailForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockOutForm.LoadLookupsAsync references productComboBox.DataSource, productComboBox.DisplayMember, productComboBox.ValueMember, warehouseComboBox.DataSource, warehouseComboBox.DisplayMember, warehouseComboBox.ValueMember**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockOutForm.RemoveSelectedLine references linesGrid.CurrentRow**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **StockOutForm.PostIssueAsync references postButton.Enabled**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Forms/StockOutForm.Designer.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **AutocompleteSearchBox.ShowPopup references _textBox.Focus**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **AutocompleteSearchBox.CommitSelection references _textBox.SelectionStart**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/AutocompleteSearchBox.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
+
+- **NumericStepperControl.UpdateLabel references _valueLabel.Text**
+  - Location: `/home/k0zi/Develop/Sources/GitHub/WinformsToAvalonia/src/SampleWinFormsApp/WarehouseApp/Controls/NumericStepperControl.cs`
+  - Description: This helper method was migrated as live code into the ViewModel, but it reads/writes another control's property directly, and that property has no DataBindings.Add(...) entry to rewrite into an [ObservableProperty] - it will not compile as-is (the ViewModel cannot reference the View). Either add a DataBindings.Add(...) for it in the source WinForms designer so it is auto-bound on the next conversion, or wire this up manually.
 
 ### Custom Property Logic
 

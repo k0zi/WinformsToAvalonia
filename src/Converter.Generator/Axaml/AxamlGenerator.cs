@@ -14,6 +14,7 @@ public class AxamlGenerator
 {
     private static readonly HashSet<string> EmptyCustomControlClassNames = [];
     private static readonly Dictionary<(string ControlName, string Property), string> EmptyInferredBindings = [];
+    private static readonly HashSet<string> EmptyCommandFallback = [];
 
     /// <summary>
     /// True if any control in the tree is an unmapped custom control this run also converted
@@ -44,11 +45,13 @@ public class AxamlGenerator
         ControlNode root, LayoutAnalysisResult layoutInfo, string namespaceName, string className,
         PluginMappingOverrides? overrides = null,
         IReadOnlySet<string>? convertedCustomControlClassNames = null,
-        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null)
+        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null,
+        IReadOnlySet<string>? commandFallbackHandlerNames = null)
     {
         overrides ??= PluginMappingOverrides.Empty;
         convertedCustomControlClassNames ??= EmptyCustomControlClassNames;
         inferredBindings ??= EmptyInferredBindings;
+        commandFallbackHandlerNames ??= EmptyCommandFallback;
         var sb = new StringBuilder();
 
         // The root element mirrors the source WinForms class's real base type via the same
@@ -96,7 +99,7 @@ public class AxamlGenerator
         // sentinel here - the root element has no container of its own, so Canvas.Left/Top must
         // never leak onto it even if a Form.Location property happens to be present.
         WriteControlProperties(sb, root, LayoutType.Custom, indent: "        ", namespaceName, overrides, inferredBindings, effectiveRootControlType);
-        WriteEventAttributes(sb, root, indent: "        ", overrides);
+        WriteEventAttributes(sb, root, indent: "        ", overrides, commandFallbackHandlerNames);
         WriteDialogResultCloseAttribute(sb, root, indent: "        ");
 
         sb.AppendLine("        >");
@@ -108,34 +111,34 @@ public class AxamlGenerator
         sb.AppendLine();
 
         // Write content based on layout type
-        WriteLayoutContainer(sb, root, layoutInfo, "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+        WriteLayoutContainer(sb, root, layoutInfo, "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
 
         sb.AppendLine($"</{rootElement}>");
 
         return sb.ToString();
     }
 
-    private void WriteLayoutContainer(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteLayoutContainer(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         switch (layoutInfo.LayoutType)
         {
             case LayoutType.Grid:
-                WriteGridLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+                WriteGridLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
                 break;
             case LayoutType.StackPanel:
-                WriteStackPanelLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+                WriteStackPanelLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
                 break;
             case LayoutType.DockPanel:
-                WriteDockPanelLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+                WriteDockPanelLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
                 break;
             case LayoutType.Canvas:
             default:
-                WriteCanvasLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+                WriteCanvasLayout(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
                 break;
         }
     }
 
-    private void WriteGridLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteGridLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         sb.AppendLine($"{indent}<Grid>");
 
@@ -161,7 +164,7 @@ public class AxamlGenerator
         }
 
         // Write child controls
-        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
 
         sb.AppendLine($"{indent}</Grid>");
 
@@ -206,35 +209,35 @@ public class AxamlGenerator
             .DefaultIfEmpty(-1)
             .Max();
 
-    private void WriteStackPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteStackPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         var orientation = layoutInfo.Metadata.TryGetValue("Orientation", out var orientObj) &&
                          orientObj?.ToString() == "Horizontal" ? "Horizontal" : "Vertical";
 
         sb.AppendLine($"{indent}<StackPanel Orientation=\"{orientation}\">");
-        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
         sb.AppendLine($"{indent}</StackPanel>");
     }
 
-    private void WriteDockPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteDockPanelLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         sb.AppendLine($"{indent}<DockPanel>");
-        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
         sb.AppendLine($"{indent}</DockPanel>");
     }
 
-    private void WriteCanvasLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteCanvasLayout(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         sb.AppendLine($"{indent}<Canvas>");
-        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+        WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
         sb.AppendLine($"{indent}</Canvas>");
     }
 
-    private void WriteChildren(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteChildren(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         foreach (var child in OrderChildrenForStack(control.Children, layoutInfo))
         {
-            WriteControl(sb, child, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+            WriteControl(sb, child, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
         }
     }
 
@@ -263,11 +266,11 @@ public class AxamlGenerator
             .ToList();
     }
 
-    private void WriteControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         if (overrides.ControlMappings.TryGetValue(control, out var pluginMapping))
         {
-            WritePluginMappedControl(sb, control, pluginMapping, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+            WritePluginMappedControl(sb, control, pluginMapping, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
             return;
         }
 
@@ -287,17 +290,17 @@ public class AxamlGenerator
         }
         else
         {
-            WriteUnmappedControl(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+            WriteUnmappedControl(sb, control, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
             return;
         }
 
         if (TryGetBorderWrapThickness(control, avaloniaType, out var borderThickness))
         {
-            WriteBorderWrappedControl(sb, control, avaloniaType, borderThickness, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+            WriteBorderWrappedControl(sb, control, avaloniaType, borderThickness, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
             return;
         }
 
-        WriteMappedElement(sb, control, avaloniaType, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, includeGridPlacement: true);
+        WriteMappedElement(sb, control, avaloniaType, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames, includeGridPlacement: true);
     }
 
     /// <summary>
@@ -360,7 +363,8 @@ public class AxamlGenerator
     private void WriteBorderWrappedControl(
         StringBuilder sb, ControlNode control, string avaloniaType, string borderThickness, LayoutAnalysisResult layoutInfo,
         string indent, string namespaceName, PluginMappingOverrides overrides,
-        IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+        IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings,
+        IReadOnlySet<string> commandFallbackHandlerNames)
     {
         sb.Append($"{indent}<Border");
         WriteGridPlacementAttributes(sb, control, layoutInfo, indent);
@@ -369,7 +373,7 @@ public class AxamlGenerator
 
         WriteMappedElement(
             sb, control, avaloniaType, layoutInfo, indent + "    ", namespaceName, overrides,
-            convertedCustomControlClassNames, inferredBindings, includeGridPlacement: false);
+            convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames, includeGridPlacement: false);
 
         sb.AppendLine($"{indent}</Border>");
     }
@@ -377,7 +381,8 @@ public class AxamlGenerator
     private void WriteMappedElement(
         StringBuilder sb, ControlNode control, string avaloniaType, LayoutAnalysisResult layoutInfo, string indent,
         string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames,
-        IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, bool includeGridPlacement)
+        IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames,
+        bool includeGridPlacement)
     {
         sb.Append($"{indent}<{avaloniaType}");
 
@@ -395,7 +400,7 @@ public class AxamlGenerator
 
         // Write properties
         WriteControlProperties(sb, control, layoutInfo.LayoutType, indent, namespaceName, overrides, inferredBindings);
-        WriteEventAttributes(sb, control, indent, overrides);
+        WriteEventAttributes(sb, control, indent, overrides, commandFallbackHandlerNames);
         WriteDialogResultCloseAttribute(sb, control, indent);
 
         if (control.Children.Count > 0)
@@ -405,11 +410,11 @@ public class AxamlGenerator
             // Recursively write children if applicable
             if (layoutInfo.ChildLayouts.TryGetValue(control.Name, out var childLayout))
             {
-                WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+                WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
             }
             else
             {
-                WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+                WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
             }
 
             sb.AppendLine($"{indent}</{avaloniaType}>");
@@ -428,7 +433,7 @@ public class AxamlGenerator
     /// into the structured ManualStepInfo/migration-guide list - a reasonable follow-up once
     /// this base wiring has proven out).
     /// </summary>
-    private void WritePluginMappedControl(StringBuilder sb, ControlNode control, ControlMappingResult pluginMapping, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WritePluginMappedControl(StringBuilder sb, ControlNode control, ControlMappingResult pluginMapping, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         foreach (var manualStep in pluginMapping.ManualSteps)
         {
@@ -457,11 +462,11 @@ public class AxamlGenerator
 
             if (layoutInfo.ChildLayouts.TryGetValue(control.Name, out var childLayout))
             {
-                WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+                WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
             }
             else
             {
-                WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+                WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
             }
 
             sb.AppendLine($"{indent}</{avaloniaType}>");
@@ -477,7 +482,7 @@ public class AxamlGenerator
     /// branch - still recurses into its children wrapped in a plain Panel, so mapped
     /// descendants nested inside an unmapped custom/third-party container still render.
     /// </summary>
-    private void WriteUnmappedControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    private void WriteUnmappedControl(StringBuilder sb, ControlNode control, LayoutAnalysisResult layoutInfo, string indent, string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         sb.AppendLine($"{indent}<!-- TODO: Unmapped control: {control.ControlType} ({control.Name}) -->");
 
@@ -492,11 +497,11 @@ public class AxamlGenerator
 
         if (layoutInfo.ChildLayouts.TryGetValue(control.Name, out var childLayout))
         {
-            WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+            WriteLayoutContainer(sb, control, childLayout, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
         }
         else
         {
-            WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+            WriteChildren(sb, control, layoutInfo, indent + "    ", namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, commandFallbackHandlerNames);
         }
 
         sb.AppendLine($"{indent}</Panel>");
@@ -622,13 +627,21 @@ public class AxamlGenerator
     }
 
     /// <summary>
-    /// Wires PreserveEventHandler events (e.g. MouseDown/KeyDown) as AXAML event attributes
-    /// pointing at the original handler method name, so the stub CodeBehindGenerator emits
-    /// for it is actually reachable rather than dead code sitting unused. Skipped when a
-    /// plugin has already claimed the event (mirrors CollectManualSteps' same check) - v1
-    /// scope covers only the static EventMappingRegistry path.
+    /// Wires a control's events into AXAML, splitting by the same buckets
+    /// ViewModelGenerator/CodeBehindGenerator use so generated code is never dead:
+    /// - PreserveEventHandler events (e.g. MouseDown/KeyDown) become AXAML event attributes
+    ///   pointing at the original handler method name, which is the stub CodeBehindGenerator
+    ///   emits (see CollectPreservedHandlers) - reachable, not dead code.
+    /// - ConvertToCommand events (e.g. Click) normally become Command="{Binding ...}" against
+    ///   the source-generated [RelayCommand] property (naming shared with ViewModelGenerator via
+    ///   CommandNaming). But when the handler is in <paramref name="commandFallbackHandlerNames"/>
+    ///   - a migrated body that references View-only controls, so it was downgraded back to
+    ///   code-behind instead of living in the ViewModel (single-view-path safety valve) - the
+    ///   event attribute is emitted instead, wiring that same code-behind stub. Skipped when a
+    ///   plugin has already claimed the event (mirrors CollectManualSteps' same check) - v1
+    ///   scope covers only the static EventMappingRegistry path.
     /// </summary>
-    private void WriteEventAttributes(StringBuilder sb, ControlNode control, string indent, PluginMappingOverrides overrides)
+    private void WriteEventAttributes(StringBuilder sb, ControlNode control, string indent, PluginMappingOverrides overrides, IReadOnlySet<string> commandFallbackHandlerNames)
     {
         foreach (var (eventName, handlerName) in control.EventHandlers)
         {
@@ -645,12 +658,25 @@ public class AxamlGenerator
             }
 
             var mapping = EventMappingRegistry.GetMapping(eventName);
-            if (mapping?.PreserveEventHandler != true)
+            if (mapping?.PreserveEventHandler == true)
             {
+                AppendAttribute(sb, indent, mapping.AvaloniaEvent, handlerName);
                 continue;
             }
 
-            AppendAttribute(sb, indent, mapping.AvaloniaEvent, handlerName);
+            if (EventMappingRegistry.ShouldConvertToCommand(eventName))
+            {
+                if (commandFallbackHandlerNames.Contains(handlerName))
+                {
+                    // Downgraded to code-behind - the stub CodeBehindGenerator emits for it is
+                    // the only home of the migrated body, so the event must reach it directly.
+                    AppendAttribute(sb, indent, mapping?.AvaloniaEvent ?? eventName, handlerName);
+                }
+                else
+                {
+                    AppendAttribute(sb, indent, "Command", $"{{Binding {CommandNaming.CommandPropertyName(handlerName)}}}");
+                }
+            }
         }
     }
 

@@ -1,5 +1,8 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Converter.Core.Parsing;
 using Converter.Generator.Mapping;
 using Converter.Plugin.Abstractions;
@@ -79,6 +82,8 @@ public class ViewModelGenerator
     /// live code (falling back to a TODO when no original body was found).
     /// </summary>
     private static readonly HashSet<(string FormName, string DialogResultValue)> EmptyDialogResultButtons = [];
+    private static readonly HashSet<string> EmptyCommandFallback = [];
+    private static readonly HashSet<string> EmptyFormClassNames = [];
 
     public EditableClassContent BuildEditableClass(
         ControlNode root, string namespaceName, string className,
@@ -86,11 +91,15 @@ public class ViewModelGenerator
         IReadOnlyDictionary<string, string>? handlerBodies = null,
         CodeBehindMembers? codeBehindMembers = null,
         IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null,
-        IReadOnlySet<(string FormName, string DialogResultValue)>? formsWithDialogResultButton = null)
+        IReadOnlySet<(string FormName, string DialogResultValue)>? formsWithDialogResultButton = null,
+        IReadOnlySet<string>? commandFallbackHandlerNames = null,
+        IReadOnlySet<string>? convertedFormClassNames = null)
     {
         overrides ??= PluginMappingOverrides.Empty;
         codeBehindMembers ??= CodeBehindMembers.Empty;
         formsWithDialogResultButton ??= EmptyDialogResultButtons;
+        commandFallbackHandlerNames ??= EmptyCommandFallback;
+        convertedFormClassNames ??= EmptyFormClassNames;
         var boundControlProperties = BuildBoundControlPropertyLookup(root, inferredBindings);
 
         var memberNames = new List<string>();
@@ -149,7 +158,7 @@ public class ViewModelGenerator
             // modally, check DialogResult" idiom - run on MessageBoxTranspiler's own output so
             // the two compose (a method can use both patterns).
             var childDialogTranspiled = ChildDialogTranspiler.TranspileMethod(
-                helperTranspiled.TransformedBody, namespaceName, formsWithDialogResultButton);
+                helperTranspiled.TransformedBody, namespaceName, formsWithDialogResultButton, convertedFormClassNames);
             var helperSource = EnsureInternalAccessibility(childDialogTranspiled.TransformedBody);
             if (helperTranspiled.AddedAwait || childDialogTranspiled.AddedAwait)
             {
@@ -164,6 +173,19 @@ public class ViewModelGenerator
         var commands = ExtractCommands(root, overrides);
         foreach (var command in commands)
         {
+            // Single-view-path safety valve: a handler whose migrated body reads/writes another
+            // control directly with no [ObservableProperty] to rewrite into (findable via
+            // FindUnresolvedControlReferences) cannot live in the ViewModel at all - it would
+            // reference View-only controls from a class that has no access to them. Such
+            // handlers are downgraded back to code-behind by the caller (see
+            // FindDowngradedCommandHandlerNames / CodeBehindGenerator's same-named collect):
+            // this file simply must not emit a [RelayCommand] for them, or the generated
+            // command would compile to a stub that's never bound anywhere.
+            if (commandFallbackHandlerNames.Contains(command.OriginalHandlerMethodName))
+            {
+                continue;
+            }
+
             string? originalSource = null;
             var hasOriginalSource = handlerBodies != null &&
                 handlerBodies.TryGetValue(command.OriginalHandlerMethodName, out originalSource);
@@ -176,7 +198,7 @@ public class ViewModelGenerator
                 body = RewriteBoundControlReferences(body, boundControlProperties);
                 var transpiled = MessageBoxTranspiler.Transpile(body, namespaceName);
                 body = transpiled.TransformedBody;
-                var childDialogTranspiled = ChildDialogTranspiler.Transpile(body, namespaceName, formsWithDialogResultButton);
+                var childDialogTranspiled = ChildDialogTranspiler.Transpile(body, namespaceName, formsWithDialogResultButton, convertedFormClassNames);
                 body = childDialogTranspiled.TransformedBody;
                 addedAwait = transpiled.AddedAwait || childDialogTranspiled.AddedAwait;
             }
@@ -279,6 +301,146 @@ public class ViewModelGenerator
         }
 
         return lookup;
+    }
+
+    /// <summary>
+    /// The single-view-path fallback detector. Every ConvertToCommand event with a migrated
+    /// body is inspected: if that body references another control's property that has no
+    /// [ObservableProperty] to rewrite it into (see <see cref="FindUnresolvedControlReferences"/>),
+    /// the handler cannot compile inside the ViewModel - it would reach into the View - so it
+    /// must fall back to a plain code-behind event handler instead of a [RelayCommand]. The
+    /// returned set is keyed by the original WinForms handler method name and consumed
+    /// consistently by three call sites so they can never disagree: BuildEditableClass skips the
+    /// command, AxamlGenerator emits the event attribute instead of Command="{Binding ...}", and
+    /// CodeBehindGenerator collects it as a preserved handler stub with its migrated body.
+    /// </summary>
+    public IReadOnlySet<string> FindDowngradedCommandHandlerNames(
+        ControlNode root,
+        PluginMappingOverrides? overrides,
+        IReadOnlyDictionary<string, string>? handlerBodies,
+        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings)
+    {
+        if (handlerBodies == null || handlerBodies.Count == 0)
+        {
+            return EmptyCommandFallback;
+        }
+
+        var controlNames = CollectControlNames(root);
+        var boundControlProperties = BuildBoundControlPropertyLookup(root, inferredBindings);
+        var fallback = new HashSet<string>(StringComparer.Ordinal);
+
+        CollectDowngraded(root, overrides ?? PluginMappingOverrides.Empty, controlNames, boundControlProperties, handlerBodies, fallback);
+        return fallback;
+    }
+
+    private static void CollectDowngraded(
+        ControlNode control, PluginMappingOverrides overrides, IReadOnlySet<string> controlNames,
+        IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties,
+        IReadOnlyDictionary<string, string> handlerBodies, HashSet<string> fallback)
+    {
+        foreach (var (eventName, handlerName) in control.EventHandlers)
+        {
+            if (handlerName == WinFormsParser.InlineLambdaHandlerMarker)
+            {
+                continue;
+            }
+
+            // v1 scope covers the static EventMappingRegistry path only - plugin-claimed events
+            // are skipped everywhere else (WriteEventAttributes, CollectPreservedHandlers,
+            // CollectManualSteps) and never get AXAML wiring, so downgrading them here would
+            // strand the migrated body with no home at all.
+            if (overrides.EventMappings.ContainsKey((control, eventName)) ||
+                !EventMappingRegistry.ShouldConvertToCommand(eventName))
+            {
+                continue;
+            }
+
+            if (!handlerBodies.TryGetValue(handlerName, out var originalSource))
+            {
+                // No body to migrate - BuildEditableClass emits a TODO stub, which compiles;
+                // nothing to fall back on.
+                continue;
+            }
+
+            var body = EventHandlerBodyParser.ExtractBodyText(originalSource);
+            var unresolved = FindUnresolvedControlReferences(body, controlNames, boundControlProperties);
+            if (unresolved.Count > 0)
+            {
+                fallback.Add(handlerName);
+            }
+        }
+
+        foreach (var child in control.Children)
+        {
+            CollectDowngraded(child, overrides, controlNames, boundControlProperties, handlerBodies, fallback);
+        }
+    }
+
+    private static HashSet<string> CollectControlNames(ControlNode root)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        CollectControlNamesRecursive(root, names);
+        return names;
+    }
+
+    private static void CollectControlNamesRecursive(ControlNode control, HashSet<string> names)
+    {
+        names.Add(control.Name);
+        foreach (var child in control.Children)
+        {
+            CollectControlNamesRecursive(child, names);
+        }
+    }
+
+    /// <summary>
+    /// Re-parses a migrated body (already run through EventHandlerBodyParser.ExtractBodyText)
+    /// and finds every "controlName.Property" member access whose controlName matches another
+    /// control in the same form's tree but has no [ObservableProperty] binding
+    /// (<see cref="RewriteBoundControlReferences"/> already rewrote the ones that do) - a
+    /// reference the ViewModel cannot resolve without reaching into the View. Best-effort,
+    /// mirroring EventHandlerBodyParser's own tolerance for unparseable text. Shared by
+    /// <see cref="FindDowngradedCommandHandlerNames"/> and ConversionOrchestrator's manual-step
+    /// collection so the fallback and the manual step can never disagree about what counts as
+    /// unresolved.
+    /// </summary>
+    public static List<(string ControlName, string Property)> FindUnresolvedControlReferences(
+        string body, IReadOnlySet<string> controlNames,
+        IReadOnlyDictionary<(string ControlName, string ControlProperty), string> boundControlProperties)
+    {
+        var results = new List<(string, string)>();
+        try
+        {
+            var wrapper = $"class __Wrapper {{ void __M() {body} }}";
+            var root = CSharpSyntaxTree.ParseText(wrapper).GetRoot();
+
+            foreach (var memberAccess in root.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
+            {
+                if (memberAccess.Expression is not IdentifierNameSyntax identifier)
+                {
+                    continue;
+                }
+
+                var controlName = identifier.Identifier.Text;
+                if (!controlNames.Contains(controlName))
+                {
+                    continue;
+                }
+
+                var property = memberAccess.Name.Identifier.Text;
+                if (boundControlProperties.ContainsKey((controlName, property)))
+                {
+                    continue;
+                }
+
+                results.Add((controlName, property));
+            }
+        }
+        catch
+        {
+            // Best-effort: an unparseable body simply yields no findings, not a hard failure.
+        }
+
+        return results.Distinct().ToList();
     }
 
     private void BuildBoundControlPropertyLookupRecursive(
@@ -399,7 +561,7 @@ public class ViewModelGenerator
                 {
                     commands.Add(new CommandInfo
                     {
-                        MethodName = eventHandler.Value.Replace("_", ""),
+                        MethodName = CommandNaming.MethodName(eventHandler.Value),
                         OriginalEvent = eventHandler.Key,
                         OriginalHandlerMethodName = eventHandler.Value,
                         CommandName = pluginMapping.CommandName ?? $"{eventHandler.Key}Command",
@@ -418,7 +580,7 @@ public class ViewModelGenerator
 
                 commands.Add(new CommandInfo
                 {
-                    MethodName = eventHandler.Value.Replace("_", ""),
+                    MethodName = CommandNaming.MethodName(eventHandler.Value),
                     OriginalEvent = eventHandler.Key,
                     OriginalHandlerMethodName = eventHandler.Value,
                     CommandName = commandName,

@@ -94,7 +94,8 @@
         Grid.Column="3"
         Content="Log In"
         Width="100"
-        Height="32" />
+        Height="32"
+        Click="loginButton_Click" />
         <ProgressBar Name="loginProgressBar"
         Grid.Row="6"
         Grid.Column="1"

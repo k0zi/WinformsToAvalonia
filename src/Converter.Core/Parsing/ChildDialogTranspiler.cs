@@ -24,31 +24,49 @@ public record ChildDialogTranspileResult(string TransformedBody, bool AddedAwait
 /// consecutive statements - a local declaration immediately followed by the matching if - so
 /// it operates at CSharpSyntaxRewriter.VisitBlock granularity instead of VisitInvocationExpression.
 ///
+/// A second, sibling rewrite handles the *modeless* variant of the same idiom - a local
+/// declaration immediately followed by a bare `ShowDialog()` call whose result is discarded:
+/// <code>
+/// using var dashboard = new DashboardForm();
+/// dashboard.ShowDialog(this);
+/// </code>
+/// becomes
+/// <code>
+/// await SampleApp.Common.Dialogs.ShowChildAsync&lt;SampleApp.Views.DashboardForm, SampleApp.ViewModels.DashboardFormViewModel&gt;();
+/// </code>
+/// This one has no DialogResult to gate on (nothing is checked), so it is gated instead on
+/// <paramref name="convertedFormClassNames"/> - the target form must be another form this very
+/// conversion run is generating a View/ViewModel for, otherwise the generated helper call would
+/// reference classes that don't exist.
+///
 /// Deliberately narrow, for two independent safety reasons:
 /// 1. Only the parameterless constructor case (`new {FormType}()`) is rewritten - threading a
 ///    constructor argument (e.g. an entity for an "edit" flow) into a generically-generated
 ///    ViewModel without knowing its load contract would be an unsafe guess; that shape is left
 ///    untouched (today's manual step, unchanged).
-/// 2. Only fires when `(FormType, DialogResultValue)` is present in
-///    <paramref name="formsWithDialogResultButton"/> - i.e. only when the target form is
+/// 2. The DialogResult-checking shape only fires when `(FormType, DialogResultValue)` is present
+///    in <paramref name="formsWithDialogResultButton"/> - i.e. only when the target form is
 ///    *known* (from its own Designer.cs) to have a button that can actually close it with that
 ///    result. WinForms code whose target form sets DialogResult imperatively in hand-written
 ///    code (not via a Designer-declared button property) has no such entry and is correctly
 ///    left alone - rewriting the caller without a way for the callee to ever produce a result
-///    would trade an honest compile error for a dialog that silently never closes.
+///    would trade an honest compile error for a dialog that silently never closes. The modeless
+///    shape instead demands the local's variable never be referenced again in the enclosing
+///    block, so a declaration that does real work after showing the dialog is never dropped.
 /// </summary>
 public static class ChildDialogTranspiler
 {
     public static ChildDialogTranspileResult Transpile(
         string body, string namespaceName,
-        IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton)
+        IReadOnlySet<(string FormName, string DialogResultValue)>? formsWithDialogResultButton = null,
+        IReadOnlySet<string>? convertedFormClassNames = null)
     {
         try
         {
             var wrapper = $"class __Wrapper {{ void __M() {body} }}";
             var root = CSharpSyntaxTree.ParseText(wrapper).GetRoot();
 
-            var rewriter = new Rewriter(namespaceName, formsWithDialogResultButton);
+            var rewriter = new Rewriter(namespaceName, formsWithDialogResultButton, convertedFormClassNames);
             var rewrittenRoot = rewriter.Visit(root);
 
             var method = rewrittenRoot.DescendantNodes().OfType<MethodDeclarationSyntax>().FirstOrDefault();
@@ -74,7 +92,8 @@ public static class ChildDialogTranspiler
     /// </summary>
     public static ChildDialogTranspileResult TranspileMethod(
         string fullMethodSource, string namespaceName,
-        IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton)
+        IReadOnlySet<(string FormName, string DialogResultValue)>? formsWithDialogResultButton = null,
+        IReadOnlySet<string>? convertedFormClassNames = null)
     {
         try
         {
@@ -87,7 +106,7 @@ public static class ChildDialogTranspiler
                 return new ChildDialogTranspileResult(fullMethodSource, false);
             }
 
-            var rewriter = new Rewriter(namespaceName, formsWithDialogResultButton);
+            var rewriter = new Rewriter(namespaceName, formsWithDialogResultButton, convertedFormClassNames);
             var rewrittenRoot = rewriter.Visit(root);
 
             var method = rewrittenRoot.DescendantNodes().OfType<MethodDeclarationSyntax>().FirstOrDefault();
@@ -117,7 +136,9 @@ public static class ChildDialogTranspiler
     }
 
     private sealed class Rewriter(
-        string namespaceName, IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton)
+        string namespaceName,
+        IReadOnlySet<(string FormName, string DialogResultValue)>? formsWithDialogResultButton,
+        IReadOnlySet<string>? convertedFormClassNames)
         : CSharpSyntaxRewriter
     {
         private readonly string _commonNamespace = $"{namespaceName}.Common";
@@ -131,19 +152,128 @@ public static class ChildDialogTranspiler
 
             for (var i = 0; i < statements.Count; i++)
             {
-                if (i + 1 < statements.Count &&
-                    TryMatch(statements[i], statements[i + 1], out var replacement))
+                if (i + 1 < statements.Count)
                 {
-                    newStatements.AddRange(replacement);
-                    AddedAwait = true;
-                    i++; // The pair was consumed together.
-                    continue;
+                    if (TryMatch(statements[i], statements[i + 1], out var replacement))
+                    {
+                        newStatements.AddRange(replacement);
+                        AddedAwait = true;
+                        i++; // The pair was consumed together.
+                        continue;
+                    }
+
+                    if (TryMatchModeless(statements, i, statements[i + 1], out var modelessReplacement))
+                    {
+                        newStatements.AddRange(modelessReplacement);
+                        AddedAwait = true;
+                        i++;
+                        continue;
+                    }
                 }
 
                 newStatements.Add((StatementSyntax)Visit(statements[i])!);
             }
 
             return node.WithStatements(SyntaxFactory.List(newStatements));
+        }
+
+        /// <summary>
+        /// The modeless variant: `var x = new T(); x.ShowDialog();` as two adjacent statements
+        /// with the result discarded. The target form must be one this run is itself converting
+        /// (the generated ShowChildAsync generic references it), and the local's variable must
+        /// not be referenced anywhere else in the block - a declaration that does something with
+        /// the variable after showing the dialog is doing real work and must not be dropped.
+        /// </summary>
+        private bool TryMatchModeless(
+            IReadOnlyList<StatementSyntax> statements, int firstIndex, StatementSyntax second, out StatementSyntax[] replacement)
+        {
+            replacement = [];
+
+            if (convertedFormClassNames is not { Count: > 0 })
+            {
+                return false;
+            }
+
+            var first = statements[firstIndex];
+            if (first is not LocalDeclarationStatementSyntax { Declaration.Variables.Count: 1 } localDecl)
+            {
+                return false;
+            }
+
+            var variable = localDecl.Declaration.Variables[0];
+            if (variable.Initializer?.Value is not ObjectCreationExpressionSyntax objectCreation)
+            {
+                return false;
+            }
+
+            // Parameterless constructor only - see the class-level doc comment for why.
+            if (objectCreation.ArgumentList == null || objectCreation.ArgumentList.Arguments.Count != 0)
+            {
+                return false;
+            }
+
+            var formType = GetSimpleTypeName(objectCreation.Type);
+            if (formType == null || !convertedFormClassNames.Contains(formType))
+            {
+                return false;
+            }
+
+            if (second is not ExpressionStatementSyntax
+                {
+                    Expression: InvocationExpressionSyntax
+                    {
+                        Expression: MemberAccessExpressionSyntax { Name.Identifier.Text: "ShowDialog" } showDialogAccess
+                    }
+                })
+            {
+                return false;
+            }
+
+            if (showDialogAccess.Expression is not IdentifierNameSyntax localRef ||
+                localRef.Identifier.Text != variable.Identifier.Text)
+            {
+                return false;
+            }
+
+            if (IsVariableReferencedElsewhere(statements, firstIndex, second, variable.Identifier.Text))
+            {
+                return false;
+            }
+
+            var qualifiedView = $"{namespaceName}.Views.{formType}";
+            var qualifiedViewModel = $"{namespaceName}.ViewModels.{formType}ViewModel";
+
+            var awaitStatement = SyntaxFactory.ParseStatement(
+                $"await {_commonNamespace}.Dialogs.ShowChildAsync<{qualifiedView}, {qualifiedViewModel}>();\n");
+
+            replacement = [awaitStatement.WithTriviaFrom(first)];
+            return true;
+        }
+
+        private static bool IsVariableReferencedElsewhere(
+            IReadOnlyList<StatementSyntax> statements, int firstIndex, StatementSyntax second, string variableName)
+        {
+            var secondIndex = firstIndex + 1;
+            for (var i = 0; i < statements.Count; i++)
+            {
+                if (i == firstIndex || i == secondIndex)
+                {
+                    continue;
+                }
+
+                if (ReferenceEquals(statements[i], second))
+                {
+                    continue;
+                }
+
+                if (statements[i].DescendantTokens().Any(
+                    t => t.IsKind(SyntaxKind.IdentifierToken) && t.Text == variableName))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool TryMatch(StatementSyntax first, StatementSyntax second, out StatementSyntax[] replacement)
@@ -204,8 +334,10 @@ public static class ChildDialogTranspiler
             }
 
             // Only when we *know* the target form can actually close with this result - see
-            // the class-level doc comment.
-            if (!formsWithDialogResultButton.Contains((formType, dialogResultValue)))
+            // the class-level doc comment. A null set (caller with no dialog-button
+            // knowledge) means the DialogResult-checking shape can never fire.
+            if (formsWithDialogResultButton == null ||
+                !formsWithDialogResultButton.Contains((formType, dialogResultValue)))
             {
                 return false;
             }

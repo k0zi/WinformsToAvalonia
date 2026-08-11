@@ -176,18 +176,6 @@ public partial class PurchaseOrderDetailFormViewModel : CommunityToolkit.Mvvm.Co
         }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
-    private async void addLineButtonClick()
-    {
-            if (ProductSearchBox is not Product product)
-            {
-                await WarehouseAvaloniaApp.Common.Dialogs.ShowAsync("Search and select a product first.","Validation",WarehouseAvaloniaApp.Common.MessageBoxButtons.OK,WarehouseAvaloniaApp.Common.MessageBoxIcon.Warning);
-                return;
-            }
-    
-            AddLineRow(product.Name, (int)qtyNumericUpDown.Value, UnitPrice, newLine: new NewLine(product, (int)qtyNumericUpDown.Value, UnitPrice));
-        }
-
-    [CommunityToolkit.Mvvm.Input.RelayCommand]
     private void printButtonClick()
     {
             if (printDialog.ShowDialog(this) == WarehouseAvaloniaApp.Common.DialogResult.OK)

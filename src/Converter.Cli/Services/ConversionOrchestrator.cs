@@ -360,6 +360,19 @@ public class ConversionOrchestrator
                 .Select(r => r.RootControl!.Name)
                 .ToHashSet();
 
+            // Every Window-rooted form this run is converting - ChildDialogTranspiler's
+            // modeless `.ShowDialog()` rewrite (see TryMatchModeless) is gated on the target
+            // form being in this set, so the generated
+            // Dialogs.ShowChildAsync<Views.T, ViewModels.TViewModel>() reference it emits can
+            // only ever point at classes this run actually generates. UserControl-rooted
+            // forms are deliberately excluded: their View lives in Controls/, not Views/, so
+            // the Views.{formType} reference the rewrite would emit would be wrong.
+            var convertedFormClassNames = parseResults
+                .Where(r => r.RootControl != null &&
+                    ControlMappingRegistry.GetMapping(r.RootControl.ControlType)?.AvaloniaType != "UserControl")
+                .Select(r => r.RootControl!.Name)
+                .ToHashSet(StringComparer.Ordinal);
+
             // For each of those, extract its own simple public auto-properties (e.g.
             // CustomerId) from its own sibling code-behind file - CodeBehindGenerator uses this
             // to re-expose them as real Avalonia bindable properties on the generated
@@ -472,13 +485,13 @@ public class ConversionOrchestrator
                     rollbackManager, viewsDir, controlsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
                     resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
                     customControlBindableProperties, ownerDrawnControlClassNames, formsWithDialogResultButton,
-                    _config.ParallelProcessing.MaxDegreeOfParallelism, cancellationToken)
+                    convertedFormClassNames, _config.ParallelProcessing.MaxDegreeOfParallelism, cancellationToken)
                 : await ConvertFormsSequentiallyAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
                     rollbackManager, viewsDir, controlsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
                     resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
                     customControlBindableProperties, ownerDrawnControlClassNames, formsWithDialogResultButton,
-                    progress, statistics, totalForms,
+                    convertedFormClassNames, progress, statistics, totalForms,
                     totalFilesToGenerate, cancellationToken, checkpointManager, state);
 
             var filesGenerated = 0;
@@ -491,6 +504,14 @@ public class ConversionOrchestrator
                 {
                     formReports.Add(outcome.Report);
                     statistics.ConvertedControls += outcome.ControlCount;
+                    statistics.TotalProperties += outcome.Stats.TotalProperties;
+                    statistics.MappedProperties += outcome.Stats.MappedProperties;
+                    statistics.UnmappedProperties += outcome.Stats.TotalProperties - outcome.Stats.MappedProperties;
+                    statistics.TotalEvents += outcome.Stats.TotalEvents;
+                    statistics.ConvertedToCommands += outcome.Stats.ConvertedToCommands;
+                    statistics.PartialControls += outcome.Stats.PartialControls;
+                    statistics.PlaceholderControls += outcome.Stats.PlaceholderControls;
+                    statistics.ExtractedStyles += outcome.Stats.ExtractedStyles;
                     filesGenerated += 3;
                     manualSteps.AddRange(outcome.ManualSteps);
                     _logger?.LogInformation("Converted form: {FormName}", outcome.Report.Name);
@@ -518,12 +539,14 @@ public class ConversionOrchestrator
 
             var usesMessageBoxDialogs = outcomes.Any(o => o.UsesMessageBoxDialogs);
 
-            // Global (run-level, not per-form): only actually needed when at least one form
-            // has a qualifying button *and* some form's migrated code has the ".ShowDialog("
-            // shape at all - see the comment on formsWithDialogResultButton above for why the
-            // set itself is computed globally.
+            // Global (run-level, not per-form): needed whenever any form's migrated code has the
+            // ".ShowDialog(" shape at all - the DialogResult-checking transpile additionally
+            // requires formsWithDialogResultButton (checked by the transpiler itself), but the
+            // modeless variant is gated only on the target form being converted, so the Dialogs
+            // helper must be generated even when no form has a Designer-declared
+            // DialogResult button.
             var usesDialogResultButtons = formsWithDialogResultButton.Count > 0;
-            var usesChildDialogs = usesDialogResultButtons && outcomes.Any(o => o.UsesChildDialogPattern);
+            var usesChildDialogs = outcomes.Any(o => o.UsesChildDialogPattern);
 
             ReportProgress(OperationType.ConvertingForm, progress, statistics, totalForms, totalFilesToGenerate,
                 formsProcessed, filesGenerated, force: true);
@@ -721,6 +744,17 @@ public class ConversionOrchestrator
     }
 
     /// <summary>
+    /// Per-form derived counts, computed once in ConvertFormAsync (where every input - the
+    /// control tree, plugin overrides, the downgraded-command set, the generated styles text -
+    /// is in scope) and aggregated into ConversionStatistics by the outcomes loop, so the
+    /// statistics the CLI/report surfaces are actually derived from real generated output
+    /// rather than left at their defaults.
+    /// </summary>
+    private readonly record struct FormStatistics(
+        int TotalProperties, int MappedProperties, int TotalEvents, int ConvertedToCommands,
+        int PartialControls, int PlaceholderControls, int ExtractedStyles);
+
+    /// <summary>
     /// Result of converting a single form: either a populated Report (success) or an Error
     /// (failure), never both. ManualSteps is always populated (even on failure, as empty)
     /// so the migration guide can be built from a flat concatenation of every outcome's list.
@@ -732,7 +766,8 @@ public class ConversionOrchestrator
         Exception? Error,
         IReadOnlyList<ManualStepInfo> ManualSteps,
         bool UsesMessageBoxDialogs = false,
-        bool UsesChildDialogPattern = false);
+        bool UsesChildDialogPattern = false,
+        FormStatistics Stats = default);
 
     /// <summary>
     /// Converts a single form. Pure with respect to shared orchestrator state - reads only
@@ -765,7 +800,8 @@ public class ConversionOrchestrator
         IReadOnlySet<string> convertedCustomControlClassNames,
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         IReadOnlySet<string> ownerDrawnControlClassNames,
-        IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton)
+        IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton,
+        IReadOnlySet<string> convertedFormClassNames)
     {
         try
         {
@@ -836,12 +872,23 @@ public class ConversionOrchestrator
                 CollectControlNames(rootControl),
                 vmGenerator.BuildBoundControlPropertyLookup(rootControl));
 
+            // Single-view-path safety valve: every ConvertToCommand handler whose migrated body
+            // references another control with no [ObservableProperty] to rewrite it into is
+            // downgraded from a [RelayCommand] back to a plain code-behind event handler (the
+            // ViewModel can't reach the View). One computation, shared by every consumer, so
+            // ViewModelGenerator (skips the command), AxamlGenerator (wires the event attribute
+            // instead of Command="{Binding ...}") and CodeBehindGenerator (emits the stub) can
+            // never disagree about which handlers fell back.
+            var commandFallbackHandlerNames = vmGenerator.FindDowngradedCommandHandlerNames(
+                rootControl, overrides, parseResult.EventHandlerBodies, inferredBindings);
+
             var axamlContent = axamlGenerator.Generate(
                 rootControl, layoutResult, namespaceName, className, overrides, convertedCustomControlClassNames,
-                inferredBindings);
+                inferredBindings, commandFallbackHandlerNames);
             var codeBehindContent = codeBehindGenerator.Generate(
                 namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides,
-                avaloniaMajorVersion, codeBehindMembers, viewModelSuffix, bindableProperties, delegatingProperties);
+                avaloniaMajorVersion, codeBehindMembers, viewModelSuffix, bindableProperties, delegatingProperties,
+                commandFallbackHandlerNames, convertedFormClassNames);
 
             var axamlPath = Path.Combine(formDir, $"{className}.axaml");
             var codeBehindPath = Path.Combine(formDir, $"{className}.axaml.cs");
@@ -875,7 +922,7 @@ public class ConversionOrchestrator
             // would have seeded but isn't already present is instead surfaced as a manual step.
             var editable = vmGenerator.BuildEditableClass(
                 rootControl, namespaceName, className, overrides, parseResult.EventHandlerBodies, codeBehindMembers,
-                inferredBindings, formsWithDialogResultButton);
+                inferredBindings, formsWithDialogResultButton, commandFallbackHandlerNames, convertedFormClassNames);
             var vmUserPath = Path.Combine(viewModelsDir, $"{className}{viewModelSuffix}.cs");
 
             if (!File.Exists(vmUserPath))
@@ -1005,9 +1052,10 @@ public class ConversionOrchestrator
                 }
             }
 
+            string stylesContent = string.Empty;
             if (_config.StyleExtraction.Enabled)
             {
-                var stylesContent = styleGenerator.GenerateStyles(rootControl, _config.StyleExtraction.MinimumOccurrence, overrides);
+                stylesContent = styleGenerator.GenerateStyles(rootControl, _config.StyleExtraction.MinimumOccurrence, overrides);
                 if (!string.IsNullOrWhiteSpace(stylesContent))
                 {
                     var stylesPath = Path.Combine(formDir, $"{className}.Styles.axaml");
@@ -1017,6 +1065,9 @@ public class ConversionOrchestrator
             }
 
             var controlCount = CountControls(rootControl);
+
+            var formStatistics = ComputeFormStatistics(
+                rootControl, overrides, commandFallbackHandlerNames, convertedCustomControlClassNames, stylesContent);
 
             var report = new FormReportInfo
             {
@@ -1029,7 +1080,7 @@ public class ConversionOrchestrator
             var manualSteps = CollectManualSteps(
                 rootControl, parseResult.FilePath, overrides, parseResult.EventHandlerBodies, vmGenerator,
                 convertedCustomControlClassNames, customControlBindableProperties, ownerDrawnControlClassNames,
-                inferredBindings);
+                inferredBindings, commandFallbackHandlerNames);
             manualSteps.AddRange(resxManualSteps);
             manualSteps.AddRange(vmManualSteps);
             AddCoercionFallbackStepsIfAny(className, bindableProperties, parseResult.FilePath, manualSteps);
@@ -1051,13 +1102,15 @@ public class ConversionOrchestrator
 
             return new FormConversionOutcome(
                 report, controlCount, parseResult.FilePath, null, manualSteps, usesMessageBoxDialogs,
-                usesChildDialogPattern);
+                usesChildDialogPattern, formStatistics);
         }
         catch (Exception ex)
         {
             return new FormConversionOutcome(null, 0, parseResult.FilePath, ex, []);
         }
     }
+
+    private static readonly HashSet<string> EmptyCommandFallback = [];
 
     private static readonly (byte[] Magic, string Extension)[] ImageMagicBytes =
     [
@@ -1180,14 +1233,17 @@ public class ConversionOrchestrator
         IReadOnlySet<string> convertedCustomControlClassNames,
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         IReadOnlySet<string> ownerDrawnControlClassNames,
-        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null)
+        IReadOnlyDictionary<(string ControlName, string Property), string>? inferredBindings = null,
+        IReadOnlySet<string>? commandFallbackHandlerNames = null)
     {
+        commandFallbackHandlerNames ??= EmptyCommandFallback;
         var steps = new List<ManualStepInfo>();
         var controlNames = CollectControlNames(root);
         var boundControlProperties = vmGenerator.BuildBoundControlPropertyLookup(root, inferredBindings);
         CollectManualStepsRecursive(
             root, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties,
-            convertedCustomControlClassNames, customControlBindableProperties, ownerDrawnControlClassNames, isRoot: true);
+            convertedCustomControlClassNames, customControlBindableProperties, ownerDrawnControlClassNames,
+            commandFallbackHandlerNames, isRoot: true);
 
         // This form's own className may itself be a converted custom control - flag any of its
         // own public auto-properties CustomControlPropertyExtractor found but couldn't safely
@@ -1493,6 +1549,7 @@ public class ConversionOrchestrator
         IReadOnlySet<string> convertedCustomControlClassNames,
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         IReadOnlySet<string> ownerDrawnControlClassNames,
+        IReadOnlySet<string> commandFallbackHandlerNames,
         bool isRoot = false)
     {
         // A plugin ControlMapper claiming this control means it isn't actually unmapped -
@@ -1666,10 +1723,17 @@ public class ConversionOrchestrator
                 // SelectedIndexChanged, CellClick, NodeClick, ...) - a found body was already
                 // spliced into the generated [RelayCommand] as live code with bound-control
                 // references rewritten (ViewModelGenerator.RewriteBoundControlReferences); flag
-                // whatever's left over instead of leaving a silent compile failure.
-                AddViewOnlyControlReferenceStepIfAny(
-                    control, eventName, control.EventHandlers[eventName], sourceFile, handlerBodies,
-                    controlNames, boundControlProperties, steps);
+                // whatever's left over instead of leaving a silent compile failure. Handlers in
+                // commandFallbackHandlerNames are skipped - those were downgraded back to
+                // code-behind (the ViewModel can't compile the reference, so the View now owns
+                // it, where the reference is legal), and the body was migrated there instead of
+                // into a [RelayCommand], so there's nothing to flag.
+                if (!commandFallbackHandlerNames.Contains(control.EventHandlers[eventName]))
+                {
+                    AddViewOnlyControlReferenceStepIfAny(
+                        control, eventName, control.EventHandlers[eventName], sourceFile, handlerBodies,
+                        controlNames, boundControlProperties, steps);
+                }
             }
         }
 
@@ -1677,7 +1741,8 @@ public class ConversionOrchestrator
         {
             CollectManualStepsRecursive(
                 child, sourceFile, steps, overrides, handlerBodies, controlNames, boundControlProperties,
-                convertedCustomControlClassNames, customControlBindableProperties, ownerDrawnControlClassNames);
+                convertedCustomControlClassNames, customControlBindableProperties, ownerDrawnControlClassNames,
+                commandFallbackHandlerNames);
         }
     }
 
@@ -1704,6 +1769,7 @@ public class ConversionOrchestrator
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         IReadOnlySet<string> ownerDrawnControlClassNames,
         IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton,
+        IReadOnlySet<string> convertedFormClassNames,
         IProgress<ConversionProgress>? progress,
         ConversionStatistics statistics,
         int totalForms,
@@ -1728,7 +1794,7 @@ public class ConversionOrchestrator
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, controlsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
                 avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties,
-                ownerDrawnControlClassNames, formsWithDialogResultButton);
+                ownerDrawnControlClassNames, formsWithDialogResultButton, convertedFormClassNames);
 
             outcomes.Add(outcome);
             formsProcessed++;
@@ -1791,6 +1857,7 @@ public class ConversionOrchestrator
         IReadOnlyDictionary<string, CustomControlPropertyExtractionResult> customControlBindableProperties,
         IReadOnlySet<string> ownerDrawnControlClassNames,
         IReadOnlySet<(string FormName, string DialogResultValue)> formsWithDialogResultButton,
+        IReadOnlySet<string> convertedFormClassNames,
         int? maxDegreeOfParallelism,
         CancellationToken cancellationToken)
     {
@@ -1808,7 +1875,7 @@ public class ConversionOrchestrator
                 codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, controlsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
                 avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties,
-                ownerDrawnControlClassNames, formsWithDialogResultButton);
+                ownerDrawnControlClassNames, formsWithDialogResultButton, convertedFormClassNames);
         });
 
         return outcomes.Select(o => o!.Value).ToList();
@@ -1909,7 +1976,7 @@ public class ConversionOrchestrator
         // MessageBox-popup-specific UI, unrelated to showing an arbitrary child form). Kept as
         // three independent flags so a project that only uses one of these idioms doesn't get
         // the other's unused infrastructure as clutter.
-        var needsDialogResultTypes = usesMessageBoxDialogs || usesDialogResultButtons;
+        var needsDialogResultTypes = usesMessageBoxDialogs || usesDialogResultButtons || usesChildDialogs;
         var needsDialogsHelper = usesMessageBoxDialogs || usesChildDialogs;
 
         if (needsDialogResultTypes || needsDialogsHelper)
@@ -2029,6 +2096,112 @@ public class ConversionOrchestrator
     private int CountControls(ControlNode node)
     {
         return 1 + node.Children.Sum(c => CountControls(c));
+    }
+
+    /// <summary>
+    /// Derives the per-form statistics counters from the actual control tree, plugin overrides,
+    /// the downgraded-command set and the generated styles text:
+    /// - TotalProperties/MappedProperties: every control.Properties entry, mapped via the same
+    ///   precedence generation uses (plugin PropertyTranslations first, then the static
+    ///   PropertyMappingRegistry with the same root-type override AxamlGenerator applies).
+    /// - TotalEvents/ConvertedToCommands: every non-lambda event handler; the subset that
+    ///   actually became a [RelayCommand] this run (static-registry ConvertToCommand, not
+    ///   plugin-claimed, not downgraded).
+    /// - PartialControls: a mapped (or converted-custom) control that has both mapped and
+    ///   unmapped properties - it got generated but part of its surface needs manual work.
+    /// - PlaceholderControls: controls with no mapping and no converted-custom class - emitted
+    ///   as the "TODO: Unmapped control" placeholder.
+    /// - ExtractedStyles: number of selectors in this form's generated Styles.axaml.
+    /// Mirrors (does not replace) CountControls/statistics.TotalControls, which count the whole
+    /// tree rather than these derived shapes.
+    /// </summary>
+    private static FormStatistics ComputeFormStatistics(
+        ControlNode root, PluginMappingOverrides overrides, IReadOnlySet<string> commandFallbackHandlerNames,
+        IReadOnlySet<string> convertedCustomControlClassNames, string stylesContent)
+    {
+        var totalProperties = 0;
+        var mappedProperties = 0;
+        var totalEvents = 0;
+        var convertedToCommands = 0;
+        var partialControls = 0;
+        var placeholderControls = 0;
+
+        CountFormStatisticsRecursive(
+            root, overrides, commandFallbackHandlerNames, convertedCustomControlClassNames,
+            ref totalProperties, ref mappedProperties, ref totalEvents, ref convertedToCommands,
+            ref partialControls, ref placeholderControls);
+
+        var extractedStyles = stylesContent.Length == 0
+            ? 0
+            : stylesContent.Split("Selector=", StringSplitOptions.None).Length - 1;
+
+        return new FormStatistics(
+            totalProperties, mappedProperties, totalEvents, convertedToCommands,
+            partialControls, placeholderControls, extractedStyles);
+    }
+
+    private static void CountFormStatisticsRecursive(
+        ControlNode control, PluginMappingOverrides overrides, IReadOnlySet<string> commandFallbackHandlerNames,
+        IReadOnlySet<string> convertedCustomControlClassNames,
+        ref int totalProperties, ref int mappedProperties, ref int totalEvents, ref int convertedToCommands,
+        ref int partialControls, ref int placeholderControls)
+    {
+        // Mirrors AxamlGenerator's root-element logic so the effective type used for property
+        // lookups matches what generation actually did (a "Window" root resolves property
+        // mappings against the "Form" entries, exactly like WriteControlProperties' override).
+        var rootElement = ControlMappingRegistry.GetMapping(control.ControlType)?.AvaloniaType ?? "Window";
+        var effectiveControlType = rootElement == "Window" ? "Form" : control.ControlType;
+
+        var hasControlMapping = ControlMappingRegistry.GetMapping(control.ControlType) != null;
+        var isConvertedCustomControl = convertedCustomControlClassNames.Contains(control.ControlType);
+        var mappedControlProperties = 0;
+
+        foreach (var (propName, _) in control.Properties)
+        {
+            totalProperties++;
+            var isMapped = overrides.PropertyTranslations.ContainsKey((control, propName)) ||
+                PropertyMappingRegistry.GetMapping(propName, effectiveControlType) != null;
+            if (isMapped)
+            {
+                mappedProperties++;
+                mappedControlProperties++;
+            }
+        }
+
+        var totalControlProperties = control.Properties.Count;
+        if (totalControlProperties > 0 && mappedControlProperties > 0 && mappedControlProperties < totalControlProperties)
+        {
+            partialControls++;
+        }
+
+        if (!hasControlMapping && !isConvertedCustomControl)
+        {
+            placeholderControls++;
+        }
+
+        foreach (var (eventName, handlerName) in control.EventHandlers)
+        {
+            if (handlerName == WinFormsParser.InlineLambdaHandlerMarker)
+            {
+                continue;
+            }
+
+            totalEvents++;
+            if (!overrides.EventMappings.ContainsKey((control, eventName)) &&
+                EventMappingRegistry.ShouldConvertToCommand(eventName) &&
+                !commandFallbackHandlerNames.Contains(handlerName))
+            {
+                convertedToCommands++;
+            }
+        }
+
+        foreach (var child in control.Children)
+        {
+            CountFormStatisticsRecursive(
+                child, overrides, commandFallbackHandlerNames, convertedCustomControlClassNames,
+                ref totalProperties, ref mappedProperties, ref totalEvents, ref convertedToCommands,
+                ref partialControls, ref placeholderControls);
+        }
     }
 }
 
