@@ -17,7 +17,7 @@ public class AxamlGenerator
 
     /// <summary>
     /// True if any control in the tree is an unmapped custom control this run also converted
-    /// (see WriteControl) - decides whether Generate needs to declare the "views:" XML
+    /// (see WriteControl) - decides whether Generate needs to declare the "controls:" XML
     /// namespace on the root element at all.
     /// </summary>
     private static bool ContainsConvertedCustomControlReference(
@@ -69,20 +69,27 @@ public class AxamlGenerator
         // other resolved element type is possible for a root today.
         var effectiveRootControlType = rootElement == "Window" ? "Form" : root.ControlType;
 
+        // A UserControl-rooted form is itself a custom control this run is independently
+        // converting into its own reusable View - it belongs in the Controls/ folder alongside
+        // its code-behind (see ConversionOrchestrator), not Views/, so its own x:Class must
+        // match.
+        var isCustomControlRoot = rootElement == "UserControl";
+        var ownNamespaceSegment = isCustomControlRoot ? "Controls" : "Views";
+
         // Write AXAML header
         sb.AppendLine($"<{rootElement} xmlns=\"https://github.com/avaloniaui\"");
         sb.AppendLine("        xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"");
         sb.AppendLine($"        xmlns:vm=\"using:{namespaceName}.ViewModels\"");
 
         // Only declared when the tree actually references at least one custom control this run
-        // also converted (e.g. <views:CustomerCard/>) - keeps the header clean for the common
+        // also converted (e.g. <controls:CustomerCard/>) - keeps the header clean for the common
         // case (no custom controls at all).
         if (ContainsConvertedCustomControlReference(root, convertedCustomControlClassNames))
         {
-            sb.AppendLine($"        xmlns:views=\"using:{namespaceName}.Views\"");
+            sb.AppendLine($"        xmlns:controls=\"using:{namespaceName}.Controls\"");
         }
 
-        sb.AppendLine($"        x:Class=\"{namespaceName}.Views.{className}\"");
+        sb.AppendLine($"        x:Class=\"{namespaceName}.{ownNamespaceSegment}.{className}\"");
         sb.AppendLine($"        x:DataType=\"vm:{className}ViewModel\"");
 
         // Add window/control properties. LayoutType.Custom is used purely as a "not Canvas"
@@ -273,10 +280,10 @@ public class AxamlGenerator
         else if (convertedCustomControlClassNames.Contains(control.ControlType))
         {
             // This run also independently converted control.ControlType's own Designer.cs into
-            // its own Views/{ControlType}.axaml (a UserControl) - reference it directly instead
-            // of the dead "<!-- TODO: Unmapped control -->" placeholder. Generate already
-            // declared the "views:" namespace for this file (ContainsConvertedCustomControlReference).
-            avaloniaType = $"views:{control.ControlType}";
+            // its own Controls/{ControlType}.axaml (a UserControl) - reference it directly
+            // instead of the dead "<!-- TODO: Unmapped control -->" placeholder. Generate already
+            // declared the "controls:" namespace for this file (ContainsConvertedCustomControlReference).
+            avaloniaType = $"controls:{control.ControlType}";
         }
         else
         {
@@ -284,6 +291,94 @@ public class AxamlGenerator
             return;
         }
 
+        if (TryGetBorderWrapThickness(control, avaloniaType, out var borderThickness))
+        {
+            WriteBorderWrappedControl(sb, control, avaloniaType, borderThickness, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings);
+            return;
+        }
+
+        WriteMappedElement(sb, control, avaloniaType, layoutInfo, indent, namespaceName, overrides, convertedCustomControlClassNames, inferredBindings, includeGridPlacement: true);
+    }
+
+    /// <summary>
+    /// Avalonia targets with no BorderThickness/BorderBrush of their own at all - Image is a
+    /// bare Control (no border support whatsoever), and Panel/Grid/WrapPanel/StackPanel are
+    /// all bare Panel-derived layout types (same reasoning already established for their
+    /// Padding=null overrides in PropertyMappingRegistry). A WinForms control mapping to one of
+    /// these that has BorderStyle set needs wrapping in a real Border instead - see
+    /// WriteBorderWrappedControl.
+    /// </summary>
+    private static readonly HashSet<string> BorderIncapableAvaloniaTypes = ["Image", "Panel", "Grid", "WrapPanel", "StackPanel"];
+
+    private static bool TryGetBorderWrapThickness(ControlNode control, string avaloniaType, out string thickness)
+    {
+        thickness = "";
+
+        if (!BorderIncapableAvaloniaTypes.Contains(avaloniaType) ||
+            !control.Properties.TryGetValue("BorderStyle", out var prop))
+        {
+            return false;
+        }
+
+        var rawValue = prop.Value?.ToString();
+        if (string.IsNullOrEmpty(rawValue))
+        {
+            return false;
+        }
+
+        // Uses the *common* BorderStyle mapping directly (bypassing the control-specific null
+        // override PropertyMappingRegistry has for these exact control types, which exists
+        // precisely to keep the normal per-property loop in WriteControlProperties from also,
+        // redundantly and invalidly, emitting this on the inner element itself).
+        var commonMapping = PropertyMappingRegistry.GetCommonMappings()["BorderStyle"];
+        var converted = PropertyValueConverter.Convert(commonMapping, rawValue);
+        if (converted == null)
+        {
+            return false;
+        }
+
+        foreach (var (attributeName, value) in converted)
+        {
+            if (attributeName == "BorderThickness")
+            {
+                thickness = value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Wraps a border-incapable element (see BorderIncapableAvaloniaTypes) in a real Avalonia
+    /// Border, which does have BorderThickness. Grid placement (Grid.Row/Grid.Column) moves to
+    /// the outer Border - it's the element actually occupying the Grid cell now - while Name
+    /// and every other property stay on the inner element unchanged, so existing code-behind/
+    /// ViewModel references to the control by name keep working without modification. The
+    /// Border itself gets no Name - nothing needs to reference the wrapper.
+    /// </summary>
+    private void WriteBorderWrappedControl(
+        StringBuilder sb, ControlNode control, string avaloniaType, string borderThickness, LayoutAnalysisResult layoutInfo,
+        string indent, string namespaceName, PluginMappingOverrides overrides,
+        IReadOnlySet<string> convertedCustomControlClassNames, IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings)
+    {
+        sb.Append($"{indent}<Border");
+        WriteGridPlacementAttributes(sb, control, layoutInfo, indent);
+        AppendAttribute(sb, indent, "BorderThickness", borderThickness);
+        sb.AppendLine(">");
+
+        WriteMappedElement(
+            sb, control, avaloniaType, layoutInfo, indent + "    ", namespaceName, overrides,
+            convertedCustomControlClassNames, inferredBindings, includeGridPlacement: false);
+
+        sb.AppendLine($"{indent}</Border>");
+    }
+
+    private void WriteMappedElement(
+        StringBuilder sb, ControlNode control, string avaloniaType, LayoutAnalysisResult layoutInfo, string indent,
+        string namespaceName, PluginMappingOverrides overrides, IReadOnlySet<string> convertedCustomControlClassNames,
+        IReadOnlyDictionary<(string ControlName, string Property), string> inferredBindings, bool includeGridPlacement)
+    {
         sb.Append($"{indent}<{avaloniaType}");
 
         // Write Name
@@ -291,8 +386,12 @@ public class AxamlGenerator
 
         // Write grid cell placement (heuristic Grid mode only - TableLayoutPanel cell
         // placement flows through WriteControlProperties instead, via the
-        // TableLayoutPanel.Column/Row DirectMapping entries).
-        WriteGridPlacementAttributes(sb, control, layoutInfo, indent);
+        // TableLayoutPanel.Column/Row DirectMapping entries). Skipped when this element is
+        // wrapped in a Border, which takes the grid cell instead (see WriteBorderWrappedControl).
+        if (includeGridPlacement)
+        {
+            WriteGridPlacementAttributes(sb, control, layoutInfo, indent);
+        }
 
         // Write properties
         WriteControlProperties(sb, control, layoutInfo.LayoutType, indent, namespaceName, overrides, inferredBindings);

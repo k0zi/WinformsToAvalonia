@@ -47,15 +47,19 @@ public class CodeBehindGenerator
         sb.AppendLine("using Avalonia.Controls;");
         sb.AppendLine();
 
-        // Namespace
-        sb.AppendLine($"namespace {namespaceName}.Views;");
-        sb.AppendLine();
-
-        var vmType = $"{namespaceName}.ViewModels.{className}{viewModelSuffix}";
-
         // Mirrors AxamlGenerator's own root-element choice: "Form" -> "Window", "UserControl"
         // -> "UserControl", defaulting to "Window" for anything unrecognized.
         var rootBaseType = ControlMappingRegistry.GetMapping(root.ControlType)?.AvaloniaType ?? "Window";
+
+        // A UserControl-rooted form lives in Controls/ (see ConversionOrchestrator/AxamlGenerator),
+        // not Views/ - the code-behind's namespace must match the AXAML's x:Class.
+        var namespaceSegment = rootBaseType == "UserControl" ? "Controls" : "Views";
+
+        // Namespace
+        sb.AppendLine($"namespace {namespaceName}.{namespaceSegment};");
+        sb.AppendLine();
+
+        var vmType = $"{namespaceName}.ViewModels.{className}{viewModelSuffix}";
 
         // Class declaration
         sb.AppendLine($"public partial class {className} : {rootBaseType}");

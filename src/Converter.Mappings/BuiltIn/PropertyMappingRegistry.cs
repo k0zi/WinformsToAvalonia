@@ -111,7 +111,14 @@ public static class PropertyMappingRegistry
         ["PictureBox"] = new()
         {
             ["Image"] = new("Source") { RequiresConversion = true, ConversionType = "ImageToBitmap" },
-            ["SizeMode"] = new("Stretch") { RequiresConversion = true }
+            ["SizeMode"] = new("Stretch") { RequiresConversion = true },
+            // Avalonia's Image is a bare Control with no BorderThickness - AxamlGenerator
+            // wraps a bordered PictureBox in a <Border> instead (see
+            // AxamlGenerator.WriteBorderWrappedControl), which computes its own BorderThickness
+            // value directly from the common BorderStyle mapping; this null just keeps the
+            // normal per-property loop from also (redundantly, invalidly) emitting it on the
+            // inner <Image> itself.
+            ["BorderStyle"] = null
         },
         ["ProgressBar"] = new()
         {
@@ -124,8 +131,11 @@ public static class PropertyMappingRegistry
         {
             ["ColumnSpan"] = new("Grid.ColumnSpan") { DirectMapping = true },
             ["RowSpan"] = new("Grid.RowSpan") { DirectMapping = true },
-            // Grid (Avalonia's Panel-derived TableLayoutPanel target) has no Padding property.
-            ["Padding"] = null
+            // Grid (Avalonia's Panel-derived TableLayoutPanel target) has no Padding or
+            // BorderThickness property - the latter is handled the same
+            // Border-wrap-instead-of-direct-emission way as PictureBox above.
+            ["Padding"] = null,
+            ["BorderStyle"] = null
         },
 
         // Button/CheckBox/RadioButton map to Avalonia ContentControl/ToggleButton-derived
@@ -166,14 +176,22 @@ public static class PropertyMappingRegistry
         ["GroupBox"] = new() { ["Text"] = null },
 
         // Every Avalonia target below is Panel-derived (Panel/WrapPanel/Grid/StackPanel) and,
-        // unlike Border/ContentControl-derived controls, none of them expose a Padding
-        // property at all - so WinForms Padding is dropped instead of emitted as a broken
-        // attribute for any of the WinForms control types that map to one of these.
-        ["Panel"] = new() { ["Padding"] = null },
-        ["FlowLayoutPanel"] = new() { ["Padding"] = null },
-        ["SplitContainer"] = new() { ["Padding"] = null },
-        ["ToolStrip"] = new() { ["Padding"] = null },
-        ["StatusStrip"] = new() { ["Padding"] = null }
+        // unlike Border/ContentControl-derived controls, none of them expose a Padding or
+        // BorderThickness property at all - so WinForms Padding is dropped instead of emitted
+        // as a broken attribute, and BorderStyle goes through AxamlGenerator's
+        // Border-wrap-instead-of-direct-emission path instead (see PictureBox above), for any
+        // of the WinForms control types that map to one of these.
+        ["Panel"] = new() { ["Padding"] = null, ["BorderStyle"] = null },
+        ["FlowLayoutPanel"] = new() { ["Padding"] = null, ["BorderStyle"] = null },
+        ["SplitContainer"] = new() { ["Padding"] = null, ["BorderStyle"] = null },
+        ["ToolStrip"] = new() { ["Padding"] = null, ["BorderStyle"] = null },
+        ["StatusStrip"] = new() { ["Padding"] = null, ["BorderStyle"] = null },
+
+        // DateTimePicker maps to Avalonia's DatePicker, whose selection property is
+        // SelectedDate (DateTimeOffset?), not Value - the common "Value"->"Value" mapping
+        // (correct for NumericUpDown/TrackBar/ProgressBar, which really do have a Value
+        // property) would otherwise emit an attribute that doesn't exist on DatePicker.
+        ["DateTimePicker"] = new() { ["Value"] = new("SelectedDate") { RequiresCustomLogic = true } }
     };
 
     public static PropertyMapping? GetMapping(string propertyName, string? controlType = null)

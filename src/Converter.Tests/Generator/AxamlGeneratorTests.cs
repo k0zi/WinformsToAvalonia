@@ -68,6 +68,10 @@ public class AxamlGeneratorTests
         Assert.Contains("<UserControl xmlns=", axaml);
         Assert.Contains("</UserControl>", axaml);
         Assert.DoesNotContain("<Window", axaml);
+
+        // A converted custom control lives in Controls/, not Views/ - its own x:Class must
+        // match where ConversionOrchestrator actually writes the file.
+        Assert.Contains("x:Class=\"SampleApp.Controls.CustomerCard\"", axaml);
     }
 
     [Fact]
@@ -79,6 +83,7 @@ public class AxamlGeneratorTests
 
         Assert.Contains("<Window xmlns=", axaml);
         Assert.Contains("</Window>", axaml);
+        Assert.Contains("x:Class=\"SampleApp.Views.SampleForm\"", axaml);
     }
 
     [Fact]
@@ -92,8 +97,8 @@ public class AxamlGeneratorTests
             root, CanvasLayout(), "SampleApp", "SampleForm",
             convertedCustomControlClassNames: new HashSet<string> { "CustomerCard" });
 
-        Assert.Contains("<views:CustomerCard", axaml);
-        Assert.Contains("xmlns:views=\"using:SampleApp.Views\"", axaml);
+        Assert.Contains("<controls:CustomerCard", axaml);
+        Assert.Contains("xmlns:controls=\"using:SampleApp.Controls\"", axaml);
         Assert.DoesNotContain("TODO: Unmapped control", axaml);
     }
 
@@ -109,7 +114,7 @@ public class AxamlGeneratorTests
         var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
 
         Assert.Contains("<!-- TODO: Unmapped control: CustomerCard (customerCard1) -->", axaml);
-        Assert.DoesNotContain("xmlns:views=", axaml);
+        Assert.DoesNotContain("xmlns:controls=", axaml);
     }
 
     [Fact]
@@ -472,5 +477,100 @@ public class AxamlGeneratorTests
         var axaml = new AxamlGenerator().Generate(root, CanvasLayout(), "SampleApp", "SampleForm");
 
         Assert.Contains("WindowState=\"Maximized\"", axaml);
+    }
+
+    private static LayoutAnalysisResult GridLayoutWithCell(string childName, int row, int column) => new()
+    {
+        LayoutType = LayoutType.Grid,
+        ConfidenceScore = 100,
+        Metadata = new Dictionary<string, object> { ["Rows"] = row + 1, ["Columns"] = column + 1 },
+        GridCellAssignments = new Dictionary<string, GridCellAssignment> { [childName] = new(row, column) }
+    };
+
+    [Fact]
+    public void Generate_PictureBoxWithBorderStyle_WrapsInBorderWithGridPlacement()
+    {
+        // Avalonia's Image is a bare Control with no BorderThickness - PropertyMappingRegistry
+        // null-suppresses BorderStyle for PictureBox and AxamlGenerator wraps it in a real
+        // Border instead (found via a real WarehouseApp conversion: productPictureBox).
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "SampleForm" };
+        var pictureBox = new ControlNode
+        {
+            ControlType = "PictureBox", FullTypeName = "System.Windows.Forms.PictureBox", Name = "productPictureBox", Parent = root
+        };
+        pictureBox.Properties["BorderStyle"] = new PropertyValue
+        {
+            Name = "BorderStyle", Value = "System.Windows.Forms.BorderStyle.FixedSingle", Type = "object"
+        };
+        root.Children.Add(pictureBox);
+
+        var axaml = new AxamlGenerator().Generate(root, GridLayoutWithCell("productPictureBox", 0, 1), "SampleApp", "SampleForm");
+
+        Assert.Contains("<Border", axaml);
+        Assert.Contains("BorderThickness=\"1\"", axaml);
+        Assert.Contains("<Image Name=\"productPictureBox\"", axaml);
+        Assert.DoesNotContain("Image Name=\"productPictureBox\" Grid", axaml); // Grid.* stays off the Image.
+        Assert.DoesNotContain("BorderThickness", axaml.Split("<Image").Last().Split("</Border>").First());
+
+        // Grid.Row/Grid.Column moved to the Border, not the inner Image.
+        var borderTag = axaml[axaml.IndexOf("<Border", StringComparison.Ordinal)..axaml.IndexOf("<Image", StringComparison.Ordinal)];
+        Assert.Contains("Grid.Row=\"0\"", borderTag);
+        Assert.Contains("Grid.Column=\"1\"", borderTag);
+    }
+
+    [Fact]
+    public void Generate_PictureBoxWithoutBorderStyle_EmitsPlainUnwrappedImage()
+    {
+        // Regression guard: no BorderStyle set must not trigger wrapping at all.
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "SampleForm" };
+        var pictureBox = new ControlNode
+        {
+            ControlType = "PictureBox", FullTypeName = "System.Windows.Forms.PictureBox", Name = "productPictureBox", Parent = root
+        };
+        root.Children.Add(pictureBox);
+
+        var axaml = new AxamlGenerator().Generate(root, GridLayoutWithCell("productPictureBox", 0, 0), "SampleApp", "SampleForm");
+
+        Assert.DoesNotContain("<Border", axaml);
+        Assert.Contains("<Image Name=\"productPictureBox\"", axaml);
+    }
+
+    [Fact]
+    public void Generate_PanelWithBorderStyleAndChildren_WrapsInBorderAndKeepsChildrenNested()
+    {
+        // A second confirmed-live case (colorPreviewPanel in the real WarehouseApp sample) -
+        // Avalonia's bare Panel also has no BorderThickness. Unlike PictureBox, Panel commonly
+        // has children, which must still render correctly nested inside the inner <Panel>.
+        var root = new ControlNode { ControlType = "Form", FullTypeName = "System.Windows.Forms.Form", Name = "SampleForm" };
+        var panel = new ControlNode
+        {
+            ControlType = "Panel", FullTypeName = "System.Windows.Forms.Panel", Name = "colorPreviewPanel", Parent = root
+        };
+        panel.Properties["BorderStyle"] = new PropertyValue
+        {
+            Name = "BorderStyle", Value = "System.Windows.Forms.BorderStyle.FixedSingle", Type = "object"
+        };
+        var label = new ControlNode
+        {
+            ControlType = "Label", FullTypeName = "System.Windows.Forms.Label", Name = "swatchLabel", Parent = panel
+        };
+        panel.Children.Add(label);
+        root.Children.Add(panel);
+
+        var axaml = new AxamlGenerator().Generate(root, GridLayoutWithCell("colorPreviewPanel", 0, 0), "SampleApp", "SampleForm");
+
+        Assert.Contains("<Border", axaml);
+        Assert.Contains("BorderThickness=\"1\"", axaml);
+        Assert.Contains("<Panel Name=\"colorPreviewPanel\"", axaml);
+        Assert.Contains("<TextBlock Name=\"swatchLabel\"", axaml);
+        Assert.Contains("</Panel>", axaml);
+        Assert.Contains("</Border>", axaml);
+
+        // The child must be nested inside the Panel, which is itself nested inside the Border.
+        var borderIndex = axaml.IndexOf("<Border", StringComparison.Ordinal);
+        var panelIndex = axaml.IndexOf("<Panel Name=\"colorPreviewPanel\"", StringComparison.Ordinal);
+        var labelIndex = axaml.IndexOf("<TextBlock Name=\"swatchLabel\"", StringComparison.Ordinal);
+        Assert.True(borderIndex < panelIndex);
+        Assert.True(panelIndex < labelIndex);
     }
 }

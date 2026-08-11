@@ -85,12 +85,14 @@ public class CustomControlEndToEndTests
             var result = await new ConversionOrchestrator(sourceDir, outputDir, BaselineConfig()).ExecuteAsync();
             Assert.True(result.Success, result.ErrorMessage);
 
-            var cardAxaml = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "CustomerCard.axaml"));
+            var cardAxaml = await File.ReadAllTextAsync(Path.Combine(outputDir, "Controls", "CustomerCard.axaml"));
             Assert.StartsWith("<UserControl", cardAxaml);
             Assert.Contains("</UserControl>", cardAxaml);
+            Assert.Contains("x:Class=\"SampleApp.Controls.CustomerCard\"", cardAxaml);
 
-            var cardCodeBehind = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "CustomerCard.axaml.cs"));
+            var cardCodeBehind = await File.ReadAllTextAsync(Path.Combine(outputDir, "Controls", "CustomerCard.axaml.cs"));
             Assert.Contains("public partial class CustomerCard : UserControl", cardCodeBehind);
+            Assert.Contains("namespace SampleApp.Controls;", cardCodeBehind);
             Assert.Contains("public static readonly Avalonia.StyledProperty<int> CustomerIdProperty =", cardCodeBehind);
             Assert.Contains("public int CustomerId", cardCodeBehind);
 
@@ -120,8 +122,8 @@ public class CustomControlEndToEndTests
 
             var mainFormAxaml = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "MainForm.axaml"));
             Assert.StartsWith("<Window", mainFormAxaml);
-            Assert.Contains("xmlns:views=\"using:SampleApp.Views\"", mainFormAxaml);
-            Assert.Contains("<views:CustomerCard", mainFormAxaml);
+            Assert.Contains("xmlns:controls=\"using:SampleApp.Controls\"", mainFormAxaml);
+            Assert.Contains("<controls:CustomerCard", mainFormAxaml);
             Assert.Contains("Name=\"customerCard1\"", mainFormAxaml);
             Assert.Contains("CustomerId=\"5\"", mainFormAxaml);
             Assert.DoesNotContain("TODO: Unmapped control", mainFormAxaml);

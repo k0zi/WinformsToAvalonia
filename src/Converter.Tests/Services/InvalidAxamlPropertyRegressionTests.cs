@@ -4,11 +4,13 @@ using Converter.Core.Configuration;
 namespace Converter.Tests.Services;
 
 /// <summary>
-/// End-to-end regression coverage for two AXAML property-mapping bugs found via a real
-/// WarehouseApp sample conversion review: a form deriving from a custom (non-"Form") base
-/// class getting an invalid "Text=" attribute on its generated Window instead of "Title=", and
-/// a usage-inferred binding for a property with no real PropertyMappingRegistry entry leaking
-/// the raw WinForms property name straight into AXAML instead of being omitted.
+/// End-to-end regression coverage for AXAML property-mapping bugs found via real WarehouseApp
+/// sample conversion reviews: a form deriving from a custom (non-"Form") base class getting an
+/// invalid "Text=" attribute on its generated Window instead of "Title="; a usage-inferred
+/// binding for a property with no real PropertyMappingRegistry entry leaking the raw WinForms
+/// property name straight into AXAML instead of being omitted; DateTimePicker.Value having no
+/// Avalonia equivalent (DatePicker.SelectedDate instead); and PictureBox.BorderStyle emitting
+/// BorderThickness directly on Avalonia's Image, which has no such property.
 /// </summary>
 public class InvalidAxamlPropertyRegressionTests
 {
@@ -134,6 +136,63 @@ public class InvalidAxamlPropertyRegressionTests
 
             Assert.Contains("Name=\"categoryTreeView\"", axamlContent);
             Assert.DoesNotContain("NotARealAvaloniaOrWinFormsProperty", axamlContent);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    private const string DateTimePickerDesignerContent = """
+        namespace SampleApp
+        {
+            partial class ReceiptForm
+            {
+                private System.Windows.Forms.DateTimePicker receiptDatePicker;
+                private System.Windows.Forms.PictureBox productPictureBox;
+
+                private void InitializeComponent()
+                {
+                    this.receiptDatePicker = new System.Windows.Forms.DateTimePicker();
+                    this.productPictureBox = new System.Windows.Forms.PictureBox();
+                    this.SuspendLayout();
+                    this.receiptDatePicker.Name = "receiptDatePicker";
+                    this.receiptDatePicker.Value = new System.DateTime(2024, 6, 15);
+                    this.productPictureBox.Name = "productPictureBox";
+                    this.productPictureBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+                    this.Controls.Add(this.receiptDatePicker);
+                    this.Controls.Add(this.productPictureBox);
+                    this.Name = "ReceiptForm";
+                    this.ResumeLayout(false);
+                }
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task ExecuteAsync_DateTimePickerValueAndPictureBoxBorderStyle_ProduceValidAxaml()
+    {
+        var sourceDir = Directory.CreateTempSubdirectory("wf2av-src-").FullName;
+        var outputDir = Directory.CreateTempSubdirectory("wf2av-out-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "ReceiptForm.Designer.cs"), DateTimePickerDesignerContent);
+
+            var result = await new ConversionOrchestrator(sourceDir, outputDir, BaselineConfig()).ExecuteAsync();
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var axamlContent = await File.ReadAllTextAsync(Path.Combine(outputDir, "Views", "ReceiptForm.axaml"));
+
+            // DateTimePicker.Value -> DatePicker.SelectedDate.
+            Assert.Contains("SelectedDate=\"2024-06-15\"", axamlContent);
+            Assert.DoesNotContain("Value=\"2024", axamlContent);
+
+            // PictureBox.BorderStyle -> wrapped in a real Border, not emitted on the Image.
+            Assert.Contains("<Border", axamlContent);
+            Assert.Contains("BorderThickness=\"1\"", axamlContent);
+            Assert.Contains("<Image Name=\"productPictureBox\"", axamlContent);
         }
         finally
         {

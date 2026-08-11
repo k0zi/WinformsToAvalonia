@@ -225,4 +225,33 @@ public class PropertyValueConverterTests
 
         Assert.Null(result);
     }
+
+    [Theory]
+    [InlineData("new System.DateTime(2024, 1, 1)", "2024-01-01")]
+    [InlineData("new System.DateTime(2024,12,31)", "2024-12-31")]
+    public void Convert_DateTimePickerValue_ConvertsDateOnlyConstructorToIsoDate(string rawValue, string expectedDate)
+    {
+        var mapping = PropertyMappingRegistry.GetMapping("Value", "DateTimePicker")!;
+
+        var result = PropertyValueConverter.Convert(mapping, rawValue);
+
+        Assert.NotNull(result);
+        Assert.Contains(("SelectedDate", expectedDate), result);
+    }
+
+    [Theory]
+    [InlineData("System.DateTime.Now")]
+    [InlineData("System.DateTime.Today")]
+    [InlineData("new System.DateTime(2024, 1, 1, 8, 30, 0)")]
+    [InlineData("not a date")]
+    public void Convert_DateTimePickerValue_UnrecognizedShape_ReturnsNull(string rawValue)
+    {
+        // Best-effort only: an unrecognized shape is dropped rather than guessed at, same as
+        // every other converter in this file.
+        var mapping = PropertyMappingRegistry.GetMapping("Value", "DateTimePicker")!;
+
+        var result = PropertyValueConverter.Convert(mapping, rawValue);
+
+        Assert.Null(result);
+    }
 }

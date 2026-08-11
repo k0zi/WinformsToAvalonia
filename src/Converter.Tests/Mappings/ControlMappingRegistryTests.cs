@@ -180,4 +180,57 @@ public class PropertyMappingRegistryTests
         Assert.NotNull(mapping);
         Assert.Equal("Title", mapping!.AvaloniaProperty);
     }
+
+    [Theory]
+    [InlineData("PictureBox")]
+    [InlineData("Panel")]
+    [InlineData("FlowLayoutPanel")]
+    [InlineData("SplitContainer")]
+    [InlineData("TableLayoutPanel")]
+    [InlineData("ToolStrip")]
+    [InlineData("StatusStrip")]
+    public void GetMapping_BorderStyleOnBorderIncapableControls_HasNoMapping(string controlType)
+    {
+        // Image/Panel/Grid/WrapPanel/StackPanel (these control types' Avalonia targets) have no
+        // BorderThickness of their own - AxamlGenerator wraps them in a real <Border> instead
+        // (see AxamlGeneratorTests), computing the value directly from the common mapping;
+        // this null override just keeps the normal per-property loop from also, redundantly
+        // and invalidly, emitting it on the inner element (found via a real WarehouseApp
+        // conversion: productPictureBox, colorPreviewPanel).
+        Assert.Null(PropertyMappingRegistry.GetMapping("BorderStyle", controlType));
+    }
+
+    [Fact]
+    public void GetMapping_BorderStyleOnTextBox_StillFallsThroughToCommonMapping()
+    {
+        // Regression guard: TextBox (and other TemplatedControl-derived targets) really do
+        // have BorderBrush/BorderThickness - must not be affected by the null overrides above.
+        var mapping = PropertyMappingRegistry.GetMapping("BorderStyle", "TextBox");
+
+        Assert.NotNull(mapping);
+        Assert.Equal("BorderBrush,BorderThickness", mapping!.AvaloniaProperty);
+    }
+
+    [Fact]
+    public void GetMapping_DateTimePickerValue_MapsToSelectedDate()
+    {
+        // DateTimePicker maps to Avalonia's DatePicker, whose selection property is
+        // SelectedDate, not Value (found via user report - not reproducible in WarehouseApp
+        // itself, since no form there sets DateTimePicker.Value to a literal).
+        var mapping = PropertyMappingRegistry.GetMapping("Value", "DateTimePicker");
+
+        Assert.NotNull(mapping);
+        Assert.Equal("SelectedDate", mapping!.AvaloniaProperty);
+    }
+
+    [Fact]
+    public void GetMapping_NumericUpDownValue_StillMapsToValue()
+    {
+        // Regression guard: NumericUpDown/TrackBar/ProgressBar's Avalonia equivalents really
+        // do have a Value property - must not be affected by DateTimePicker's override.
+        var mapping = PropertyMappingRegistry.GetMapping("Value", "NumericUpDown");
+
+        Assert.NotNull(mapping);
+        Assert.Equal("Value", mapping!.AvaloniaProperty);
+    }
 }

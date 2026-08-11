@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WarehouseAvaloniaApp.ViewModels"
+        x:Class="WarehouseAvaloniaApp.Views.StockTransferForm"
+        x:DataType="vm:StockTransferFormViewModel"
+
+        Width="760"
+        Height="460"
+        Title="Stock Transfer — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
+    <Design.DataContext>
+        <vm:StockTransferFormViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+        <DataGrid Name="linesGrid"
+        AutoGenerateColumns="false"
+        IsReadOnly="true" />
+        <Panel Name="actionPanel"
+        DockPanel.Dock="Bottom"
+        Height="52">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Name="removeLineButton"
+                Grid.Row="0"
+                Grid.Column="0"
+                Content="Remove Line"
+                Width="110"
+                Height="28" />
+                <Button Name="postButton"
+                Grid.Row="0"
+                Grid.Column="2"
+                Content="Post Transfer"
+                Width="120"
+                Height="32"
+                FontFamily="Segoe UI"
+                FontSize="9" />
+                <TextBlock Name="statusLabel"
+                Grid.Row="1"
+                Grid.Column="1"
+                Foreground="SeaGreen"
+                Text="{Binding Status}" />
+            </Grid>
+        </Panel>
+        <Panel Name="entryPanel"
+        DockPanel.Dock="Top"
+        Height="90">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Name="fromLabel"
+                Grid.Row="0"
+                Grid.Column="0"
+                Text="From:" />
+                <ComboBox Name="fromWarehouseComboBox"
+                Grid.Row="0"
+                Grid.Column="1"
+                Width="170" />
+                <Button Name="swapButton"
+                Grid.Row="0"
+                Grid.Column="3"
+                Content="⇄"
+                Width="32"
+                Height="24" />
+                <TextBlock Name="toLabel"
+                Grid.Row="0"
+                Grid.Column="4"
+                Text="To:" />
+                <ComboBox Name="toWarehouseComboBox"
+                Grid.Row="0"
+                Grid.Column="5"
+                Width="170" />
+                <TextBlock Name="productLabel"
+                Grid.Row="2"
+                Grid.Column="0"
+                Text="Product:" />
+                <ComboBox Name="productComboBox"
+                Grid.Row="1"
+                Grid.Column="2"
+                Width="250" />
+                <TextBlock Name="quantityLabel"
+                Grid.Row="2"
+                Grid.Column="6"
+                Text="Quantity:" />
+                <NumericUpDown Name="quantityNumericUpDown"
+                Grid.Row="1"
+                Grid.Column="7"
+                Width="70"
+                Minimum="1"
+                Maximum="10000"
+                Value="1" />
+                <Button Name="addLineButton"
+                Grid.Row="1"
+                Grid.Column="8"
+                Content="Add Line"
+                Width="100"
+                Height="28" />
+            </Grid>
+        </Panel>
+    </DockPanel>
+</Window>

@@ -38,6 +38,10 @@ public class CodeBehindGeneratorTests
         var content = new CodeBehindGenerator().Generate("SampleApp", "CustomerCard", root);
 
         Assert.Contains("public partial class CustomerCard : UserControl", content);
+
+        // A converted custom control lives in Controls/, not Views/ - its namespace must match
+        // where ConversionOrchestrator actually writes the file (and AxamlGenerator's x:Class).
+        Assert.Contains("namespace SampleApp.Controls;", content);
     }
 
     [Fact]
@@ -48,6 +52,7 @@ public class CodeBehindGeneratorTests
         var content = new CodeBehindGenerator().Generate("SampleApp", "SampleForm", root);
 
         Assert.Contains("public partial class SampleForm : Window", content);
+        Assert.Contains("namespace SampleApp.Views;", content);
     }
 
     [Fact]

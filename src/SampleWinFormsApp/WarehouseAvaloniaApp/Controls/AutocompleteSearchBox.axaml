@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WarehouseAvaloniaApp.ViewModels"
+        x:Class="WarehouseAvaloniaApp.Controls.AutocompleteSearchBox"
+        x:DataType="vm:AutocompleteSearchBoxViewModel"
+        >
+    <Design.DataContext>
+        <vm:AutocompleteSearchBoxViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+        <TextBox Name="_textBox"
+        Text="{Binding _textBox}"
+        KeyDown="TextBox_KeyDown"
+        LostFocus="_textBox_LostFocus_InlineHandler" />
+    </DockPanel>
+</UserControl>

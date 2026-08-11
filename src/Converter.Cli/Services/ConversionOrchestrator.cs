@@ -409,6 +409,11 @@ public class ConversionOrchestrator
             Directory.CreateDirectory(_outputPath);
             var viewsDir = Path.Combine(_outputPath, "Views");
             var viewModelsDir = Path.Combine(_outputPath, "ViewModels");
+            // A converted custom control (a UserControl-rooted form) gets its own View/code-behind
+            // here instead of Views/, so an embedding form's <controls:Foo/> reference lines up
+            // with where the file actually lives - created lazily (see ConvertFormAsync), not
+            // upfront, since most conversions have zero custom controls.
+            var controlsDir = Path.Combine(_outputPath, "Controls");
             var assetsDir = Path.Combine(_outputPath, _config.ResourceConversion.AssetsDirectory);
             Directory.CreateDirectory(viewsDir);
             Directory.CreateDirectory(viewModelsDir);
@@ -456,13 +461,13 @@ public class ConversionOrchestrator
             var outcomes = useParallel
                 ? await ConvertFormsInParallelAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
-                    rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
+                    rollbackManager, viewsDir, controlsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
                     resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
                     customControlBindableProperties, ownerDrawnControlClassNames, formsWithDialogResultButton,
                     _config.ParallelProcessing.MaxDegreeOfParallelism, cancellationToken)
                 : await ConvertFormsSequentiallyAsync(
                     parseResults, layoutAnalyzer, axamlGenerator, vmGenerator, codeBehindGenerator, styleGenerator,
-                    rollbackManager, viewsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
+                    rollbackManager, viewsDir, controlsDir, viewModelsDir, assetsDir, namespaceName, viewModelSuffix, layoutContext,
                     resxByFile, mappingResolver, mappingContext, avaloniaMajorVersion, convertedCustomControlClassNames,
                     customControlBindableProperties, ownerDrawnControlClassNames, formsWithDialogResultButton,
                     progress, statistics, totalForms,
@@ -739,6 +744,7 @@ public class ConversionOrchestrator
         StyleGenerator styleGenerator,
         RollbackManager rollbackManager,
         string viewsDir,
+        string controlsDir,
         string viewModelsDir,
         string assetsDir,
         string namespaceName,
@@ -757,6 +763,17 @@ public class ConversionOrchestrator
         {
             var rootControl = parseResult.RootControl!;
             var className = rootControl.Name;
+
+            // This form's own root is itself a converted custom control (see
+            // convertedCustomControlClassNames above) - its View/code-behind/styles belong in
+            // Controls/, not Views/, so an embedding form's <controls:Foo/> reference lines up
+            // with where the file actually lives.
+            var isCustomControl = convertedCustomControlClassNames.Contains(className);
+            var formDir = isCustomControl ? controlsDir : viewsDir;
+            if (isCustomControl)
+            {
+                Directory.CreateDirectory(controlsDir);
+            }
 
             var resxManualSteps = new List<ManualStepInfo>();
             if (resxByFile.TryGetValue(parseResult.FilePath, out var formResources))
@@ -817,8 +834,8 @@ public class ConversionOrchestrator
                 namespaceName, className, rootControl, parseResult.EventHandlerBodies, overrides,
                 avaloniaMajorVersion, codeBehindMembers, viewModelSuffix, bindableProperties);
 
-            var axamlPath = Path.Combine(viewsDir, $"{className}.axaml");
-            var codeBehindPath = Path.Combine(viewsDir, $"{className}.axaml.cs");
+            var axamlPath = Path.Combine(formDir, $"{className}.axaml");
+            var codeBehindPath = Path.Combine(formDir, $"{className}.axaml.cs");
 
             await File.WriteAllTextAsync(axamlPath, axamlContent);
             TrackFileCreationSafe(rollbackManager, axamlPath);
@@ -984,7 +1001,7 @@ public class ConversionOrchestrator
                 var stylesContent = styleGenerator.GenerateStyles(rootControl, _config.StyleExtraction.MinimumOccurrence, overrides);
                 if (!string.IsNullOrWhiteSpace(stylesContent))
                 {
-                    var stylesPath = Path.Combine(viewsDir, $"{className}.Styles.axaml");
+                    var stylesPath = Path.Combine(formDir, $"{className}.Styles.axaml");
                     await File.WriteAllTextAsync(stylesPath, stylesContent);
                     TrackFileCreationSafe(rollbackManager, stylesPath);
                 }
@@ -1438,7 +1455,7 @@ public class ConversionOrchestrator
             if (convertedCustomControlClassNames.Contains(control.ControlType))
             {
                 // This run also independently converted control.ControlType's own Designer.cs -
-                // AxamlGenerator.WriteControl already references it correctly (<views:.../>)
+                // AxamlGenerator.WriteControl already references it correctly (<controls:.../>)
                 // instead of a TODO placeholder, so this isn't "Unmapped Controls". Still worth
                 // a lighter-weight note: only its own simple auto-properties get auto-bound
                 // (CustomControlPropertyExtractor/PopulateCustomControlPropertyTranslations) -
@@ -1453,7 +1470,7 @@ public class ConversionOrchestrator
                     Category = "Custom Control Instance",
                     Title = $"{control.ControlType} \"{control.Name}\" was converted separately",
                     Location = sourceFile,
-                    Description = $"Views/{control.ControlType}.axaml and its ViewModel were generated from this " +
+                    Description = $"Controls/{control.ControlType}.axaml and its ViewModel were generated from this " +
                         $"control's own Designer.cs. " + (droppedProperties.Count > 0
                             ? $"These properties set on this instance were not simple public auto-properties on " +
                               $"{control.ControlType} (or not found at all) and were not carried over: " +
@@ -1620,6 +1637,7 @@ public class ConversionOrchestrator
         StyleGenerator styleGenerator,
         RollbackManager rollbackManager,
         string viewsDir,
+        string controlsDir,
         string viewModelsDir,
         string assetsDir,
         string namespaceName,
@@ -1654,7 +1672,7 @@ public class ConversionOrchestrator
                 formsProcessed, filesGenerated, formName: formName, force: true);
 
             var outcome = await ConvertFormAsync(parseResult, layoutAnalyzer, axamlGenerator, vmGenerator,
-                codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
+                codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, controlsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
                 avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties,
                 ownerDrawnControlClassNames, formsWithDialogResultButton);
@@ -1706,6 +1724,7 @@ public class ConversionOrchestrator
         StyleGenerator styleGenerator,
         RollbackManager rollbackManager,
         string viewsDir,
+        string controlsDir,
         string viewModelsDir,
         string assetsDir,
         string namespaceName,
@@ -1733,7 +1752,7 @@ public class ConversionOrchestrator
         await Parallel.ForEachAsync(Enumerable.Range(0, parseResults.Count), options, async (i, _) =>
         {
             outcomes[i] = await ConvertFormAsync(parseResults[i], layoutAnalyzer, axamlGenerator, vmGenerator,
-                codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, viewModelsDir, assetsDir,
+                codeBehindGenerator, styleGenerator, rollbackManager, viewsDir, controlsDir, viewModelsDir, assetsDir,
                 namespaceName, viewModelSuffix, layoutContext, resxByFile, mappingResolver, mappingContext,
                 avaloniaMajorVersion, convertedCustomControlClassNames, customControlBindableProperties,
                 ownerDrawnControlClassNames, formsWithDialogResultButton);

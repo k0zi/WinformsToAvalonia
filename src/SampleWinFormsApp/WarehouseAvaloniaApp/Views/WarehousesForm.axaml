@@ -1,0 +1,64 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WarehouseAvaloniaApp.ViewModels"
+        x:Class="WarehouseAvaloniaApp.Views.WarehousesForm"
+        x:DataType="vm:WarehousesFormViewModel"
+
+        Width="880"
+        Height="560"
+        Title="Warehouses &amp; Locations — WarehouseApp"
+        WindowStartupLocation="CenterOwner"        >
+    <Design.DataContext>
+        <vm:WarehousesFormViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+        <Panel Name="treeViewPanel"
+        DockPanel.Dock="Left"
+        Width="300">
+            <DockPanel>
+                <TreeView Name="locationsTreeView"
+                SelectedItem="{Binding Locations}" />
+            </DockPanel>
+        </Panel>
+        <GridSplitter Name="splitter"
+        DockPanel.Dock="Left"
+        Width="4" />
+        <Panel Name="detailFillPanel">
+            <DockPanel>
+                <ListBox Name="shelfContentsListView" />
+                <Panel Name="gaugePanel"
+                DockPanel.Dock="Top"
+                Height="170">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Name="selectedNameLabel"
+                        Grid.Row="0"
+                        Grid.Column="0"
+                        Text="Select a warehouse or location"
+                        FontFamily="Segoe UI"
+                        FontSize="11" />
+                        <!-- TODO: Unmapped control: GaugeControl (capacityGauge) -->
+                        <TextBlock Name="capacityDetailLabel"
+                        Grid.Row="2"
+                        Grid.Column="1"
+                        Foreground="Gray"
+                        Text="{Binding CapacityDetail}" />
+                    </Grid>
+                </Panel>
+            </DockPanel>
+        </Panel>
+        <StackPanel Name="mainToolStrip"
+        DockPanel.Dock="Top" />
+        <StackPanel Name="statusStrip" />
+    </DockPanel>
+</Window>

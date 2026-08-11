@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-CONVERTED_DIR="$SRC_DIR/SampleWinFormsApp/ConvertedAvalonia"
+CONVERTED_DIR="$SRC_DIR/SampleWinFormsApp/WarehouseAvaloniaApp"
 WAREHOUSE_DIR="$SRC_DIR/SampleWinFormsApp/WarehouseApp"
 NUPKG_DIR="/tmp/wf2av-nupkg"
 TOOL_PATH="/tmp/wf2av-tool"
@@ -16,7 +16,7 @@ TOOL_COMMAND="winforms2avalonia"
 
 cd "$SRC_DIR"
 
-echo "==> Removing existing ConvertedAvalonia project"
+echo "==> Removing existing WarehouseAvaloniaApp project"
 rm -rf "$CONVERTED_DIR"
 
 echo "==> Building Converter.Cli (Release)"
@@ -35,7 +35,7 @@ rm -rf "$TOOL_PATH"
 echo "==> Installing freshly built tool to $TOOL_PATH"
 dotnet tool install --tool-path "$TOOL_PATH" --add-source "$NUPKG_DIR" "$PACKAGE_ID"
 
-echo "==> Converting WarehouseApp -> ConvertedAvalonia"
+echo "==> Converting WarehouseApp -> WarehouseAvaloniaApp"
 "$TOOL_PATH/$TOOL_COMMAND" convert -i "$WAREHOUSE_DIR" -o "$CONVERTED_DIR" --no-interactive --no-git
 
 echo "==> Done. Output at $CONVERTED_DIR"

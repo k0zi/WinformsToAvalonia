@@ -43,6 +43,7 @@ public static class PropertyValueConverter
                 "HorizontalAlignment,VerticalAlignment" => TryConvertAutoSize(rawValue),
                 "TextAlignment,VerticalAlignment" => TryConvertTextBlockTextAlign(rawValue),
                 "TextAlignment" => TryConvertTextBoxTextAlign(rawValue),
+                "SelectedDate" => TryConvertDateTimePickerValue(rawValue),
                 _ => null
             };
         }
@@ -317,6 +318,44 @@ public static class PropertyValueConverter
         };
 
         return value == null ? null : [("TextAlignment", value)];
+    }
+
+    private static readonly Regex DateTimeConstructorPattern =
+        new(@"new\s+System\.DateTime\s*\(\s*(?<y>\d+)\s*,\s*(?<m>\d+)\s*,\s*(?<d>\d+)\s*\)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// DateTimePicker.Value's Designer-time literal is almost always the 3-arg date-only
+    /// "new System.DateTime(y, m, d)" constructor - a hardcoded default date is uncommon, but
+    /// when present this is the shape it takes. Emits a plain ISO "yyyy-MM-dd" string, which
+    /// Avalonia's DateTimeOffset XAML converter (backing DatePicker.SelectedDate) accepts.
+    /// Any other shape (DateTime.Now, DateTime.Today, the 6-arg date+time constructor, ...) is
+    /// not guessed at - returns null, same as every other converter in this file falling back
+    /// to null on an unrecognized shape.
+    /// </summary>
+    private static IReadOnlyList<(string, string)>? TryConvertDateTimePickerValue(string rawValue)
+    {
+        var match = DateTimeConstructorPattern.Match(rawValue);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        if (!int.TryParse(match.Groups["y"].Value, out var year) ||
+            !int.TryParse(match.Groups["m"].Value, out var month) ||
+            !int.TryParse(match.Groups["d"].Value, out var day))
+        {
+            return null;
+        }
+
+        try
+        {
+            var date = new DateTime(year, month, day);
+            return [("SelectedDate", date.ToString("yyyy-MM-dd"))];
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     private static readonly Regex ControlBorderStylePattern = new(@"BorderStyle\.(?<value>[A-Za-z0-9]+)", RegexOptions.Compiled);

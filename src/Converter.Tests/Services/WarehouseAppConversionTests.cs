@@ -29,6 +29,12 @@ public class WarehouseAppConversionTests
         "AutocompleteSearchBox", "NumericStepperControl"
     ];
 
+    // Of ExpectedForms above, these two are UserControl-rooted custom controls - their own
+    // View/code-behind land in Controls/, not Views/, alongside the form they were embedded in
+    // (see ConversionOrchestrator.ConvertFormAsync).
+    private static readonly HashSet<string> ExpectedCustomControlNames =
+        new(StringComparer.Ordinal) { "AutocompleteSearchBox", "NumericStepperControl" };
+
     [Fact]
     public async Task ExecuteAsync_WarehouseApp_ConvertsAllFormsWithFullControlTrees()
     {
@@ -69,6 +75,7 @@ public class WarehouseAppConversionTests
                 $"got {result.Report.Statistics.TotalControls} - did designer parsing regress to root-only?");
 
             var viewsDir = Path.Combine(outputDir, "Views");
+            var controlsDir = Path.Combine(outputDir, "Controls");
             var viewModelsDir = Path.Combine(outputDir, "ViewModels");
 
             // None of the WarehouseApp fixtures use DataBindings.Add, so the auto-regenerated,
@@ -85,8 +92,9 @@ public class WarehouseAppConversionTests
 
             foreach (var form in ExpectedForms)
             {
-                Assert.True(File.Exists(Path.Combine(viewsDir, $"{form}.axaml")), $"Missing AXAML for {form}");
-                Assert.True(File.Exists(Path.Combine(viewsDir, $"{form}.axaml.cs")), $"Missing code-behind for {form}");
+                var formDir = ExpectedCustomControlNames.Contains(form) ? controlsDir : viewsDir;
+                Assert.True(File.Exists(Path.Combine(formDir, $"{form}.axaml")), $"Missing AXAML for {form}");
+                Assert.True(File.Exists(Path.Combine(formDir, $"{form}.axaml.cs")), $"Missing code-behind for {form}");
                 var expectsGeneratedViewModel = formsWithInferredBindings.Contains(form);
                 Assert.Equal(expectsGeneratedViewModel, File.Exists(Path.Combine(viewModelsDir, $"{form}ViewModel.g.cs")));
                 Assert.True(File.Exists(Path.Combine(viewModelsDir, $"{form}ViewModel.cs")), $"Missing ViewModel for {form}");
