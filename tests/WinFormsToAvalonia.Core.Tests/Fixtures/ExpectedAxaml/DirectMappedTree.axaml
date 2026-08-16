@@ -1,0 +1,12 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:Demo.ViewModels" xmlns:controls="using:Demo.Controls" xmlns:w2a="clr-namespace:Demo.Controls.Generated" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="Demo.Views.DirectMappedTreeView" x:DataType="vm:DirectMappedTreeViewModel" Width="230" Height="160" Title="Direct Mapped Tree Demo">
+    <Design.DataContext>
+        <vm:DirectMappedTreeViewModel />
+    </Design.DataContext>
+    <Canvas>
+        <TextBox x:Name="topTextBox" Canvas.Left="10" Canvas.Top="120" Width="200" Height="23" />
+        <Canvas x:Name="panel1" Canvas.Left="10" Canvas.Top="10" Width="200" Height="100">
+            <Button x:Name="innerButton" Canvas.Left="8" Canvas.Top="8" Width="75" Height="23" Content="OK" />
+            <TextBlock x:Name="innerLabel" Canvas.Left="8" Canvas.Top="40" Width="100" Height="23" Text="Status" />
+        </Canvas>
+    </Canvas>
+</Window>

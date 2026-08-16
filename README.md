@@ -1,206 +1,112 @@
-<div align="center">
+# Winforms2Avalonia
 
-# WinForms → Avalonia Converter
+A .NET 10 command-line tool that converts a Windows Forms application (.NET Framework or
+modern .NET) into a new Avalonia UI application: every `Form` becomes an Avalonia `Window`
+View + ViewModel pair (CommunityToolkit.Mvvm) and every `UserControl` an Avalonia `UserControl`
+one, WinForms controls are mapped to their closest Avalonia equivalent (or one of the tool's
+own bundled fallback controls when Avalonia has no built-in match), and the original
+code-behind is preserved - commented out - for manual migration.
 
-**Automatically migrate Windows Forms projects to Avalonia 12.x (11.x still supported) with MVVM, intelligent layout detection, and a plugin-extensible pipeline.**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
-[![Avalonia](https://img.shields.io/badge/UI-Avalonia%2012.x-8A2BE2)](https://avaloniaui.net/)
-[![dotnet tool](https://img.shields.io/badge/dotnet%20tool-winforms2avalonia-512BD4?logo=dotnet&logoColor=white)](#-quick-start)
-[![Tests](https://img.shields.io/badge/tests-xUnit-25A162)](src/Converter.Tests)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-contributing)
-
-[Quick Start](#-quick-start) •
-[Features](#-features) •
-[Usage](#-usage) •
-[Feature Status](#-feature-status) •
-[Documentation](#-documentation) •
-[Contributing](#-contributing)
-
-</div>
-
----
-
-WinForms is stuck on Windows. Avalonia isn't. This CLI parses your `.Designer.cs` files with Roslyn, figures out a sensible layout (Grid, StackPanel, DockPanel, or Canvas), and generates a runnable Avalonia project — AXAML views, `CommunityToolkit.Mvvm` ViewModels, code-behind, and a migration guide that tells you exactly what still needs a human.
-
-It won't do 100% of the work for you (WinForms and Avalonia are different UI frameworks, not just different syntax), but it gets you a compiling, structured starting point instead of a blank page.
-
-## 📚 Table of Contents
-
-- [Features](#-features)
-- [Quick Start](#-quick-start)
-- [Usage](#-usage)
-- [Configuration](#-configuration)
-- [Feature Status](#-feature-status)
-- [Project Structure](#-project-structure)
-- [Documentation](#-documentation)
-- [Contributing](#-contributing)
-- [License](#-license)
-
-## ✨ Features
-
-- 🔍 **Roslyn-based parsing** — extracts control hierarchy, properties, event-handler subscriptions, and data bindings straight from `.Designer.cs`, no reflection or live WinForms runtime required
-- 📐 **Intelligent layout detection** — Grid / StackPanel / DockPanel / Canvas, chosen by confidence scoring (configurable weights), with fast paths for `TableLayoutPanel` / `FlowLayoutPanel` / `SplitContainer`
-- 🧩 **Real MVVM output** — generates actual `[ObservableProperty]` fields and `[RelayCommand]` methods via CommunityToolkit.Mvvm, not empty scaffolding
-- 🔁 **Event-handler body migration** — your original handler code is preserved as a reference comment inside a correctly-signed, compiling stub, wired into AXAML/ViewModel so it's never dead code
-- 🖼️ **`.resx` resource conversion** — strings resolve inline, images extract to `Assets/` with `avares://` references, unrecoverable legacy payloads are flagged instead of silently dropped
-- 🔌 **Plugin system** — `AssemblyLoadContext`-isolated plugins can override control/property/event mapping ahead of the built-ins; scaffold one with `init-plugin`
-- ♻️ **Incremental & resumable** — hash-based change detection (`--incremental`) and checkpointed resume (`--resume`) so a killed run doesn't mean starting over
-- 🌳 **Git-aware** — optional feature-branch creation and auto-commit of the converted output
-- 📊 **Real reporting** — HTML/JSON/Markdown/CSV conversion reports and a migration guide with concrete, per-form manual steps
-
-<details>
-<summary><strong>Full feature list</strong></summary>
-
-- **Conversion Engine**
-  - Layout detection: Grid/StackPanel/DockPanel/Canvas confidence scoring with fast-path detection for `TableLayoutPanel`/`FlowLayoutPanel`/`SplitContainer`
-  - AXAML generator: maps controls and converts properties (colors, fonts, dock, location) into valid Avalonia attributes; unmapped custom/third-party controls still render their mapped children
-  - ViewModel generator: real `[ObservableProperty]` fields (from data bindings) and `[RelayCommand]` methods (from event handlers)
-  - Style extraction: generates shared Avalonia styles for controls with repeated property values
-  - Migration guide generator: concrete manual steps (unmapped controls, properties needing custom logic, event handlers needing manual porting) instead of a generic checklist
-- **Plugin Architecture** — `IControlMapper`, `IPropertyTranslator`, `IEventMapper`, `ILayoutAnalyzer`, `ICodeGenerator`, `IValidationRule`
-- **Configuration System** — JSON `.converterconfig`, merged with explicit CLI flags: custom/third-party control mappings, style extraction rules, layout detection thresholds and weights, naming conventions, exclude patterns, git integration settings, plugin configuration, configurable Avalonia/CommunityToolkit.Mvvm target versions
-- **Infrastructure** — SHA256 file hash tracking, transactional rollback (a failed/cancelled run cleans up every file it wrote), per-form checkpointing for `--resume`
-- **CLI** — `convert`, `init-config`, `init-plugin`, `list-plugins`, all via System.CommandLine
-
-</details>
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or later
-
-### Install as a CLI tool
-
-Not published to nuget.org yet — build and install locally as a [dotnet tool](https://learn.microsoft.com/dotnet/core/tools/global-tools):
+## Quick start
 
 ```bash
-git clone https://github.com/k0zi/WinformsToAvalonia.git
-cd WinformsToAvalonia/src
+dotnet run --project src/Winforms2Avalonia.Cli -- convert \
+  --source path/to/YourWinFormsApp.csproj \
+  --output ./YourAvaloniaApp
 
-dotnet pack Converter.Cli/Converter.Cli.csproj -c Release -o ./nupkg
-dotnet tool install --global --add-source ./nupkg WinformsToAvalonia.Converter
+cd YourAvaloniaApp
+dotnet build && dotnet run
 ```
 
-`winforms2avalonia` is now available anywhere. Reinstall with `dotnet tool update --global --add-source ./nupkg WinformsToAvalonia.Converter` after pulling changes.
+## Commands
 
-### Build & Test (for development)
-
-```bash
-dotnet restore
-dotnet build
-dotnet test
-```
-
-## 🖥 Usage
-
-```bash
-# Scaffold a config file
-winforms2avalonia init-config
-
-# Convert a project (defaults to Avalonia 12.x output)
-winforms2avalonia convert \
-  --input /path/to/WinFormsApp \
-  --output /path/to/AvaloniaApp \
-  --layout smart \
-  --report report.html
-
-# Resume an interrupted run
-winforms2avalonia convert -i ./MyApp -o ./MyApp.Avalonia --resume
-
-# Discover / scaffold plugins
-winforms2avalonia list-plugins --plugins ./plugins
-winforms2avalonia init-plugin --name "MyPlugin" --output ./plugins/MyPlugin
-```
-
-Run `winforms2avalonia convert --help` for the full flag list. Prefer not to install the tool? Run from source instead: `cd Converter.Cli && dotnet run -- convert ...`.
-
-Still on Avalonia 11? Pin it explicitly — set `"projectGeneration": { "avaloniaVersion": "11.2.0" }` in `.converterconfig` (see [Configuration](#-configuration)).
-
-## ⚙️ Configuration
-
-```bash
-winforms2avalonia init-config -o .converterconfig
-```
-
-```json
-{
-  "layoutDetection": { "alignmentTolerance": 5, "confidenceThreshold": 70 },
-  "styleExtraction": { "enabled": true, "minimumOccurrence": 3 },
-  "resourceConversion": { "enabled": true, "assetsDirectory": "Assets" },
-  "eventHandlerMigration": { "enabled": true },
-  "projectGeneration": { "avaloniaVersion": "12.0.0" },
-  "gitIntegration": { "enabled": true, "createFeatureBranch": true }
-}
-```
-
-`projectGeneration.avaloniaVersion` defaults to `12.0.0` and is version-aware end to end — package references *and* the one confirmed Avalonia 11→12 breaking API change affecting generated code (`GotFocus`/`LostFocus` handler signatures) both track whichever version you target. Set it to `"11.2.0"` to keep generating Avalonia 11.x-compatible output.
-
-See [src/README.md](src/README.md#configuration) for the full schema.
-
-## 🎯 Feature Status
-
-| Feature | Status |
+| Command | What it does |
 |---|---|
-| Automatic Conversion (WinForms → Avalonia AXAML + ViewModels) | ✅ Implemented |
-| Intelligent Layouts (Grid, StackPanel, DockPanel, Canvas) | ✅ Implemented |
-| MVVM Architecture (CommunityToolkit.Mvvm integration) | ✅ Implemented |
-| Event to Command (automatic ICommand generation) | ✅ Implemented |
-| Event-Handler Body Migration (original code preserved as reference comments) | ✅ Implemented |
-| Style Extraction | ✅ Implemented |
-| Resource Conversion (`.resx` → `Assets/` + `avares://` references) | ✅ Implemented |
-| Plugin System (third-party control/property/event handlers) | ✅ Implemented |
-| Incremental Updates (hash-based change detection) | ✅ Implemented |
-| Checkpoint/Resume (`--resume`) | ✅ Implemented |
-| Git Integration (feature branch creation and commits) | ✅ Implemented |
-| Comprehensive Reports (HTML/JSON/Markdown/CSV) | ✅ Implemented |
-| Migration Guides (auto-generated, with concrete manual steps) | ✅ Implemented |
-| Configurable Avalonia/CommunityToolkit.Mvvm Target Version | ✅ Implemented |
-| Avalonia 12 Support (default target; 11.x supported via config) | ✅ Implemented |
-| Installable as a dotnet tool (`winforms2avalonia`) | ✅ Implemented (local install only — not on nuget.org) |
+| `convert --source <csproj> --output <dir>` | Converts a WinForms project into a new Avalonia project. |
+| `analyze --source <csproj>` | Discovery only (no output written) - lists the Forms/UserControls/Components that would be converted. |
+| `list-mappings [--filter <substring>]` | Prints the full WinForms → Avalonia control mapping table. |
 
-## 📁 Project Structure
+`convert` options: `--force` (overwrite a non-empty output directory), `--dry-run` (run the
+full pipeline, print the report, write nothing), `--verbose` (show every warning, not just
+the first few), `--no-fallback-controls` (strict mode: skip fallback controls instead of
+emitting them), `--skip-code-behind-comments` (omit the preserved code-behind block),
+`--log-file <path>` (write the conversion report as JSON alongside the console output).
 
-<details>
-<summary>Expand</summary>
+## Design decisions
+
+- **Layout**: every container becomes an Avalonia `Canvas`, children keep their original
+  WinForms `Location`/`Size` as `Canvas.Left`/`Canvas.Top`/`Width`/`Height` - pixel-accurate
+  and fully deterministic. `Anchor`/`Dock` are preserved (both as an XML comment and a
+  `w2a:LayoutHint` attached property) for later manual responsive-layout work, never
+  auto-translated.
+- **Fallback controls**: WinForms controls with no built-in Avalonia equivalent (`GroupBox`,
+  `StatusStrip`, `ToolStrip`, `MaskedTextBox`, `RichTextBox`, `ErrorProvider`, `PropertyGrid`,
+  `BindingNavigator`, `WebBrowser`, `PrintPreviewControl`) are backed by a fixed set of controls
+  the tool ships with itself; only the ones actually used get copied into the generated
+  project's `Controls/` folder, with no extra NuGet dependency.
+- **Code-behind**: see the next section. Every event handler comes across as a real,
+  subscribed method on the generated View, with its original body preserved inside it; only
+  handlers that provably *can* be commands become `[RelayCommand]`s on the ViewModel.
+
+## Code-behind migration
+
+WinForms handler bodies are dominated by imperative control-API code -
+`treeView1.Nodes.Add(...)`, `e.Effect = DragDropEffects.Copy`, `errorProvider.SetError(...)`,
+`new DashboardForm().ShowDialog()`. That code addresses controls by field name, which Avalonia
+*code-behind* can do unchanged (`x:Name` generates a field), but a ViewModel cannot. So:
+
+> **Code-behind is the default target. Promotion to the ViewModel is the exception, and it
+> happens only when a Roslyn analysis of the handler's own body proves it is possible.**
+
+A handler becomes a `[RelayCommand]` (plus `Command="{Binding …}"` on its control) only when
+**all** of these hold:
+
+1. it is a `Click` on a control that maps to a real Avalonia `Button`/`MenuItem`;
+2. it is wired to exactly one control (a shared handler needs `sender`);
+3. its body uses neither `sender` nor the `EventArgs`;
+4. it drives no Form member (`Close()`, `Hide()`, `DialogResult`, ...) and opens no other Form;
+5. it calls no code-behind helper method;
+6. every control member it touches is a two-way bindable value property (`Text`, `Checked`,
+   `Value`, `SelectedItem`, `Enabled`, `Visible`) on a directly-mapped control.
+
+Everything else stays event-driven, exactly as in WinForms: mouse/keyboard/drag-drop handlers,
+control-API code, form lifecycle (`Load` → `Loaded`, `FormClosing` → `Closing`), navigation, and
+anything the analyzer cannot classify with confidence. Each such decision - and its reason - is
+reported in the conversion output.
+
+Handler *bodies* are never re-emitted as compiling code (WinForms APIs do not exist in
+Avalonia). Each generated method has the correct Avalonia signature and subscription, with the
+original body preserved inside it as a comment, followed by a call to the generated
+`MigrationTodo.NotMigrated(...)` marker. The generated project therefore always builds *and
+runs*, and the unit of manual migration is one method rather than one file-sized comment block.
+
+The marker reports (to stderr and to the debugger, once per member) rather than throwing,
+because Avalonia invokes these handlers from the framework - a `TabControl` selects its first
+tab, a `Window` raises `Loaded` - so a throwing stub used to kill the converted app during XAML
+initialization, before its first window appeared. Set
+`MigrationTodo.ThrowOnUnmigratedCall = true` (e.g. in a smoke test) to make un-migrated code
+fail loudly again, and read `MigrationTodo.ReportedMembers` to see what ran un-migrated.
+
+See `docs/known-limitations.md` for what isn't handled yet, and `docs/Controls.md` for the
+per-type mapping status.
+
+## Solution structure
 
 ```
-├── LICENSE
-├── README.md
-└── src/
-    ├── Converter.sln
-    ├── README.md                      # Detailed documentation
-    ├── Converter.Core/                # Parsing, layout analysis, config, services
-    ├── Converter.Plugin.Abstractions/  # Plugin contracts
-    ├── Converter.Mappings/             # Built-in control/property/event registries
-    ├── Converter.Generator/            # AXAML / ViewModel / code-behind / style generators
-    ├── Converter.Reporting/            # HTML/JSON/Markdown/CSV report builder
-    ├── Converter.Documentation/        # Migration guide generator
-    ├── Converter.Cli/                  # CLI entry point + orchestrator
-    ├── Converter.Tests/                # xUnit test suite
-    └── Converter.Tests.SamplePlugin/   # Compiled plugin fixture for integration tests
+src/
+  Winforms2Avalonia.Cli/              Spectre.Console.Cli command-line host
+  Winforms2Avalonia.Core/             parsing, mapping, emission, scaffolding (no Avalonia dependency)
+  Winforms2Avalonia.FallbackControls/ bundled fallback control templates (embedded resources)
+tests/
+  Winforms2Avalonia.Core.Tests/       unit tests (parsing, mapping, emission)
+  Winforms2Avalonia.Integration.Tests/ end-to-end: converts real WinForms fixture projects and
+                                        `dotnet build`s the generated output
+docs/
+  Controls.md            per-type WinForms → Avalonia mapping status + implementation plan
+  known-limitations.md
 ```
 
-</details>
+## Requirements
 
-## 📖 Documentation
-
-See **[src/README.md](src/README.md)** for the full picture: architecture, configuration schema, CLI reference, and development status.
-
-## 🤝 Contributing
-
-Contributions are welcome — this project is in active development. Check [src/README.md](src/README.md#contributing) for areas that still need work, then open a PR or issue.
-
-## 📄 License
-
-MIT License — see [LICENSE](LICENSE).
-
----
-
-<div align="center">
-
-Made by [David Kozma](https://github.com/k0zi)
-
-</div>
+.NET 10 SDK. The generated Avalonia projects target `net10.0` and reference Avalonia
+12.1.1 + CommunityToolkit.Mvvm 8.4.2.

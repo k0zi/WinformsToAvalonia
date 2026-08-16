@@ -1,0 +1,532 @@
+using System.Globalization;
+using WinFormsToAvalonia.Core.Mapping;
+using WinFormsToAvalonia.Core.Model;
+
+namespace WinFormsToAvalonia.Core.Emission;
+
+/// <summary>
+/// Emits one Form's .axaml: a Canvas-rooted Window document (per the project's fixed
+/// layout-strategy decision - absolute Canvas.Left/Top/Width/Height from WinForms
+/// Location/Size, no automatic Dock/Anchor-to-panel translation). Anchor/Dock are preserved
+/// as both an XML comment and a `w2a:LayoutHint` attached property (see
+/// Scaffolding/AvaloniaProjectScaffolder's LayoutHint.cs template) so a human - or a future
+/// automated pass - can find them without re-parsing the original WinForms source.
+/// </summary>
+/// <remarks>
+/// Direct-mapped controls are emitted as their real Avalonia element. Fallback-mapped
+/// controls are emitted as a `controls:{FallbackTemplateKey}` element (the caller is
+/// responsible for actually copying that template into the project via
+/// FallbackControlResolver, using <see cref="AxamlEmissionResult.UsedFallbackKeys"/>) -
+/// unless <paramref name="emitFallbackControls"/> is false (--no-fallback-controls strict
+/// mode), in which case Fallback is treated the same as Unsupported. Unsupported controls
+/// always become a `TODO` comment instead of a real element, since there is nothing to
+/// reference.
+/// </remarks>
+public sealed class AxamlEmitter
+{
+    private readonly ControlMappingRegistry _registry;
+
+    public AxamlEmitter(ControlMappingRegistry registry)
+    {
+        _registry = registry;
+    }
+
+    /// <param name="artifactKind">
+    /// Decides the root element: a Form becomes a <c>Window</c> (with a Title), a UserControl
+    /// an Avalonia <c>UserControl</c> - which has neither a Title nor a ClientSize, so its size
+    /// comes from the designer's own <c>Size</c> assignment instead.
+    /// </param>
+    /// <param name="userControlViews">
+    /// Every UserControl the source project defines, so their <c>xmlns</c> prefixes can be
+    /// declared up front on the root element (the prefixed elements themselves are emitted
+    /// later, by the UserControlMapper entries the caller put in the registry).
+    /// </param>
+    public AxamlEmissionResult EmitView(
+        FormModel formModel,
+        string rootNamespace,
+        string viewClassName,
+        string viewModelClassName,
+        FormMigrationPlan? plan = null,
+        string relativeFolder = "",
+        bool emitFallbackControls = true,
+        WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form,
+        IReadOnlyList<UserControlViewInfo>? userControlViews = null)
+    {
+        var viewNamespace = NamingConventions.NamespaceOf($"{rootNamespace}.Views", relativeFolder);
+        var viewModelNamespace = NamingConventions.NamespaceOf($"{rootNamespace}.ViewModels", relativeFolder);
+        var isUserControl = artifactKind == WinFormsArtifactKind.UserControl;
+
+        var builder = new AxamlDocumentBuilder();
+        var state = new EmissionState(formModel, plan ?? FormMigrationPlan.Empty);
+
+        builder.OpenElement(isUserControl ? "UserControl" : "Window");
+        builder.Attribute("xmlns", "https://github.com/avaloniaui");
+        builder.Attribute("xmlns:x", "http://schemas.microsoft.com/winfx/2006/xaml");
+        builder.Attribute("xmlns:vm", $"using:{viewModelNamespace}");
+        builder.Attribute("xmlns:controls", $"using:{rootNamespace}.Controls");
+        builder.Attribute("xmlns:w2a", $"clr-namespace:{rootNamespace}.Controls.Generated");
+
+        foreach (var (prefix, namespaceName) in DistinctUserControlNamespaces(userControlViews))
+        {
+            builder.Attribute($"xmlns:{prefix}", $"using:{namespaceName}");
+        }
+
+        builder.Attribute("xmlns:d", "http://schemas.microsoft.com/expression/blend/2008");
+        builder.Attribute("xmlns:mc", "http://schemas.openxmlformats.org/markup-compatibility/2006");
+        builder.Attribute("mc:Ignorable", "d");
+        builder.Attribute("x:Class", $"{viewNamespace}.{viewClassName}");
+        builder.Attribute("x:DataType", $"vm:{viewModelClassName}");
+
+        var sizeSourceProperty = isUserControl ? "Size" : "ClientSize";
+        if (TryGetSize(formModel.FormProperties, sizeSourceProperty, out var formWidth, out var formHeight))
+        {
+            builder.Attribute("Width", FormatInt(formWidth));
+            builder.Attribute("Height", FormatInt(formHeight));
+        }
+
+        if (!isUserControl)
+        {
+            builder.Attribute("Title", GetFormTitle(formModel, viewClassName));
+        }
+
+        // Form-level events (Load/FormClosing/...) subscribe on the Window element itself.
+        foreach (var (attributeName, handlerMethodName) in state.Plan.XamlEventAttributesFor(null))
+        {
+            builder.Attribute(attributeName, handlerMethodName);
+        }
+
+        builder.OpenElement("Design.DataContext");
+        builder.OpenElement($"vm:{viewModelClassName}");
+        builder.CloseElement();
+        builder.CloseElement();
+
+        builder.OpenElement("Canvas");
+        foreach (var control in formModel.RootControls)
+        {
+            EmitControl(builder, control, emitFallbackControls, state);
+        }
+
+        builder.CloseElement();
+
+        builder.CloseElement();
+
+        return new AxamlEmissionResult(
+            builder.ToString(),
+            state.UsedFallbackKeys,
+            state.RequiredNuGetPackages,
+            state.DirectCount,
+            state.FallbackCount,
+            state.UnsupportedCount,
+            state.Warnings);
+    }
+
+    /// <summary>
+    /// One xmlns declaration per distinct UserControl-View namespace, keyed by the prefix the
+    /// pipeline already assigned. Several UserControls in the same folder share one namespace
+    /// (and therefore one prefix), and a duplicate xmlns attribute would be a XAML parse error.
+    /// </summary>
+    private static IEnumerable<(string Prefix, string Namespace)> DistinctUserControlNamespaces(
+        IReadOnlyList<UserControlViewInfo>? userControlViews) =>
+        (userControlViews ?? [])
+            .GroupBy(v => v.ViewNamespace, StringComparer.Ordinal)
+            .Select(g => (g.First().XmlnsPrefix, Namespace: g.Key))
+            .OrderBy(x => x.XmlnsPrefix, StringComparer.Ordinal);
+
+    private void EmitControl(AxamlDocumentBuilder builder, ControlModel control, bool emitFallbackControls, EmissionState state)
+    {
+        var mapped = _registry.Map(control);
+        var treatAsFallback = mapped.Status == MappingStatus.Fallback && emitFallbackControls;
+
+        if (mapped.Status != MappingStatus.Direct && !treatAsFallback)
+        {
+            var reason = mapped.Status == MappingStatus.Fallback
+                ? $"requires the bundled fallback control '{mapped.FallbackTemplateKey}' (skipped: --no-fallback-controls)"
+                : "has no Avalonia mapping";
+            var message = $"field '{control.FieldName}' ({control.ClrTypeName}) {reason}: {string.Join(" ", mapped.Warnings)}";
+            builder.Comment($"TODO(Winforms2Avalonia): {message} - not emitted.");
+            state.Warnings.Add(message);
+            if (mapped.Status == MappingStatus.Fallback)
+            {
+                state.FallbackCount++;
+            }
+            else
+            {
+                state.UnsupportedCount++;
+            }
+
+            return;
+        }
+
+        EmitLayoutHintComment(builder, control);
+
+        var elementName = treatAsFallback ? $"controls:{mapped.FallbackTemplateKey}" : mapped.AvaloniaElementName!;
+        if (treatAsFallback)
+        {
+            state.UsedFallbackKeys.Add(mapped.FallbackTemplateKey!);
+            state.FallbackCount++;
+        }
+        else
+        {
+            state.DirectCount++;
+            if (mapped.RequiredNuGetPackage is { } package)
+            {
+                state.RequiredNuGetPackages.Add(package);
+            }
+        }
+
+        builder.OpenElement(elementName);
+        if (mapped.SupportsName)
+        {
+            builder.Attribute("x:Name", control.FieldName);
+        }
+
+        if (TryGetPoint(control.Properties, "Location", out var x, out var y))
+        {
+            builder.Attribute("Canvas.Left", FormatInt(x));
+            builder.Attribute("Canvas.Top", FormatInt(y));
+        }
+        else
+        {
+            WarnIfPropertyUnresolved(control, "Location", "Point", state);
+        }
+
+        if (TryGetSize(control.Properties, "Size", out var width, out var height))
+        {
+            builder.Attribute("Width", FormatInt(width));
+            builder.Attribute("Height", FormatInt(height));
+        }
+        else
+        {
+            WarnIfPropertyUnresolved(control, "Size", "Size", state);
+        }
+
+        // A bound property's designer literal moves to the ViewModel property's initializer, so
+        // emitting it here as well would produce a duplicate XML attribute for the same name.
+        var boundProperties = mapped.SupportsName
+            ? state.Plan.BoundPropertiesFor(control.FieldName).ToList()
+            : [];
+        var boundAttributeNames = boundProperties.Select(p => p.AvaloniaPropertyName).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var (attributeName, value) in mapped.Attributes)
+        {
+            if (!boundAttributeNames.Contains(attributeName))
+            {
+                builder.Attribute(attributeName, value);
+            }
+        }
+
+        EmitBindingsAndEvents(builder, control, mapped, boundProperties, state);
+        EmitLayoutHintAttributes(builder, control);
+        EmitContextMenuIfPresent(builder, control, emitFallbackControls, state);
+
+        // Universal, not gated by WinForms type: `this.toolTip1.SetToolTip(this.control1, ...)`
+        // is resolved onto the target control's own Properties by DesignerSyntaxWalker,
+        // regardless of which ToolTip field made the call - so any control can carry it.
+        if (control.Properties.TryGetValue("ToolTipText", out var toolTipValue)
+            && PropertyValueFormatters.AsText(toolTipValue) is { } toolTipText)
+        {
+            builder.Attribute("ToolTip.Tip", toolTipText);
+        }
+
+        foreach (var nested in mapped.NestedElements)
+        {
+            EmitElementSpec(builder, nested);
+        }
+
+        if (control.ClrTypeName == "SplitContainer")
+        {
+            EmitSplitContainerRegions(builder, control, emitFallbackControls, state);
+        }
+        else
+        {
+            var wrappers = control.Children.Count > 0 ? mapped.ChildWrapperElementNames : [];
+            foreach (var wrapperElementName in wrappers)
+            {
+                builder.OpenElement(wrapperElementName);
+            }
+
+            foreach (var child in control.Children)
+            {
+                EmitControl(builder, child, emitFallbackControls, state);
+            }
+
+            for (var i = 0; i < wrappers.Count; i++)
+            {
+                builder.CloseElement();
+            }
+        }
+
+        builder.CloseElement();
+    }
+
+    /// <summary>
+    /// Emits a mapper-prescribed <see cref="AxamlElementSpec"/> subtree (a DataGridTemplateColumn's
+    /// CellTemplate, a MenuFlyout shell, ...) - fixed content the WinForms designer never records,
+    /// so it comes from the mapping table rather than from the ControlModel.
+    /// </summary>
+    private static void EmitElementSpec(AxamlDocumentBuilder builder, AxamlElementSpec spec)
+    {
+        builder.OpenElement(spec.ElementName);
+        foreach (var (attributeName, value) in spec.Attributes)
+        {
+            builder.Attribute(attributeName, value);
+        }
+
+        if (spec.Comment is { } comment)
+        {
+            builder.Comment(comment);
+        }
+
+        foreach (var child in spec.Children)
+        {
+            EmitElementSpec(builder, child);
+        }
+
+        builder.CloseElement();
+    }
+
+    /// <summary>
+    /// Wires this element to the migration plan: two-way {Binding}s for the properties a promoted
+    /// ViewModel command drives, a Command binding when this control's Click became a
+    /// [RelayCommand], and an attribute per event handler that stayed in code-behind.
+    /// </summary>
+    /// <remarks>
+    /// Only Direct-mapped, nameable elements are wired. A Fallback element is one of the tool's
+    /// own bundled controls, which does not necessarily expose the Avalonia event or Command
+    /// property the mapping table names - emitting the attribute anyway would fail the Avalonia
+    /// XAML compiler (AVLN2000) and break the generated build, so the handler method is still
+    /// emitted but the subscription is reported as a warning instead.
+    /// </remarks>
+    private static void EmitBindingsAndEvents(
+        AxamlDocumentBuilder builder,
+        ControlModel control,
+        MappedControl mapped,
+        IReadOnlyList<BoundPropertyPlan> boundProperties,
+        EmissionState state)
+    {
+        var isWireable = mapped.Status == MappingStatus.Direct && mapped.SupportsName;
+
+        foreach (var bound in boundProperties)
+        {
+            builder.Attribute(bound.AvaloniaPropertyName, $"{{Binding {bound.ViewModelPropertyName}, Mode=TwoWay}}");
+        }
+
+        if (state.Plan.CommandPropertyFor(control.FieldName) is { } commandProperty)
+        {
+            builder.Attribute("Command", $"{{Binding {commandProperty}}}");
+        }
+
+        foreach (var (attributeName, handlerMethodName) in state.Plan.XamlEventAttributesFor(control.FieldName))
+        {
+            if (isWireable)
+            {
+                builder.Attribute(attributeName, handlerMethodName);
+            }
+            else
+            {
+                state.Warnings.Add(
+                    $"field '{control.FieldName}' ({control.ClrTypeName}) is not a direct Avalonia element, so its " +
+                    $"'{attributeName}' handler '{handlerMethodName}' could not be subscribed - wire it up by hand.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Universal, not gated by WinForms type: `this.someControl.ContextMenuStrip =
+    /// this.contextMenuStrip1;` is resolved onto the target control's own Properties by
+    /// DesignerSyntaxWalker (as a <see cref="PropertyValue.ControlReference"/>), regardless
+    /// of which control it targets - so any control can carry it. Emitted as a nested
+    /// `&lt;Control.ContextMenu&gt;` property element (not a plain attribute like ToolTip.Tip,
+    /// since it wraps child MenuItem/Separator elements), reusing the same recursive
+    /// EmitControl already used for regular children so nested DropDownItems work for free.
+    /// </summary>
+    private void EmitContextMenuIfPresent(AxamlDocumentBuilder builder, ControlModel control, bool emitFallbackControls, EmissionState state)
+    {
+        if (control.Properties.TryGetValue("ContextMenuStrip", out var value)
+            && value is PropertyValue.ControlReference(var fieldName)
+            && state.FormModel.Controls.TryGetValue(fieldName, out var menuControl)
+            && menuControl.ClrTypeName == "ContextMenuStrip")
+        {
+            builder.OpenElement("Control.ContextMenu");
+            builder.OpenElement("ContextMenu");
+            foreach (var item in menuControl.Children)
+            {
+                EmitControl(builder, item, emitFallbackControls, state);
+            }
+
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+    }
+
+    /// <summary>
+    /// SplitContainer's children live in <see cref="ControlModel.Panel1Children"/>/
+    /// <see cref="ControlModel.Panel2Children"/>, not the regular Children list (see
+    /// ControlGraphBuilder) - so it needs its own emission instead of the generic
+    /// single-wrapper Children loop every other control uses. The Grid element itself was
+    /// already opened by the caller (EmitControl, same as for every other control - mapped
+    /// AvaloniaElementName is "Grid"); this only adds the Row/ColumnDefinitions attribute
+    /// (must happen before any child element is opened) and emits the two Canvas regions +
+    /// GridSplitter as its children, either side by side (Orientation=Vertical, WinForms'
+    /// default) or stacked (Orientation=Horizontal).
+    /// </summary>
+    private void EmitSplitContainerRegions(AxamlDocumentBuilder builder, ControlModel control, bool emitFallbackControls, EmissionState state)
+    {
+        var isHorizontal = control.Properties.TryGetValue("Orientation", out var orientation)
+            && orientation is PropertyValue.EnumMembers { MemberNames: var members }
+            && members.Contains("Horizontal");
+
+        builder.Attribute(isHorizontal ? "RowDefinitions" : "ColumnDefinitions", "*,Auto,*");
+
+        EmitSplitContainerRegion(builder, control.Panel1Children, isHorizontal, 0, emitFallbackControls, state);
+
+        builder.OpenElement("GridSplitter");
+        builder.Attribute(isHorizontal ? "Grid.Row" : "Grid.Column", "1");
+        builder.Attribute(isHorizontal ? "Height" : "Width", "4");
+        builder.Attribute("ResizeDirection", isHorizontal ? "Rows" : "Columns");
+        builder.CloseElement();
+
+        EmitSplitContainerRegion(builder, control.Panel2Children, isHorizontal, 2, emitFallbackControls, state);
+    }
+
+    private void EmitSplitContainerRegion(
+        AxamlDocumentBuilder builder, List<ControlModel> children, bool isHorizontal, int gridIndex, bool emitFallbackControls, EmissionState state)
+    {
+        builder.OpenElement("Canvas");
+        builder.Attribute(isHorizontal ? "Grid.Row" : "Grid.Column", FormatInt(gridIndex));
+
+        foreach (var child in children)
+        {
+            EmitControl(builder, child, emitFallbackControls, state);
+        }
+
+        builder.CloseElement();
+    }
+
+    private sealed class EmissionState
+    {
+        public EmissionState(FormModel formModel, FormMigrationPlan plan)
+        {
+            FormModel = formModel;
+            Plan = plan;
+        }
+
+        public FormModel FormModel { get; }
+
+        public FormMigrationPlan Plan { get; }
+
+        public HashSet<string> UsedFallbackKeys { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> RequiredNuGetPackages { get; } = new(StringComparer.Ordinal);
+
+        public List<string> Warnings { get; } = [];
+
+        public int DirectCount { get; set; }
+
+        public int FallbackCount { get; set; }
+
+        public int UnsupportedCount { get; set; }
+    }
+
+    private static void EmitLayoutHintComment(AxamlDocumentBuilder builder, ControlModel control)
+    {
+        var parts = new List<string>();
+
+        if (TryFormatEnumMembers(control, "Anchor", out var anchor))
+        {
+            parts.Add($"Anchor={anchor}");
+        }
+
+        if (TryFormatEnumMembers(control, "Dock", out var dock))
+        {
+            parts.Add($"Dock={dock}");
+        }
+
+        if (parts.Count > 0)
+        {
+            builder.Comment("WinForms layout: " + string.Join(" ", parts));
+        }
+    }
+
+    private static void EmitLayoutHintAttributes(AxamlDocumentBuilder builder, ControlModel control)
+    {
+        if (TryFormatEnumMembers(control, "Anchor", out var anchor))
+        {
+            builder.Attribute("w2a:LayoutHint.Anchor", anchor);
+        }
+
+        if (TryFormatEnumMembers(control, "Dock", out var dock))
+        {
+            builder.Attribute("w2a:LayoutHint.Dock", dock);
+        }
+    }
+
+    private static bool TryFormatEnumMembers(ControlModel control, string propertyName, out string formatted)
+    {
+        if (control.Properties.TryGetValue(propertyName, out var value) && value is PropertyValue.EnumMembers members)
+        {
+            formatted = string.Join(",", members.MemberNames);
+            return true;
+        }
+
+        formatted = "";
+        return false;
+    }
+
+    /// <summary>
+    /// Only fires when Designer.cs actually assigned the property but ExpressionEvaluator
+    /// couldn't resolve it to a literal Point/Size (a computed expression, a field
+    /// reference, ...) - never for a control that simply never had a Location/Size
+    /// assignment at all (e.g. an AutoSize Label), which is correct as-is, not a bug.
+    /// </summary>
+    private static void WarnIfPropertyUnresolved(ControlModel control, string propertyName, string expectedShape, EmissionState state)
+    {
+        if (control.Properties.TryGetValue(propertyName, out var value))
+        {
+            var raw = value is PropertyValue.Unresolved unresolved ? unresolved.RawExpression : value.ToString();
+            state.Warnings.Add($"field '{control.FieldName}' ({control.ClrTypeName}): {propertyName} expression '{raw}' could not be resolved to a literal {expectedShape} - not emitted, control may be mispositioned/mis-sized.");
+        }
+    }
+
+    private static bool TryGetPoint(IReadOnlyDictionary<string, PropertyValue> properties, string propertyName, out int x, out int y)
+    {
+        if (properties.TryGetValue(propertyName, out var value) && value is PropertyValue.PointValue point)
+        {
+            x = point.X;
+            y = point.Y;
+            return true;
+        }
+
+        x = 0;
+        y = 0;
+        return false;
+    }
+
+    private static bool TryGetSize(IReadOnlyDictionary<string, PropertyValue> properties, string propertyName, out int width, out int height)
+    {
+        if (properties.TryGetValue(propertyName, out var value) && value is PropertyValue.SizeValue size)
+        {
+            width = size.Width;
+            height = size.Height;
+            return true;
+        }
+
+        width = 0;
+        height = 0;
+        return false;
+    }
+
+    private static string GetFormTitle(FormModel formModel, string fallback)
+    {
+        if (formModel.FormProperties.TryGetValue("Text", out var value)
+            && value is PropertyValue.Literal { Value: string text }
+            && !string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        return fallback;
+    }
+
+    private static string FormatInt(int value) => value.ToString(CultureInfo.InvariantCulture);
+}

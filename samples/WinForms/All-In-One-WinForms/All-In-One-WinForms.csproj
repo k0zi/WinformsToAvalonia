@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- The directory name is hyphenated; a namespace cannot be. -->
+    <RootNamespace>AllInOneWinForms</RootNamespace>
+    <AssemblyName>AllInOneWinForms</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Components that ship in the Windows Forms toolbox but live outside the
+         Microsoft.WindowsDesktop.App shared framework on modern .NET. -->
+    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.0" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

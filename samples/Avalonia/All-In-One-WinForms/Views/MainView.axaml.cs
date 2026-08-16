@@ -1,0 +1,1083 @@
+using System;
+using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Avalonia.Controls.Primitives;
+using All_In_One_WinForms.Generated;
+using All_In_One_WinForms.ViewModels;
+
+namespace All_In_One_WinForms.Views;
+
+public partial class MainView : Window
+{
+    private readonly DispatcherTimer clockTimer;
+
+    public MainView()
+    {
+        InitializeComponent();
+        DataContext = new MainViewModel();
+
+        clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
+        clockTimer.Tick += clockTimer_Tick;
+    }
+
+    private void MainForm_Load(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'MainForm_Load' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.itemsTreeView.Nodes.Add("Documents");
+        this.itemsTreeView.Nodes.Add("Pictures");
+        this.itemsListView.Items.Add(new ListViewItem(new[] { "readme.txt", "2 KB" }));
+        this.itemsListView.Items.Add(new ListViewItem(new[] { "notes.txt", "11 KB" }));
+
+        this.bindingSource1.DataSource = new BindingList<GalleryRow>
+        {
+            new GalleryRow { Name = "First", Active = true, Category = "Alpha" },
+            new GalleryRow { Name = "Second", Active = false, Category = "Beta" },
+        };
+
+        this.propertyGrid1.SelectedObject = this.demoComponent1;
+        this.statusLabel.Text = "Loaded";
+        */
+        MigrationTodo.NotMigrated(nameof(MainForm_Load), "MainForm_Load");
+    }
+
+    private void MainForm_FormClosing(object? sender, WindowClosingEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'MainForm_FormClosing' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.isBusy)
+        {
+            e.Cancel = MessageBox.Show(
+                "A background operation is still running. Close anyway?",
+                "All-In-One",
+                MessageBoxButtons.YesNo) == DialogResult.No;
+        }
+
+        this.notifyIcon1.Visible = false;
+        */
+        MigrationTodo.NotMigrated(nameof(MainForm_FormClosing), "MainForm_FormClosing");
+    }
+
+    private void newMenuItem_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'newMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.titleTextBox.Clear();
+        this.notesRichTextBox.Clear();
+        this.statusLabel.Text = "New document";
+        */
+        MigrationTodo.NotMigrated(nameof(newMenuItem_Click), "newMenuItem_Click");
+    }
+
+    private void openMenuItem_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'openMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.notesRichTextBox.Text = File.ReadAllText(this.openFileDialog1.FileName);
+            this.statusLabel.Text = this.openFileDialog1.FileName;
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(openMenuItem_Click), "openMenuItem_Click");
+    }
+
+    private void exitMenuItem_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'exitMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        Close();
+        */
+        MigrationTodo.NotMigrated(nameof(exitMenuItem_Click), "exitMenuItem_Click");
+    }
+
+    private void wordWrapMenuItem_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'wordWrapMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.notesRichTextBox.WordWrap = this.wordWrapMenuItem.Checked;
+        */
+        MigrationTodo.NotMigrated(nameof(wordWrapMenuItem_Click), "wordWrapMenuItem_Click");
+    }
+
+    private void aboutMenuItem_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'aboutMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        using var dialog = new DialogForm();
+        dialog.ShowDialog(this);
+        */
+        MigrationTodo.NotMigrated(nameof(aboutMenuItem_Click), "aboutMenuItem_Click");
+    }
+
+    private void toolStripNewButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'toolStripNewButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.toolStripProgressBar1.Value = Math.Min(100, this.toolStripProgressBar1.Value + 10);
+        this.statusLabel.Text = "Toolbar: new";
+        */
+        MigrationTodo.NotMigrated(nameof(toolStripNewButton_Click), "toolStripNewButton_Click");
+    }
+
+    private void tabControl1_SelectedIndexChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'tabControl1_SelectedIndexChanged' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.statusInfoLabel.Text = this.tabControl1.SelectedTab?.Text ?? string.Empty;
+        */
+        MigrationTodo.NotMigrated(nameof(tabControl1_SelectedIndexChanged), "tabControl1_SelectedIndexChanged");
+    }
+
+    private void linkLabel1_LinkClicked(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'linkLabel1_LinkClicked' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.linkLabel1.LinkVisited = true;
+        this.statusLabel.Text = "Link clicked";
+        */
+        MigrationTodo.NotMigrated(nameof(linkLabel1_LinkClicked), "linkLabel1_LinkClicked");
+    }
+
+    private void sharedButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'sharedButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        var button = (Button)sender!;
+        this.statusLabel.Text = $"{button.Text} pressed";
+        */
+        MigrationTodo.NotMigrated(nameof(sharedButton_Click), "sharedButton_Click");
+    }
+
+    private void validateButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'validateButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (string.IsNullOrWhiteSpace(this.titleTextBox.Text))
+        {
+            this.errorProvider1.SetError(this.titleTextBox, "A title is required.");
+        }
+        else
+        {
+            this.errorProvider1.SetError(this.titleTextBox, string.Empty);
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(validateButton_Click), "validateButton_Click");
+    }
+
+    private void itemsListBox_SelectedIndexChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'itemsListBox_SelectedIndexChanged' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.statusLabel.Text = $"Selected: {this.itemsListBox.SelectedItem}";
+        */
+        MigrationTodo.NotMigrated(nameof(itemsListBox_SelectedIndexChanged), "itemsListBox_SelectedIndexChanged");
+    }
+
+    private void refreshButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'refreshButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.itemsTreeView.Nodes.Clear();
+        var root = this.itemsTreeView.Nodes.Add("Reloaded");
+        root.Nodes.Add("Child one");
+        root.Nodes.Add("Child two");
+        this.itemsTreeView.ExpandAll();
+        */
+        MigrationTodo.NotMigrated(nameof(refreshButton_Click), "refreshButton_Click");
+    }
+
+    private void dataGridView1_CellClick(object? sender, DataGridCellPointerPressedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'dataGridView1_CellClick' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.gridInfoLabel.Text = $"Cell clicked: row {e.RowIndex}, column {e.ColumnIndex}";
+        */
+        MigrationTodo.NotMigrated(nameof(dataGridView1_CellClick), "dataGridView1_CellClick");
+    }
+
+    private void clockToggleButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'clockToggleButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.clockTimer.Enabled = !this.clockTimer.Enabled;
+        this.clockToggleButton.Text = this.clockTimer.Enabled ? "Stop clock" : "Start clock";
+        */
+        MigrationTodo.NotMigrated(nameof(clockToggleButton_Click), "clockToggleButton_Click");
+    }
+
+    private void clockTimer_Tick(object? sender, EventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'clockTimer_Tick' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.clockLabel.Text = DateTime.Now.ToLongTimeString();
+        this.demoComponent1.Tick();
+        */
+        MigrationTodo.NotMigrated(nameof(clockTimer_Tick), "clockTimer_Tick");
+    }
+
+    private void pictureBox1_Click(object? sender, PointerPressedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'pictureBox1_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.pictureBox1.Invalidate();
+        */
+        MigrationTodo.NotMigrated(nameof(pictureBox1_Click), "pictureBox1_Click");
+    }
+
+    private void pictureBox1_MouseDown(object? sender, PointerPressedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'pictureBox1_MouseDown' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.statusLabel.Text = $"Mouse down at {e.X},{e.Y}";
+        */
+        MigrationTodo.NotMigrated(nameof(pictureBox1_MouseDown), "pictureBox1_MouseDown");
+    }
+
+    private void pictureBox1_Paint(object? sender, EventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'pictureBox1_Paint' - TODO(Winforms2Avalonia): migrate it into this method.
+        e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);
+        e.Graphics.DrawString("PictureBox.Paint", this.Font, Brushes.SteelBlue, 20, 60);
+        */
+        MigrationTodo.NotMigrated(nameof(pictureBox1_Paint), "pictureBox1_Paint");
+    }
+
+    private void trackBar1_Scroll(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'trackBar1_Scroll' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.progressBar1.Value = this.trackBar1.Value;
+        this.graphicsInfoLabel.Text = $"TrackBar value: {this.trackBar1.Value}";
+        */
+        MigrationTodo.NotMigrated(nameof(trackBar1_Scroll), "trackBar1_Scroll");
+    }
+
+    private void hScrollBar1_Scroll(object? sender, ScrollEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'hScrollBar1_Scroll' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.statusLabel.Text = $"Scrolled to {e.NewValue}";
+        */
+        MigrationTodo.NotMigrated(nameof(hScrollBar1_Scroll), "hScrollBar1_Scroll");
+    }
+
+    private void openFileButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'openFileButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.selectedPathLabel.Text = this.openFileDialog1.FileName;
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(openFileButton_Click), "openFileButton_Click");
+    }
+
+    private void saveFileButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'saveFileButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.saveFileDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.selectedPathLabel.Text = this.saveFileDialog1.FileName;
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(saveFileButton_Click), "saveFileButton_Click");
+    }
+
+    private void folderBrowserButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'folderBrowserButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.folderBrowserDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.selectedPathLabel.Text = this.folderBrowserDialog1.SelectedPath;
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(folderBrowserButton_Click), "folderBrowserButton_Click");
+    }
+
+    private void colorButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'colorButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.plainPanel.BackColor = this.colorDialog1.Color;
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(colorButton_Click), "colorButton_Click");
+    }
+
+    private void fontButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'fontButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.notesRichTextBox.Font = this.fontDialog1.Font;
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(fontButton_Click), "fontButton_Click");
+    }
+
+    private void printButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'printButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.printDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.printDocument1.Print();
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(printButton_Click), "printButton_Click");
+    }
+
+    private void pageSetupButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'pageSetupButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.pageSetupDialog1.ShowDialog(this);
+        */
+        MigrationTodo.NotMigrated(nameof(pageSetupButton_Click), "pageSetupButton_Click");
+    }
+
+    private void printPreviewButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'printPreviewButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.printPreviewDialog1.ShowDialog(this);
+        */
+        MigrationTodo.NotMigrated(nameof(printPreviewButton_Click), "printPreviewButton_Click");
+    }
+
+    private void printDocument1_PrintPage(object? sender, EventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'printDocument1_PrintPage' - TODO(Winforms2Avalonia): migrate it into this method.
+        e.Graphics!.DrawString(
+            this.notesRichTextBox.Text,
+            this.notesRichTextBox.Font,
+            Brushes.Black,
+            e.MarginBounds);
+        e.HasMorePages = false;
+        */
+        MigrationTodo.NotMigrated(nameof(printDocument1_PrintPage), "printDocument1_PrintPage");
+    }
+
+    private void startWorkerButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'startWorkerButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.backgroundWorker1.IsBusy)
+        {
+            this.backgroundWorker1.CancelAsync();
+            return;
+        }
+
+        SetBusy(true);
+        this.backgroundWorker1.RunWorkerAsync();
+        */
+        MigrationTodo.NotMigrated(nameof(startWorkerButton_Click), "startWorkerButton_Click");
+    }
+
+    private void watchButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'watchButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.fileSystemWatcher1.Path = Path.GetTempPath();
+        this.fileSystemWatcher1.EnableRaisingEvents = !this.fileSystemWatcher1.EnableRaisingEvents;
+        this.watcherLabel.Text = this.fileSystemWatcher1.EnableRaisingEvents
+            ? $"Watching {this.fileSystemWatcher1.Path}"
+            : "Watcher idle";
+        */
+        MigrationTodo.NotMigrated(nameof(watchButton_Click), "watchButton_Click");
+    }
+
+    private void launchProcessButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'launchProcessButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.process1.StartInfo.FileName = "notepad.exe";
+        this.process1.StartInfo.UseShellExecute = true;
+        this.process1.Start();
+        Log("Started notepad.exe");
+        */
+        MigrationTodo.NotMigrated(nameof(launchProcessButton_Click), "launchProcessButton_Click");
+    }
+
+    private void writeEventLogButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'writeEventLogButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.eventLog1.WriteEntry("All-In-One sample wrote an entry.");
+        Log("Event log entry written.");
+        */
+        MigrationTodo.NotMigrated(nameof(writeEventLogButton_Click), "writeEventLogButton_Click");
+    }
+
+    private void readCounterButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'readCounterButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        Log($"CPU: {this.performanceCounter1.NextValue():F1}%");
+        */
+        MigrationTodo.NotMigrated(nameof(readCounterButton_Click), "readCounterButton_Click");
+    }
+
+    private void serviceStatusButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'serviceStatusButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.serviceController1.Refresh();
+        Log($"{this.serviceController1.ServiceName}: {this.serviceController1.Status}");
+        */
+        MigrationTodo.NotMigrated(nameof(serviceStatusButton_Click), "serviceStatusButton_Click");
+    }
+
+    private void serialOpenButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'serialOpenButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        if (this.serialPort1.IsOpen)
+        {
+            this.serialPort1.Close();
+            Log($"{this.serialPort1.PortName} closed.");
+            return;
+        }
+
+        this.serialPort1.Open();
+        Log($"{this.serialPort1.PortName} opened at {this.serialPort1.BaudRate} baud.");
+        */
+        MigrationTodo.NotMigrated(nameof(serialOpenButton_Click), "serialOpenButton_Click");
+    }
+
+    private void playSoundButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'playSoundButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.soundPlayer1.Play();
+        Log("Sound played.");
+        */
+        MigrationTodo.NotMigrated(nameof(playSoundButton_Click), "playSoundButton_Click");
+    }
+
+    private void showBalloonButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'showBalloonButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.notifyIcon1.ShowBalloonTip(3000);
+        */
+        MigrationTodo.NotMigrated(nameof(showBalloonButton_Click), "showBalloonButton_Click");
+    }
+
+    private void contextPanel_DragDrop(object? sender, DragEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'contextPanel_DragDrop' - TODO(Winforms2Avalonia): migrate it into this method.
+        var files = (string[])e.Data!.GetData(DataFormats.FileDrop)!;
+        this.contextPanelLabel.Text = string.Join(", ", files);
+        */
+        MigrationTodo.NotMigrated(nameof(contextPanel_DragDrop), "contextPanel_DragDrop");
+    }
+
+    private void contextPanel_DragEnter(object? sender, DragEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'contextPanel_DragEnter' - TODO(Winforms2Avalonia): migrate it into this method.
+        e.Effect = e.Data!.GetDataPresent(DataFormats.FileDrop)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        */
+        MigrationTodo.NotMigrated(nameof(contextPanel_DragEnter), "contextPanel_DragEnter");
+    }
+
+    private void backgroundWorker1_DoWork(object? sender, EventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'backgroundWorker1_DoWork' - TODO(Winforms2Avalonia): migrate it into this method.
+        for (var i = 0; i <= 100; i += 10)
+        {
+            if (this.backgroundWorker1.CancellationPending)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            Thread.Sleep(100);
+            this.backgroundWorker1.ReportProgress(i);
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(backgroundWorker1_DoWork), "backgroundWorker1_DoWork");
+    }
+
+    private void backgroundWorker1_ProgressChanged(object? sender, EventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'backgroundWorker1_ProgressChanged' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.workerProgressBar.Value = e.ProgressPercentage;
+        this.statusProgressBar.Value = e.ProgressPercentage;
+        */
+        MigrationTodo.NotMigrated(nameof(backgroundWorker1_ProgressChanged), "backgroundWorker1_ProgressChanged");
+    }
+
+    private void backgroundWorker1_RunWorkerCompleted(object? sender, EventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'backgroundWorker1_RunWorkerCompleted' - TODO(Winforms2Avalonia): migrate it into this method.
+        SetBusy(false);
+        Log(e.Cancelled ? "Worker cancelled." : "Worker finished.");
+        */
+        MigrationTodo.NotMigrated(nameof(backgroundWorker1_RunWorkerCompleted), "backgroundWorker1_RunWorkerCompleted");
+    }
+
+    private void fileSystemWatcher1_Changed(object? sender, EventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'fileSystemWatcher1_Changed' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.watcherLabel.Text = $"{e.ChangeType}: {e.Name}";
+        Log($"{e.ChangeType}: {e.FullPath}");
+        */
+        MigrationTodo.NotMigrated(nameof(fileSystemWatcher1_Changed), "fileSystemWatcher1_Changed");
+    }
+
+    private void notifyIcon1_DoubleClick(object? sender, TappedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'notifyIcon1_DoubleClick' - TODO(Winforms2Avalonia): migrate it into this method.
+        WindowState = FormWindowState.Normal;
+        Activate();
+        */
+        MigrationTodo.NotMigrated(nameof(notifyIcon1_DoubleClick), "notifyIcon1_DoubleClick");
+    }
+
+    private void copyContextMenuItem_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'copyContextMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        Clipboard.SetText(this.contextPanelLabel.Text);
+        this.statusLabel.Text = "Copied";
+        */
+        MigrationTodo.NotMigrated(nameof(copyContextMenuItem_Click), "copyContextMenuItem_Click");
+    }
+
+    private void openDialogFormButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'openDialogFormButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        using var dialog = new DialogForm();
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            this.titleTextBox.Text = dialog.EnteredText;
+        }
+        */
+        MigrationTodo.NotMigrated(nameof(openDialogFormButton_Click), "openDialogFormButton_Click");
+    }
+
+    private void aboutButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'aboutButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        using var dialog = new DialogForm();
+        dialog.Text = "About";
+        dialog.ShowDialog(this);
+        */
+        MigrationTodo.NotMigrated(nameof(aboutButton_Click), "aboutButton_Click");
+    }
+
+    private void demoComponent1_Ticked(object? sender, EventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'demoComponent1_Ticked' - TODO(Winforms2Avalonia): migrate it into this method.
+        this.advancedInfoLabel.Text = $"DemoComponent ticks: {this.demoComponent1.TickCount}";
+        */
+        MigrationTodo.NotMigrated(nameof(demoComponent1_Ticked), "demoComponent1_Ticked");
+    }
+
+    /// <summary>Avalonia replacement for the WinForms 'openFileDialog1.ShowDialog()' call. Call this from the handler that used to open it.</summary>
+    private async Task ShowOpenFileDialog1Async()
+    {
+        var result = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions());
+        throw new NotImplementedException("TODO(Winforms2Avalonia): migrate the logic that used to run after 'openFileDialog1.ShowDialog()' here, using 'result'.");
+    }
+
+    /// <summary>Avalonia replacement for the WinForms 'saveFileDialog1.ShowDialog()' call. Call this from the handler that used to open it.</summary>
+    private async Task ShowSaveFileDialog1Async()
+    {
+        var result = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions());
+        throw new NotImplementedException("TODO(Winforms2Avalonia): migrate the logic that used to run after 'saveFileDialog1.ShowDialog()' here, using 'result'.");
+    }
+
+    /// <summary>Avalonia replacement for the WinForms 'folderBrowserDialog1.ShowDialog()' call. Call this from the handler that used to open it.</summary>
+    private async Task ShowFolderBrowserDialog1Async()
+    {
+        var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions());
+        throw new NotImplementedException("TODO(Winforms2Avalonia): migrate the logic that used to run after 'folderBrowserDialog1.ShowDialog()' here, using 'result'.");
+    }
+
+    /* ORIGINAL WINFORMS MEMBERS - NOT COMPILED, PRESERVED FOR MANUAL MIGRATION
+
+    private bool isBusy;
+
+    private void SetBusy(bool busy)
+    {
+        this.isBusy = busy;
+        this.startWorkerButton.Text = busy ? "Cancel" : "Run BackgroundWorker";
+        this.statusLabel.Text = busy ? "Working..." : "Ready";
+    }
+
+    private void Log(string message)
+    {
+        this.componentsLogTextBox.AppendText(message + Environment.NewLine);
+    }
+
+    private sealed class GalleryRow
+    {
+        public string Name { get; set; } = string.Empty;
+
+        public bool Active { get; set; }
+
+        public string Category { get; set; } = string.Empty;
+    }
+    */
+
+    /* ORIGINAL WINFORMS CODE-BEHIND - NOT COMPILED, PRESERVED FOR REFERENCE
+       Original file: MainForm.cs
+
+using System.ComponentModel;
+using System.Drawing.Printing;
+using AllInOneWinForms.Forms;
+
+namespace AllInOneWinForms;
+
+/// <summary>
+/// A gallery of every control and component that ships in the Windows Forms toolbox on
+/// modern .NET, laid out over a tabbed main window.
+/// <para>
+/// Deliberately absent, because they do not exist on modern .NET (they were dropped when
+/// Windows Forms moved off .NET Framework): <c>MainMenu</c>, <c>ContextMenu</c>,
+/// <c>ToolBar</c>, <c>StatusBar</c> and <c>DataGrid</c> - superseded by <c>MenuStrip</c>,
+/// <c>ContextMenuStrip</c>, <c>ToolStrip</c>, <c>StatusStrip</c> and <c>DataGridView</c>,
+/// all of which are here. Also absent: <c>MessageQueue</c> (MSMQ is not supported on .NET),
+/// <c>DirectoryEntry</c>/<c>DirectorySearcher</c> (System.DirectoryServices, not a Windows
+/// Forms type) and <c>Chart</c> (never part of the framework itself).
+/// </para>
+/// <para>
+/// Also not instantiated here, on purpose: abstract or base types that exist only to be
+/// derived from (<c>Control</c>, <c>ButtonBase</c>, <c>ScrollableControl</c>,
+/// <c>ContainerControl</c>, <c>ListControl</c>, <c>TextBoxBase</c>, <c>WebBrowserBase</c>,
+/// <c>ToolStripItem</c>, <c>ToolStripDropDown</c>, <c>DataGridViewColumn</c>,
+/// <c>DataGridViewCell</c>), and the <c>DataGridView*Cell</c> types, which are per-cell
+/// objects the grid creates from its column types rather than toolbox items a designer ever
+/// news up. <c>Form</c> and <c>UserControl</c> appear as the artifacts themselves
+/// (<see cref="MainForm"/>, <c>DialogForm</c>, <c>DemoUserControl</c>).
+/// </para>
+/// </summary>
+public partial class MainForm : Form
+{
+    private bool isBusy;
+
+    public MainForm()
+    {
+        InitializeComponent();
+    }
+
+    // ---------------------------------------------------------------- form lifecycle ----
+
+    private void MainForm_Load(object? sender, EventArgs e)
+    {
+        this.itemsTreeView.Nodes.Add("Documents");
+        this.itemsTreeView.Nodes.Add("Pictures");
+        this.itemsListView.Items.Add(new ListViewItem(new[] { "readme.txt", "2 KB" }));
+        this.itemsListView.Items.Add(new ListViewItem(new[] { "notes.txt", "11 KB" }));
+
+        this.bindingSource1.DataSource = new BindingList<GalleryRow>
+        {
+            new GalleryRow { Name = "First", Active = true, Category = "Alpha" },
+            new GalleryRow { Name = "Second", Active = false, Category = "Beta" },
+        };
+
+        this.propertyGrid1.SelectedObject = this.demoComponent1;
+        this.statusLabel.Text = "Loaded";
+    }
+
+    private void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
+    {
+        if (this.isBusy)
+        {
+            e.Cancel = MessageBox.Show(
+                "A background operation is still running. Close anyway?",
+                "All-In-One",
+                MessageBoxButtons.YesNo) == DialogResult.No;
+        }
+
+        this.notifyIcon1.Visible = false;
+    }
+
+    // --------------------------------------------------------------------- menu bar ----
+
+    private void newMenuItem_Click(object? sender, EventArgs e)
+    {
+        this.titleTextBox.Clear();
+        this.notesRichTextBox.Clear();
+        this.statusLabel.Text = "New document";
+    }
+
+    private void openMenuItem_Click(object? sender, EventArgs e)
+    {
+        if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.notesRichTextBox.Text = File.ReadAllText(this.openFileDialog1.FileName);
+            this.statusLabel.Text = this.openFileDialog1.FileName;
+        }
+    }
+
+    private void exitMenuItem_Click(object? sender, EventArgs e)
+    {
+        Close();
+    }
+
+    private void wordWrapMenuItem_Click(object? sender, EventArgs e)
+    {
+        this.notesRichTextBox.WordWrap = this.wordWrapMenuItem.Checked;
+    }
+
+    private void aboutMenuItem_Click(object? sender, EventArgs e)
+    {
+        using var dialog = new DialogForm();
+        dialog.ShowDialog(this);
+    }
+
+    private void toolStripNewButton_Click(object? sender, EventArgs e)
+    {
+        this.toolStripProgressBar1.Value = Math.Min(100, this.toolStripProgressBar1.Value + 10);
+        this.statusLabel.Text = "Toolbar: new";
+    }
+
+    // ------------------------------------------------------------- tab 1: buttons ------
+
+    /// <summary>
+    /// Touches nothing but two-way bindable value properties of directly mapped controls,
+    /// uses neither <c>sender</c> nor <c>e</c>, and is wired to a single button - the shape
+    /// a converter can lift into a ViewModel command.
+    /// </summary>
+    private void applyButton_Click(object? sender, EventArgs e)
+    {
+        this.captionLabel.Text = this.titleTextBox.Text;
+        this.enabledCheckBox.Checked = true;
+    }
+
+    /// <summary>Same shape as <see cref="applyButton_Click"/>.</summary>
+    private void resetButton_Click(object? sender, EventArgs e)
+    {
+        this.titleTextBox.Text = string.Empty;
+        this.enabledCheckBox.Checked = false;
+        this.amountUpDown.Value = 0;
+        this.itemsComboBox.SelectedIndex = -1;
+    }
+
+    private void demoButton_Click(object? sender, EventArgs e)
+    {
+        MessageBox.Show(this, $"Hello, {this.titleTextBox.Text}!", "All-In-One");
+    }
+
+    /// <summary>Wired to two buttons at once, so it needs <c>sender</c> to tell them apart.</summary>
+    private void sharedButton_Click(object? sender, EventArgs e)
+    {
+        var button = (Button)sender!;
+        this.statusLabel.Text = $"{button.Text} pressed";
+    }
+
+    private void validateButton_Click(object? sender, EventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(this.titleTextBox.Text))
+        {
+            this.errorProvider1.SetError(this.titleTextBox, "A title is required.");
+        }
+        else
+        {
+            this.errorProvider1.SetError(this.titleTextBox, string.Empty);
+        }
+    }
+
+    private void linkLabel1_LinkClicked(object? sender, LinkLabelLinkClickedEventArgs e)
+    {
+        this.linkLabel1.LinkVisited = true;
+        this.statusLabel.Text = "Link clicked";
+    }
+
+    // --------------------------------------------------------------- tab 2: lists ------
+
+    private void itemsListBox_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        this.statusLabel.Text = $"Selected: {this.itemsListBox.SelectedItem}";
+    }
+
+    private void refreshButton_Click(object? sender, EventArgs e)
+    {
+        this.itemsTreeView.Nodes.Clear();
+        var root = this.itemsTreeView.Nodes.Add("Reloaded");
+        root.Nodes.Add("Child one");
+        root.Nodes.Add("Child two");
+        this.itemsTreeView.ExpandAll();
+    }
+
+    // ---------------------------------------------------------------- tab 4: data ------
+
+    private void dataGridView1_CellClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        this.gridInfoLabel.Text = $"Cell clicked: row {e.RowIndex}, column {e.ColumnIndex}";
+    }
+
+    // ----------------------------------------------------------- tab 5: date & time ----
+
+    private void clockToggleButton_Click(object? sender, EventArgs e)
+    {
+        this.clockTimer.Enabled = !this.clockTimer.Enabled;
+        this.clockToggleButton.Text = this.clockTimer.Enabled ? "Stop clock" : "Start clock";
+    }
+
+    private void clockTimer_Tick(object? sender, EventArgs e)
+    {
+        this.clockLabel.Text = DateTime.Now.ToLongTimeString();
+        this.demoComponent1.Tick();
+    }
+
+    // ------------------------------------------------------- tab 6: graphics & range ---
+
+    private void pictureBox1_Paint(object? sender, PaintEventArgs e)
+    {
+        e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);
+        e.Graphics.DrawString("PictureBox.Paint", this.Font, Brushes.SteelBlue, 20, 60);
+    }
+
+    private void pictureBox1_MouseDown(object? sender, MouseEventArgs e)
+    {
+        this.statusLabel.Text = $"Mouse down at {e.X},{e.Y}";
+    }
+
+    private void pictureBox1_Click(object? sender, EventArgs e)
+    {
+        this.pictureBox1.Invalidate();
+    }
+
+    private void trackBar1_Scroll(object? sender, EventArgs e)
+    {
+        this.progressBar1.Value = this.trackBar1.Value;
+        this.graphicsInfoLabel.Text = $"TrackBar value: {this.trackBar1.Value}";
+    }
+
+    private void hScrollBar1_Scroll(object? sender, ScrollEventArgs e)
+    {
+        this.statusLabel.Text = $"Scrolled to {e.NewValue}";
+    }
+
+    // ------------------------------------------------------ tab 7: dialogs & printing --
+
+    private void openFileButton_Click(object? sender, EventArgs e)
+    {
+        if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.selectedPathLabel.Text = this.openFileDialog1.FileName;
+        }
+    }
+
+    private void saveFileButton_Click(object? sender, EventArgs e)
+    {
+        if (this.saveFileDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.selectedPathLabel.Text = this.saveFileDialog1.FileName;
+        }
+    }
+
+    private void folderBrowserButton_Click(object? sender, EventArgs e)
+    {
+        if (this.folderBrowserDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.selectedPathLabel.Text = this.folderBrowserDialog1.SelectedPath;
+        }
+    }
+
+    private void colorButton_Click(object? sender, EventArgs e)
+    {
+        if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.plainPanel.BackColor = this.colorDialog1.Color;
+        }
+    }
+
+    private void fontButton_Click(object? sender, EventArgs e)
+    {
+        if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.notesRichTextBox.Font = this.fontDialog1.Font;
+        }
+    }
+
+    private void printButton_Click(object? sender, EventArgs e)
+    {
+        if (this.printDialog1.ShowDialog(this) == DialogResult.OK)
+        {
+            this.printDocument1.Print();
+        }
+    }
+
+    private void pageSetupButton_Click(object? sender, EventArgs e)
+    {
+        this.pageSetupDialog1.ShowDialog(this);
+    }
+
+    private void printPreviewButton_Click(object? sender, EventArgs e)
+    {
+        this.printPreviewDialog1.ShowDialog(this);
+    }
+
+    private void printDocument1_PrintPage(object? sender, PrintPageEventArgs e)
+    {
+        e.Graphics!.DrawString(
+            this.notesRichTextBox.Text,
+            this.notesRichTextBox.Font,
+            Brushes.Black,
+            e.MarginBounds);
+        e.HasMorePages = false;
+    }
+
+    // ----------------------------------------------------------- tab 8: components -----
+
+    private void startWorkerButton_Click(object? sender, EventArgs e)
+    {
+        if (this.backgroundWorker1.IsBusy)
+        {
+            this.backgroundWorker1.CancelAsync();
+            return;
+        }
+
+        SetBusy(true);
+        this.backgroundWorker1.RunWorkerAsync();
+    }
+
+    private void backgroundWorker1_DoWork(object? sender, DoWorkEventArgs e)
+    {
+        for (var i = 0; i <= 100; i += 10)
+        {
+            if (this.backgroundWorker1.CancellationPending)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            Thread.Sleep(100);
+            this.backgroundWorker1.ReportProgress(i);
+        }
+    }
+
+    private void backgroundWorker1_ProgressChanged(object? sender, ProgressChangedEventArgs e)
+    {
+        this.workerProgressBar.Value = e.ProgressPercentage;
+        this.statusProgressBar.Value = e.ProgressPercentage;
+    }
+
+    private void backgroundWorker1_RunWorkerCompleted(object? sender, RunWorkerCompletedEventArgs e)
+    {
+        SetBusy(false);
+        Log(e.Cancelled ? "Worker cancelled." : "Worker finished.");
+    }
+
+    private void watchButton_Click(object? sender, EventArgs e)
+    {
+        this.fileSystemWatcher1.Path = Path.GetTempPath();
+        this.fileSystemWatcher1.EnableRaisingEvents = !this.fileSystemWatcher1.EnableRaisingEvents;
+        this.watcherLabel.Text = this.fileSystemWatcher1.EnableRaisingEvents
+            ? $"Watching {this.fileSystemWatcher1.Path}"
+            : "Watcher idle";
+    }
+
+    private void fileSystemWatcher1_Changed(object? sender, FileSystemEventArgs e)
+    {
+        this.watcherLabel.Text = $"{e.ChangeType}: {e.Name}";
+        Log($"{e.ChangeType}: {e.FullPath}");
+    }
+
+    private void launchProcessButton_Click(object? sender, EventArgs e)
+    {
+        this.process1.StartInfo.FileName = "notepad.exe";
+        this.process1.StartInfo.UseShellExecute = true;
+        this.process1.Start();
+        Log("Started notepad.exe");
+    }
+
+    private void writeEventLogButton_Click(object? sender, EventArgs e)
+    {
+        this.eventLog1.WriteEntry("All-In-One sample wrote an entry.");
+        Log("Event log entry written.");
+    }
+
+    private void readCounterButton_Click(object? sender, EventArgs e)
+    {
+        Log($"CPU: {this.performanceCounter1.NextValue():F1}%");
+    }
+
+    private void serviceStatusButton_Click(object? sender, EventArgs e)
+    {
+        this.serviceController1.Refresh();
+        Log($"{this.serviceController1.ServiceName}: {this.serviceController1.Status}");
+    }
+
+    private void serialOpenButton_Click(object? sender, EventArgs e)
+    {
+        if (this.serialPort1.IsOpen)
+        {
+            this.serialPort1.Close();
+            Log($"{this.serialPort1.PortName} closed.");
+            return;
+        }
+
+        this.serialPort1.Open();
+        Log($"{this.serialPort1.PortName} opened at {this.serialPort1.BaudRate} baud.");
+    }
+
+    private void playSoundButton_Click(object? sender, EventArgs e)
+    {
+        this.soundPlayer1.Play();
+        Log("Sound played.");
+    }
+
+    private void showBalloonButton_Click(object? sender, EventArgs e)
+    {
+        this.notifyIcon1.ShowBalloonTip(3000);
+    }
+
+    private void notifyIcon1_DoubleClick(object? sender, EventArgs e)
+    {
+        WindowState = FormWindowState.Normal;
+        Activate();
+    }
+
+    private void copyContextMenuItem_Click(object? sender, EventArgs e)
+    {
+        Clipboard.SetText(this.contextPanelLabel.Text);
+        this.statusLabel.Text = "Copied";
+    }
+
+    private void contextPanel_DragEnter(object? sender, DragEventArgs e)
+    {
+        e.Effect = e.Data!.GetDataPresent(DataFormats.FileDrop)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+    }
+
+    private void contextPanel_DragDrop(object? sender, DragEventArgs e)
+    {
+        var files = (string[])e.Data!.GetData(DataFormats.FileDrop)!;
+        this.contextPanelLabel.Text = string.Join(", ", files);
+    }
+
+    // ------------------------------------------------------------- tab 9: advanced -----
+
+    private void openDialogFormButton_Click(object? sender, EventArgs e)
+    {
+        using var dialog = new DialogForm();
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            this.titleTextBox.Text = dialog.EnteredText;
+        }
+    }
+
+    private void aboutButton_Click(object? sender, EventArgs e)
+    {
+        using var dialog = new DialogForm();
+        dialog.Text = "About";
+        dialog.ShowDialog(this);
+    }
+
+    private void demoComponent1_Ticked(object? sender, EventArgs e)
+    {
+        this.advancedInfoLabel.Text = $"DemoComponent ticks: {this.demoComponent1.TickCount}";
+    }
+
+    private void tabControl1_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        this.statusInfoLabel.Text = this.tabControl1.SelectedTab?.Text ?? string.Empty;
+    }
+
+    // ------------------------------------------------------------------- helpers -------
+
+    private void SetBusy(bool busy)
+    {
+        this.isBusy = busy;
+        this.startWorkerButton.Text = busy ? "Cancel" : "Run BackgroundWorker";
+        this.statusLabel.Text = busy ? "Working..." : "Ready";
+    }
+
+    private void Log(string message)
+    {
+        this.componentsLogTextBox.AppendText(message + Environment.NewLine);
+    }
+
+    private sealed class GalleryRow
+    {
+        public string Name { get; set; } = string.Empty;
+
+        public bool Active { get; set; }
+
+        public string Category { get; set; } = string.Empty;
+    }
+}
+
+    */
+}

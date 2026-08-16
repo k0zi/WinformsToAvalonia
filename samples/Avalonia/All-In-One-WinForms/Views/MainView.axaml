@@ -1,0 +1,255 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:All_In_One_WinForms.ViewModels" xmlns:controls="using:All_In_One_WinForms.Controls" xmlns:w2a="clr-namespace:All_In_One_WinForms.Controls.Generated" xmlns:uc0="using:All_In_One_WinForms.Views.Controls" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="All_In_One_WinForms.Views.MainView" x:DataType="vm:MainViewModel" Width="1024" Height="720" Title="All-In-One WinForms control gallery" Loaded="MainForm_Load" Closing="MainForm_FormClosing">
+    <Design.DataContext>
+        <vm:MainViewModel />
+    </Design.DataContext>
+    <Canvas>
+        <TabControl x:Name="tabControl1" Canvas.Left="12" Canvas.Top="58" Width="1000" Height="630" SelectionChanged="tabControl1_SelectedIndexChanged">
+            <TabItem x:Name="buttonsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Buttons &amp;&amp; Text">
+                <Canvas>
+                    <TextBlock x:Name="captionLabel" Canvas.Left="12" Canvas.Top="12" Width="220" Height="20" Text="{Binding CaptionLabelText, Mode=TwoWay}" />
+                    <HyperlinkButton x:Name="linkLabel1" Canvas.Left="12" Canvas.Top="38" Width="220" Height="20" Content="LinkLabel - click me" Click="linkLabel1_LinkClicked" />
+                    <TextBox x:Name="titleTextBox" Canvas.Left="12" Canvas.Top="64" Width="220" Height="23" Text="{Binding TitleTextBoxText, Mode=TwoWay}" ToolTip.Tip="The document title" />
+                    <controls:MaskedTextBoxFallback x:Name="phoneMaskedTextBox" Canvas.Left="12" Canvas.Top="93" Width="220" Height="23" />
+                    <controls:RichTextBoxFallback x:Name="notesRichTextBox" Canvas.Left="12" Canvas.Top="122" Width="220" Height="100" />
+                    <CheckBox x:Name="enabledCheckBox" Canvas.Left="250" Canvas.Top="12" Width="200" Height="24" Content="CheckBox - enabled" IsChecked="{Binding EnabledCheckBoxIsChecked, Mode=TwoWay}" />
+                    <controls:GroupBoxFallback x:Name="optionsGroupBox" Canvas.Left="250" Canvas.Top="42" Width="200" Height="90" Header="GroupBox - options">
+                        <RadioButton x:Name="radioOption1" Canvas.Left="12" Canvas.Top="22" Width="170" Height="22" Content="First option" IsChecked="True" />
+                        <RadioButton x:Name="radioOption2" Canvas.Left="12" Canvas.Top="48" Width="170" Height="22" Content="Second option" />
+                    </controls:GroupBoxFallback>
+                    <Button x:Name="demoButton" Canvas.Left="250" Canvas.Top="144" Width="100" Height="28" Content="Say hello" Command="{Binding DemoButtonCommand}" ToolTip.Tip="Shows a message box" />
+                    <Button x:Name="applyButton" Canvas.Left="356" Canvas.Top="144" Width="100" Height="28" Content="Apply" Command="{Binding ApplyButtonCommand}" />
+                    <Button x:Name="resetButton" Canvas.Left="250" Canvas.Top="178" Width="100" Height="28" Content="Reset" Command="{Binding ResetButtonCommand}" />
+                    <Button x:Name="sharedButtonA" Canvas.Left="356" Canvas.Top="178" Width="100" Height="28" Content="Shared A" Click="sharedButton_Click" />
+                    <Button x:Name="sharedButtonB" Canvas.Left="250" Canvas.Top="212" Width="100" Height="28" Content="Shared B" Click="sharedButton_Click" />
+                    <Button x:Name="validateButton" Canvas.Left="356" Canvas.Top="212" Width="100" Height="28" Content="Validate" Click="validateButton_Click" />
+                </Canvas>
+            </TabItem>
+            <TabItem x:Name="listsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Lists">
+                <Canvas>
+                    <ListBox x:Name="itemsListBox" Canvas.Left="12" Canvas.Top="12" Width="180" Height="124" SelectionChanged="itemsListBox_SelectedIndexChanged" />
+                    <ListBox x:Name="checkedListBox1" Canvas.Left="204" Canvas.Top="12" Width="180" Height="124" />
+                    <ComboBox x:Name="itemsComboBox" Canvas.Left="396" Canvas.Top="12" Width="180" Height="23" SelectedIndex="{Binding ItemsComboBoxSelectedIndex, Mode=TwoWay}" />
+                    <controls:DomainUpDownFallback x:Name="domainUpDown1" Canvas.Left="396" Canvas.Top="41" Width="180" Height="23" />
+                    <NumericUpDown x:Name="amountUpDown" Canvas.Left="396" Canvas.Top="70" Width="180" Height="23" Value="{Binding AmountUpDownValue, Mode=TwoWay}" />
+                    <Button x:Name="refreshButton" Canvas.Left="396" Canvas.Top="99" Width="180" Height="28" Content="Reload tree" Click="refreshButton_Click" />
+                    <DataGrid x:Name="itemsListView" Canvas.Left="12" Canvas.Top="142" Width="372" Height="150">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Width="200" />
+                            <DataGridTextColumn Header="Size" Width="100" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TreeView x:Name="itemsTreeView" Canvas.Left="396" Canvas.Top="142" Width="180" Height="150" />
+                    <controls:PropertyGridFallback x:Name="propertyGrid1" Canvas.Left="588" Canvas.Top="12" Width="280" Height="280" />
+                </Canvas>
+            </TabItem>
+            <TabItem x:Name="containersTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Containers">
+                <Canvas>
+                    <Canvas x:Name="plainPanel" Canvas.Left="12" Canvas.Top="12" Width="220" Height="120">
+                        <TextBlock x:Name="panelLabel" Canvas.Left="8" Canvas.Top="8" Width="190" Height="20" Text="Panel - free-form container" />
+                    </Canvas>
+                    <controls:GroupBoxFallback x:Name="containerGroupBox" Canvas.Left="244" Canvas.Top="12" Width="220" Height="120" Header="GroupBox">
+                        <CheckBox x:Name="groupBoxCheckBox" Canvas.Left="12" Canvas.Top="24" Width="190" Height="24" Content="Grouped check box" />
+                    </controls:GroupBoxFallback>
+                    <Canvas x:Name="flowLayoutPanel1" Canvas.Left="476" Canvas.Top="12" Width="220" Height="120">
+                        <Button x:Name="flowButton1" Canvas.Left="3" Canvas.Top="3" Width="96" Height="28" Content="Flow one" />
+                        <Button x:Name="flowButton2" Canvas.Left="105" Canvas.Top="3" Width="96" Height="28" Content="Flow two" />
+                    </Canvas>
+                    <Canvas x:Name="tableLayoutPanel1" Canvas.Left="708" Canvas.Top="12" Width="240" Height="120">
+                        <TextBlock x:Name="tableLabel1" Canvas.Left="3" Canvas.Top="6" Width="100" Height="20" Text="Cell 0,0" />
+                        <TextBox x:Name="tableTextBox1" Canvas.Left="109" Canvas.Top="3" Width="120" Height="23" Text="Cell 1,0" />
+                    </Canvas>
+                    <Grid x:Name="splitContainer1" Canvas.Left="12" Canvas.Top="144" Width="440" Height="180" ColumnDefinitions="*,Auto,*">
+                        <Canvas Grid.Column="0">
+                            <ListBox x:Name="splitLeftListBox" Canvas.Left="8" Canvas.Top="8" Width="180" Height="154" />
+                        </Canvas>
+                        <GridSplitter Grid.Column="1" Width="4" ResizeDirection="Columns" />
+                        <Canvas Grid.Column="2">
+                            <TextBlock x:Name="splitRightLabel" Canvas.Left="8" Canvas.Top="8" Width="190" Height="20" Text="SplitContainer.Panel2" />
+                            <Button x:Name="splitRightButton" Canvas.Left="8" Canvas.Top="34" Width="120" Height="28" Content="Right side" />
+                        </Canvas>
+                    </Grid>
+                    <GridSplitter x:Name="splitter1" Canvas.Left="460" Canvas.Top="144" Width="8" Height="180" />
+                    <TabControl x:Name="innerTabControl" Canvas.Left="476" Canvas.Top="144" Width="240" Height="180">
+                        <TabItem x:Name="innerTabPage1" Canvas.Left="4" Canvas.Top="24" Width="232" Height="152" Header="Inner one">
+                            <Canvas>
+                                <TextBlock x:Name="innerLabel" Canvas.Left="8" Canvas.Top="8" Width="200" Height="20" Text="Nested tab content" />
+                            </Canvas>
+                        </TabItem>
+                        <TabItem x:Name="innerTabPage2" Canvas.Left="4" Canvas.Top="24" Width="232" Height="152" Header="Inner two" />
+                    </TabControl>
+                    <controls:ToolStripPanelFallback x:Name="toolStripPanel1" Canvas.Left="724" Canvas.Top="144" Width="224" Height="86" />
+                    <controls:ToolStripContentPanelFallback x:Name="toolStripContentPanel1" Canvas.Left="724" Canvas.Top="238" Width="224" Height="86" />
+                    <controls:ToolStripContainerFallback x:Name="toolStripContainer1" Canvas.Left="12" Canvas.Top="336" Width="936" Height="220" />
+                </Canvas>
+            </TabItem>
+            <TabItem x:Name="dataTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Data">
+                <Canvas>
+                    <DataGrid x:Name="dataGridView1" Canvas.Left="12" Canvas.Top="12" Width="940" Height="300" CellPointerPressed="dataGridView1_CellClick" ToolTip.Tip="Bound to bindingSource1">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" />
+                            <DataGridCheckBoxColumn Header="Active" />
+                            <DataGridTemplateColumn Header="Category">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <!-- TODO(Winforms2Avalonia): bind this cell to the row model - Designer.cs records the column but not its DataPropertyName-to-view-model mapping. -->
+                                        <ComboBox />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Action">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <!-- TODO(Winforms2Avalonia): bind this cell to the row model - Designer.cs records the column but not its DataPropertyName-to-view-model mapping. -->
+                                        <Button Content="Run" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Icon">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <!-- TODO(Winforms2Avalonia): bind this cell to the row model - Designer.cs records the column but not its DataPropertyName-to-view-model mapping. -->
+                                        <Image />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Details">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <!-- TODO(Winforms2Avalonia): bind this cell to the row model - Designer.cs records the column but not its DataPropertyName-to-view-model mapping. -->
+                                        <HyperlinkButton />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <controls:BindingNavigatorFallback x:Name="bindingNavigator1" Canvas.Left="12" Canvas.Top="320" Width="940" Height="25">
+                        <Button x:Name="navigatorMoveFirstButton" Content="|&lt;" />
+                        <Button x:Name="navigatorMoveNextButton" Content="&gt;" />
+                        <Separator x:Name="navigatorSeparator" />
+                        <TextBlock x:Name="navigatorPositionLabel" Text="of 0" />
+                    </controls:BindingNavigatorFallback>
+                    <TextBlock x:Name="gridInfoLabel" Canvas.Left="12" Canvas.Top="356" Width="940" Height="20" Text="DataGridView bound to a BindingSource, driven by a BindingNavigator." />
+                </Canvas>
+            </TabItem>
+            <TabItem x:Name="dateTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Date &amp;&amp; Time">
+                <Canvas>
+                    <CalendarDatePicker x:Name="dateTimePicker1" Canvas.Left="12" Canvas.Top="12" Width="240" Height="23" />
+                    <Calendar x:Name="monthCalendar1" Canvas.Left="12" Canvas.Top="44" Width="240" Height="170" />
+                    <TextBlock x:Name="clockLabel" Canvas.Left="270" Canvas.Top="14" Width="240" Height="20" Text="Clock stopped" />
+                    <Button x:Name="clockToggleButton" Canvas.Left="270" Canvas.Top="44" Width="140" Height="28" Content="Start clock" Click="clockToggleButton_Click" />
+                </Canvas>
+            </TabItem>
+            <TabItem x:Name="graphicsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Graphics &amp;&amp; Range">
+                <Canvas>
+                    <Image x:Name="pictureBox1" Canvas.Left="12" Canvas.Top="12" Width="240" Height="160" PointerPressed="pictureBox1_MouseDown" />
+                    <ProgressBar x:Name="progressBar1" Canvas.Left="270" Canvas.Top="12" Width="240" Height="23" Value="40" />
+                    <Slider x:Name="trackBar1" Canvas.Left="270" Canvas.Top="41" Width="240" Height="45" Maximum="100" Value="40" ValueChanged="trackBar1_Scroll" />
+                    <ScrollBar x:Name="hScrollBar1" Canvas.Left="270" Canvas.Top="92" Width="240" Height="17" Orientation="Horizontal" Scroll="hScrollBar1_Scroll" />
+                    <ScrollBar x:Name="vScrollBar1" Canvas.Left="530" Canvas.Top="12" Width="17" Height="160" Orientation="Vertical" />
+                    <TextBlock x:Name="graphicsInfoLabel" Canvas.Left="270" Canvas.Top="120" Width="240" Height="20" Text="TrackBar value: 40" />
+                </Canvas>
+            </TabItem>
+            <TabItem x:Name="dialogsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Dialogs &amp;&amp; Printing">
+                <Canvas>
+                    <Button x:Name="openFileButton" Canvas.Left="12" Canvas.Top="12" Width="180" Height="28" Content="OpenFileDialog..." Click="openFileButton_Click" />
+                    <Button x:Name="saveFileButton" Canvas.Left="12" Canvas.Top="46" Width="180" Height="28" Content="SaveFileDialog..." Click="saveFileButton_Click" />
+                    <Button x:Name="folderBrowserButton" Canvas.Left="12" Canvas.Top="80" Width="180" Height="28" Content="FolderBrowserDialog..." Click="folderBrowserButton_Click" />
+                    <Button x:Name="colorButton" Canvas.Left="12" Canvas.Top="114" Width="180" Height="28" Content="ColorDialog..." Click="colorButton_Click" />
+                    <Button x:Name="fontButton" Canvas.Left="12" Canvas.Top="148" Width="180" Height="28" Content="FontDialog..." Click="fontButton_Click" />
+                    <Button x:Name="printButton" Canvas.Left="12" Canvas.Top="182" Width="180" Height="28" Content="PrintDialog..." Click="printButton_Click" />
+                    <Button x:Name="pageSetupButton" Canvas.Left="12" Canvas.Top="216" Width="180" Height="28" Content="PageSetupDialog..." Click="pageSetupButton_Click" />
+                    <Button x:Name="printPreviewButton" Canvas.Left="12" Canvas.Top="250" Width="180" Height="28" Content="PrintPreviewDialog..." Click="printPreviewButton_Click" />
+                    <TextBlock x:Name="selectedPathLabel" Canvas.Left="12" Canvas.Top="288" Width="180" Height="40" Text="No file selected" />
+                    <controls:PrintPreviewControlFallback x:Name="printPreviewControl1" Canvas.Left="204" Canvas.Top="12" Width="600" Height="400" />
+                </Canvas>
+            </TabItem>
+            <TabItem x:Name="componentsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Components">
+                <Canvas>
+                    <Button x:Name="startWorkerButton" Canvas.Left="12" Canvas.Top="12" Width="160" Height="28" Content="Run BackgroundWorker" Click="startWorkerButton_Click" />
+                    <ProgressBar x:Name="workerProgressBar" Canvas.Left="178" Canvas.Top="15" Width="300" Height="23" />
+                    <Button x:Name="watchButton" Canvas.Left="12" Canvas.Top="46" Width="160" Height="28" Content="Watch temp folder" Click="watchButton_Click" />
+                    <TextBlock x:Name="watcherLabel" Canvas.Left="496" Canvas.Top="18" Width="300" Height="20" Text="Watcher idle" />
+                    <Button x:Name="launchProcessButton" Canvas.Left="12" Canvas.Top="80" Width="160" Height="28" Content="Start Notepad" Click="launchProcessButton_Click" />
+                    <Button x:Name="writeEventLogButton" Canvas.Left="12" Canvas.Top="114" Width="160" Height="28" Content="Write event log entry" Click="writeEventLogButton_Click" />
+                    <Button x:Name="readCounterButton" Canvas.Left="12" Canvas.Top="148" Width="160" Height="28" Content="Read CPU counter" Click="readCounterButton_Click" />
+                    <Button x:Name="serviceStatusButton" Canvas.Left="12" Canvas.Top="182" Width="160" Height="28" Content="Query spooler service" Click="serviceStatusButton_Click" />
+                    <Button x:Name="serialOpenButton" Canvas.Left="12" Canvas.Top="216" Width="160" Height="28" Content="Open COM1" Click="serialOpenButton_Click" />
+                    <Button x:Name="playSoundButton" Canvas.Left="12" Canvas.Top="250" Width="160" Height="28" Content="Play system sound" Click="playSoundButton_Click" />
+                    <Button x:Name="showBalloonButton" Canvas.Left="12" Canvas.Top="284" Width="160" Height="28" Content="Show tray balloon" Click="showBalloonButton_Click" />
+                    <TextBox x:Name="componentsLogTextBox" Canvas.Left="178" Canvas.Top="46" Width="618" Height="266" AcceptsReturn="True" IsReadOnly="True" />
+                    <Canvas x:Name="contextPanel" Canvas.Left="12" Canvas.Top="320" Width="784" Height="60" DragDrop.Drop="contextPanel_DragDrop" DragDrop.DragEnter="contextPanel_DragEnter">
+                        <Control.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem x:Name="copyContextMenuItem" Header="&amp;Copy" Click="copyContextMenuItem_Click" />
+                                <MenuItem x:Name="pasteContextMenuItem" Header="&amp;Paste" />
+                                <Separator x:Name="contextMenuSeparator" />
+                                <MenuItem x:Name="selectAllContextMenuItem" Header="Select &amp;all" />
+                            </ContextMenu>
+                        </Control.ContextMenu>
+                        <TextBlock x:Name="contextPanelLabel" Canvas.Left="8" Canvas.Top="8" Width="600" Height="20" Text="Right-click for a ContextMenuStrip, or drop a file here." />
+                    </Canvas>
+                </Canvas>
+            </TabItem>
+            <TabItem x:Name="advancedTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Advanced">
+                <Canvas>
+                    <controls:WebBrowserFallback x:Name="webBrowser1" Canvas.Left="12" Canvas.Top="12" Width="600" Height="320" />
+                    <uc0:DemoUserControlView x:Name="demoUserControl1" Canvas.Left="624" Canvas.Top="12" Width="220" Height="70" />
+                    <Button x:Name="openDialogFormButton" Canvas.Left="624" Canvas.Top="92" Width="220" Height="28" Content="Open dialog form..." Click="openDialogFormButton_Click" />
+                    <Button x:Name="aboutButton" Canvas.Left="624" Canvas.Top="126" Width="220" Height="28" Content="About" Click="aboutButton_Click" />
+                    <TextBlock x:Name="advancedInfoLabel" Canvas.Left="624" Canvas.Top="160" Width="220" Height="40" Text="DemoComponent ticks: 0" />
+                </Canvas>
+            </TabItem>
+        </TabControl>
+        <controls:StatusStripFallback x:Name="statusStrip1" Canvas.Left="0" Canvas.Top="698" Width="1024" Height="22">
+            <TextBlock x:Name="statusLabel" Text="Ready" />
+            <TextBlock x:Name="statusInfoLabel" Text="All-In-One WinForms control gallery" />
+            <ProgressBar x:Name="statusProgressBar" Width="100" Height="16" />
+        </controls:StatusStripFallback>
+        <controls:ToolStripFallback x:Name="toolStrip1" Canvas.Left="0" Canvas.Top="24" Width="1024" Height="25">
+            <Button x:Name="toolStripNewButton" Content="New" Click="toolStripNewButton_Click" ToolTip.Tip="Create a new document" />
+            <TextBlock x:Name="toolStripLabel1" Text="Filter:" />
+            <Separator x:Name="toolStripSeparator1" />
+            <ComboBox x:Name="toolStripComboBox1" Width="140" Height="25" />
+            <TextBox x:Name="toolStripTextBox1" Width="140" Height="25" />
+            <ProgressBar x:Name="toolStripProgressBar1" Width="100" Height="22" Value="35" />
+            <Button x:Name="toolStripDropDownButton1" Content="Layout">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuItem x:Name="dropDownItemA" Header="Drop-down item A" />
+                        <MenuItem x:Name="dropDownItemB" Header="Drop-down item B" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+            <SplitButton x:Name="toolStripSplitButton1" Content="Run">
+                <SplitButton.Flyout>
+                    <MenuFlyout>
+                        <MenuItem x:Name="splitButtonItemA" Header="Split item A" />
+                    </MenuFlyout>
+                </SplitButton.Flyout>
+            </SplitButton>
+            <!-- TODO(Winforms2Avalonia): field 'toolStripControlHost1' (ToolStripControlHost) has no Avalonia mapping: Hosts an arbitrary embedded WinForms Control - too dynamic to translate generically; recreate manually with the equivalent Avalonia control. - not emitted. -->
+        </controls:ToolStripFallback>
+        <Menu x:Name="menuStrip1" Canvas.Left="0" Canvas.Top="0" Width="1024" Height="24">
+            <MenuItem x:Name="fileMenuItem" Header="&amp;File">
+                <MenuItem x:Name="newMenuItem" Header="&amp;New" Click="newMenuItem_Click" />
+                <MenuItem x:Name="openMenuItem" Header="&amp;Open..." Click="openMenuItem_Click" />
+                <Separator x:Name="fileMenuSeparator" />
+                <MenuItem x:Name="exitMenuItem" Header="E&amp;xit" Click="exitMenuItem_Click" />
+            </MenuItem>
+            <MenuItem x:Name="editMenuItem" Header="&amp;Edit">
+                <MenuItem x:Name="undoMenuItem" Header="&amp;Undo" />
+                <MenuItem x:Name="redoMenuItem" Header="&amp;Redo" />
+                <MenuItem x:Name="wordWrapMenuItem" Header="&amp;Word wrap" Click="wordWrapMenuItem_Click" />
+            </MenuItem>
+            <MenuItem x:Name="viewMenuItem" Header="&amp;View">
+                <MenuItem x:Name="barsMenuItem" Header="&amp;Bars">
+                    <MenuItem x:Name="showToolStripMenuItem" Header="Show &amp;toolbar" />
+                    <MenuItem x:Name="showStatusStripMenuItem" Header="Show &amp;status bar" />
+                </MenuItem>
+            </MenuItem>
+            <MenuItem x:Name="helpMenuItem" Header="&amp;Help">
+                <MenuItem x:Name="aboutMenuItem" Header="&amp;About..." Click="aboutMenuItem_Click" />
+            </MenuItem>
+        </Menu>
+    </Canvas>
+</Window>

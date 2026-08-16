@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src\WinFormsToAvalonia.Cli\WinFormsToAvalonia.Cli.csproj" />
+    <Project Path="src\WinFormsToAvalonia.Core\WinFormsToAvalonia.Core.csproj" />
+    <Project Path="src\WinFormsToAvalonia.FallbackControls\WinFormsToAvalonia.FallbackControls.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests\WinFormsToAvalonia.Core.Tests\WinFormsToAvalonia.Core.Tests.csproj" />
+    <Project Path="tests\WinFormsToAvalonia.Integration.Tests\WinFormsToAvalonia.Integration.Tests.csproj" />
+  </Folder>
+</Solution>

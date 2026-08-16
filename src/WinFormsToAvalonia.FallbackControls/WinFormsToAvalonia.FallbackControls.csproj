@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Fallback control sources are plain embedded text, not compiled here: they target
+         Avalonia types that this project deliberately does not reference (keeps the tool
+         itself, and everything that depends on this project, free of a transitive Avalonia
+         dependency). Their namespace is a __TARGET_NAMESPACE__ placeholder rewritten by
+         FallbackControlResolver at copy time; the real correctness check is the
+         integration test that builds a generated project using them. -->
+    <Compile Remove="Templates/**/*.cs" />
+    <EmbeddedResource Include="Templates/*.cs">
+      <LogicalName>%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>
