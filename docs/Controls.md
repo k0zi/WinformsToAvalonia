@@ -1,13 +1,13 @@
 # WinForms → Avalonia control/component mapping status
 
 Status of every built-in WinForms control/component against this tool's actual mapping
-registry, `src/Winforms2Avalonia.Core/Mapping/DefaultControlMappers.cs`. This table is a
+registry, `src/WinFormsToAvalonia.Core/Mapping/DefaultControlMappers.cs`. This table is a
 snapshot, not generated automatically — if it drifts from that file (the way
 `docs/known-limitations.md`'s `ListView` line once did), trust the code and fix this doc.
 See `docs/known-limitations.md` for the structural parsing gaps referenced throughout.
 
 **Legend**: ✅ Direct = maps to a real, working Avalonia control. ✅ Fallback = maps to one of
-this tool's bundled placeholder controls (`src/Winforms2Avalonia.FallbackControls/Templates/`).
+this tool's bundled placeholder controls (`src/WinFormsToAvalonia.FallbackControls/Templates/`).
 ❌ Unsupported = registered with guidance text, but produces no Avalonia element — flagged for
 manual migration. 🚧 Not converted = a different problem entirely: the whole artifact kind is
 currently excluded from the conversion pipeline, so it never reaches the mapping registry at
@@ -239,7 +239,7 @@ below for what shipped.)
 
 **Done.**
 `DesignerSyntaxWalker.HandleInvocation`
-(`src/Winforms2Avalonia.Core/Parsing/DesignerSyntaxWalker.cs`) now also recognizes
+(`src/WinFormsToAvalonia.Core/Parsing/DesignerSyntaxWalker.cs`) now also recognizes
 `.Items.Add`/`.DropDownItems.Add` (generalized alongside `.Controls.Add`/`.Columns.Add` - see
 Change 1 below) - no `ControlGraphBuilder`/`ParentChildEdge` change was needed, since (unlike
 `SplitContainer`'s `Panel1`/`Panel2`) `Items`/`DropDownItems` always belong to a real,
@@ -284,7 +284,7 @@ column's `CellTemplate` is set internally by its own constructor).
 `this.splitContainer1.Panel1/Panel2.Controls.Add(x)` three-level chain (encoded as a synthetic
 `"field.PanelN"` parent id), routed by `ControlGraphBuilder` into two new
 `ControlModel.Panel1Children`/`Panel2Children` lists. Maps `Direct` to a plain Avalonia `Grid`
-(`src/Winforms2Avalonia.Core/Mapping/DefaultControlMappers.cs`) - no bespoke `IControlMapper`
+(`src/WinFormsToAvalonia.Core/Mapping/DefaultControlMappers.cs`) - no bespoke `IControlMapper`
 needed after all, since the two-slot emission logic lives in `AxamlEmitter.EmitControl`
 (special-cased on `ClrTypeName == "SplitContainer"`, not the mapper), which emits a
 `GridSplitter` between two `Canvas` regions, using `RowDefinitions` instead of
@@ -293,7 +293,7 @@ needed after all, since the two-slot emission logic lives in `AxamlEmitter.EmitC
 ### ContextMenuStrip
 
 **Done.**
-`ExpressionEvaluator.Evaluate` (`src/Winforms2Avalonia.Core/Parsing/ExpressionEvaluator.cs`)
+`ExpressionEvaluator.Evaluate` (`src/WinFormsToAvalonia.Core/Parsing/ExpressionEvaluator.cs`)
 now recognizes a bare `this.<field>` RHS as a new `PropertyValue.ControlReference` case,
 fixing what was previously misclassified as an `EnumMembers` entry -
 `this.someControl.ContextMenuStrip = this.contextMenuStrip1;` was already routed correctly
@@ -314,7 +314,7 @@ is never resolved via `_registry.Map` - the capability ships through the owner c
 
 **Done.**
 Implemented as `Fallback` controls:
-`src/Winforms2Avalonia.FallbackControls/Templates/ToolStripContainerFallback.cs`,
+`src/WinFormsToAvalonia.FallbackControls/Templates/ToolStripContainerFallback.cs`,
 `ToolStripPanelFallback.cs`, `ToolStripContentPanelFallback.cs`. `ToolStripContainerFallback`
 is a `DockPanel` that builds the same fixed 5-region layout (`TopToolStripPanel`/
 `BottomToolStripPanel`/`LeftToolStripPanel`/`RightToolStripPanel` + `ContentPanel`) WinForms'
@@ -329,7 +329,7 @@ phase.
 ### File dialogs
 
 **Done**, for `OpenFileDialog`/`SaveFileDialog`/`FolderBrowserDialog`.
-`ViewModelEmitter` (`src/Winforms2Avalonia.Core/Emission/ViewModelEmitter.cs`) now emits one
+`ViewModelEmitter` (`src/WinFormsToAvalonia.Core/Emission/ViewModelEmitter.cs`) now emits one
 async `[RelayCommand]` per dialog field found anywhere in the form (`EnumerateAllControls` was
 extended to also walk `FormModel.Components`, where dialog/Timer/NotifyIcon fields actually
 live, since none of them are ever `Controls.Add`-ed) - not tied to a specific button's Click
@@ -350,11 +350,11 @@ equivalent at all and stay guidance-only permanently.
 
 **Done.**
 App-level, not per-View, so it doesn't fit `AxamlEmitter`'s per-Form model.
-`ConversionPipeline.Run` (`src/Winforms2Avalonia.Core/Pipeline/ConversionPipeline.cs`) now
+`ConversionPipeline.Run` (`src/WinFormsToAvalonia.Core/Pipeline/ConversionPipeline.cs`) now
 aggregates every `NotifyIcon` found across all of a project's forms' `Components` into a
 `NotifyIconInfo` list (field name, icon asset path, tooltip), threaded through
 `AvaloniaProjectScaffolder.BuildProject`/`BuildEmptySkeleton`
-(`src/Winforms2Avalonia.Core/Scaffolding/AvaloniaProjectScaffolder.cs`) into `BuildAppAxaml`,
+(`src/WinFormsToAvalonia.Core/Scaffolding/AvaloniaProjectScaffolder.cs`) into `BuildAppAxaml`,
 which emits a `<TrayIcon.Icons><TrayIcons>...</TrayIcons></TrayIcon.Icons>` block on
 `<Application>` when the list is non-empty (byte-identical output when there are none). No
 new NuGet package is needed - `TrayIcon`/`TopLevel` are in core `Avalonia`/`Avalonia.Desktop`
@@ -403,7 +403,7 @@ the component field itself), its guidance text updated to explain this.
 
 **Done.**
 Implemented as a `Fallback` control:
-`src/Winforms2Avalonia.FallbackControls/Templates/DomainUpDownFallback.cs` — a `DockPanel`
+`src/WinFormsToAvalonia.FallbackControls/Templates/DomainUpDownFallback.cs` — a `DockPanel`
 composing a read-only `TextBox` display with two step buttons, an `Items` string list, a
 `SelectedIndex` styled property, and a `Wrap` styled property (mapped from the WinForms `Wrap`
 literal property). `Items` isn't populated automatically — same `.Items.Add` limitation as the
@@ -413,7 +413,7 @@ ToolStripItem/DataGridView column families.
 
 **Done.**
 Implemented as a `Fallback` control:
-`src/Winforms2Avalonia.FallbackControls/Templates/PropertyGridFallback.cs` — a reflection-based
+`src/WinFormsToAvalonia.FallbackControls/Templates/PropertyGridFallback.cs` — a reflection-based
 name/value editor over a `SelectedObject` styled property, editing the properties whose type a
 `TypeConverter` can round-trip from a string. Deliberately small: no category grouping, no
 nested/expandable objects, no custom `UITypeEditor`s. Swap in a community Avalonia PropertyGrid
