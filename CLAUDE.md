@@ -76,7 +76,13 @@ single orchestrator — read it first, every stage below is a field on it:
    `BindablePropertyCatalog`) and `EventArgsMemberCatalog` (what a handler's `e.X`/`e.Cancel` mean
    on the Avalonia side — the member-level counterpart of `EventMappingRegistry`).
    `FileDialogCatalog` rounds it out: the three WinForms file dialogs and their `StorageProvider`
-   replacements, used both to emit a picker method and to inline one into a handler. `BindablePropertyCatalog` and the mappers name the same Avalonia property from two
+   replacements, used both to emit a picker method and to inline one into a handler. Three
+   smaller tables cover what the *conversion itself* creates rather than what it maps:
+   `WindowPropertyCatalog` (Form properties a `Window` spells differently - `Text` → `Title`),
+   `DispatcherTimerMemberCatalog` (a Timer this run emitted as a `DispatcherTimer` field), and
+   and `DialogResultCatalog`, whose two members are deliberately different shapes - a *total*
+   `ClosesWithSuccess` for synthesizing a designer-declared button, a *partial* `TryGetBool` for
+   a hand-written result that has to round-trip. `BindablePropertyCatalog` and the mappers name the same Avalonia property from two
    places — `BindablePropertyCatalogTests` asserts they agree, because a disagreement is a build
    error in the **generated** project, which this repo's own build cannot catch.
 3. **Planning** — `FormMigrationPlanner.Plan(formModel, codeBehind)` produces one
@@ -89,7 +95,9 @@ single orchestrator — read it first, every stage below is a field on it:
    promoted body may name is only settled once every handler is classified. It has two targets
    (a View still has control fields; a ViewModel has only `[ObservableProperty]`s) and stops at
    the first statement it cannot prove equivalent, so the emitted code is always a faithful
-   *prefix* of the original.
+   *prefix* of the original. The `DispatcherTimer` fields are planned **before** that rewrite
+   rather than after, because a body may *name* them; `PlanFileDialogs` stays after, since what it
+   emits depends on what the rewrite did.
 4. **Emission** (`Core/Emission`) — `AxamlEmitter` (+ `AxamlDocumentBuilder`),
    `ViewCodeBehindEmitter`, `ViewModelEmitter`. All naming (`Form1` → `Form1View`/`Form1ViewModel`,
    nested-folder namespaces, command names) goes through `NamingConventions` — never hand-roll it.

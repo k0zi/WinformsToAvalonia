@@ -1325,6 +1325,11 @@ public class HandlerBodyRewriterTests
     /// prefix, and the declaration above it is then stranded and dropped with it.
     /// </summary>
     [Fact]
+    /// <summary>
+    /// A dialog's *own* public property is not something the conversion can name: the generated
+    /// View carries the controls and the handlers, not the Form's public surface, so
+    /// <c>dialog.EnteredText</c> would compile against a member that does not exist.
+    /// </summary>
     public void RewriteForView_FormViewLocalUsedAsAValue_StopsThePrefixAtTheDeclaration()
     {
         var form = FormWith(("statusLabel", "Label"));
@@ -1333,14 +1338,14 @@ public class HandlerBodyRewriterTests
             """
             this.statusLabel.Text = "before";
             var dialog = new SettingsForm();
-            this.statusLabel.Text = dialog.Text;
+            this.statusLabel.Text = dialog.EnteredText;
             """,
             form,
             Navigation());
 
         Assert.Equal(["statusLabel.Text = \"before\";"], result.MigratedStatements);
         Assert.Contains("var dialog = new SettingsForm();", result.RemainingBody);
-        Assert.Contains("dialog.Text", result.RemainingBody);
+        Assert.Contains("dialog.EnteredText", result.RemainingBody);
     }
 
     [Fact]
@@ -1433,6 +1438,251 @@ public class HandlerBodyRewriterTests
         var form = FormWith(("label1", "Label"));
 
         var result = Rewriter.RewriteForViewModel("label1.Text = \"x\";", form, []);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- The dialog-result contract, hand-written side -----------------------------------
+
+    /// <summary>
+    /// `DialogResult = ...; Close();` is *one* act, and has to be translated as one: taken a
+    /// statement at a time, the trailing bare `Close()` would close the window with
+    /// `default(bool)` and overwrite the result the line above just set.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogResultThenClose_CollapsesIntoASingleCloseWithTheResult()
+    {
+        var form = FormWith(("okButton", "Button"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            DialogResult = DialogResult.OK;
+            Close();
+            """,
+            form,
+            Navigation());
+
+        Assert.Equal(["Close(true);"], result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    [Fact]
+    public void RewriteForView_DialogResultAlone_StillCloses()
+    {
+        var result = Rewriter.RewriteForView("this.DialogResult = DialogResult.Cancel;", FormWith(), Navigation());
+
+        Assert.Equal(["Close(false);"], result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    [Fact]
+    public void RewriteForView_StatementsBeforeTheDialogResult_AreKeptInOrder()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.statusLabel.Text = "Saving";
+            DialogResult = DialogResult.Yes;
+            Close();
+            """,
+            form,
+            Navigation());
+
+        Assert.Equal(["statusLabel.Text = \"Saving\";", "Close(true);"], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// In WinForms the handler keeps running after the assignment; in Avalonia the Close is the
+    /// end. Where the original still had work to do, the two are not the same thing.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_WorkAfterTheDialogResult_IsNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            DialogResult = DialogResult.OK;
+            this.statusLabel.Text = "after";
+            """,
+            form,
+            Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A three-way dialog cannot round-trip through a bool, and widening the result type would
+    /// change what every converted dialog returns.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogResultWithNoBoolAnswer_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView("DialogResult = DialogResult.Retry;", FormWith(), Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_DialogResultInAUserControl_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "DialogResult = DialogResult.OK;", FormWith(), Navigation(hostIsWindow: false));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- Window properties ---------------------------------------------------------------
+
+    [Fact]
+    public void RewriteForView_FormTextAndWindowState_BecomeTheirWindowCounterparts()
+    {
+        var result = Rewriter.RewriteForView(
+            """
+            this.Text = "Report";
+            WindowState = FormWindowState.Maximized;
+            this.TopMost = true;
+            """,
+            FormWith(),
+            Navigation());
+
+        Assert.Equal(
+            [
+                "Title = \"Report\";",
+                "WindowState = WindowState.Maximized;",
+                "Topmost = true;",
+            ],
+            result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_ReadingTheFormTitle_IsNullGuardedLikeAnyOtherStringRead()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView("this.statusLabel.Text = this.Text;", form, Navigation());
+
+        Assert.Equal(["statusLabel.Text = (Title ?? string.Empty);"], result.MigratedStatements);
+    }
+
+    /// <summary>A converted UserControl has no Title, so the same statement must not translate.</summary>
+    [Fact]
+    public void RewriteForView_WindowPropertyInAUserControl_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "this.Text = \"Report\";", FormWith(), Navigation(hostIsWindow: false));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>The window property a *dialog* carries, reached through the local that holds it.</summary>
+    [Fact]
+    public void RewriteForView_WindowPropertyOnAFormViewLocal_IsTranslated()
+    {
+        var result = Rewriter.RewriteForView(
+            """
+            var dialog = new SettingsForm();
+            dialog.Text = "About";
+            dialog.ShowDialog(this);
+            """,
+            FormWith(),
+            Navigation());
+
+        Assert.Equal(
+            [
+                "var dialog = new SettingsView();",
+                "dialog.Title = \"About\";",
+                "await dialog.ShowDialog(this);",
+            ],
+            result.MigratedStatements);
+        Assert.True(result.RequiresAsync);
+    }
+
+    /// <summary>A local of the same name shadows the form's own property, exactly as in C#.</summary>
+    [Fact]
+    public void RewriteForView_LocalNamedLikeAWindowProperty_ShadowsIt()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var Text = "local";
+            this.statusLabel.Text = Text;
+            """,
+            form,
+            Navigation());
+
+        Assert.Equal(
+            ["var Text = \"local\";", "statusLabel.Text = Text;"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The size properties are deliberately absent: WinForms measures the outer frame and
+    /// Avalonia does not, so there is no fixed conversion between them.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_FormSize_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView("this.Width = 400;", FormWith(), Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- The DispatcherTimer this conversion creates itself -------------------------------
+
+    [Fact]
+    public void RewriteForView_TimerMembers_AreTranslatedAgainstTheGeneratedDispatcherTimer()
+    {
+        var form = FormWith(("clockTimer", "Timer"));
+        var timers = new HashSet<string>(StringComparer.Ordinal) { "clockTimer" };
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.clockTimer.Enabled = !this.clockTimer.Enabled;
+            this.clockTimer.Interval = 250;
+            this.clockTimer.Stop();
+            """,
+            form,
+            Navigation(),
+            dispatcherTimerFields: timers);
+
+        Assert.Equal(
+            [
+                "clockTimer.IsEnabled = !clockTimer.IsEnabled;",
+                "clockTimer.Interval = TimeSpan.FromMilliseconds(250);",
+                "clockTimer.Stop();",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// WinForms counts Interval in int milliseconds, Avalonia holds a TimeSpan. A write can be
+    /// wrapped faithfully; a read would compile and quietly mean something else.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ReadingTimerInterval_IsNotMigrated()
+    {
+        var form = FormWith(("clockTimer", "Timer"), ("statusLabel", "Label"));
+        var timers = new HashSet<string>(StringComparer.Ordinal) { "clockTimer" };
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = this.clockTimer.Interval.ToString();",
+            form,
+            Navigation(),
+            dispatcherTimerFields: timers);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A Timer with no Tick handler never becomes a field, so nothing may name it.</summary>
+    [Fact]
+    public void RewriteForView_TimerThatWasNeverPlanned_IsNotMigrated()
+    {
+        var form = FormWith(("clockTimer", "Timer"));
+
+        var result = Rewriter.RewriteForView("this.clockTimer.Stop();", form, Navigation());
 
         Assert.Empty(result.MigratedStatements);
     }

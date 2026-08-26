@@ -41,28 +41,40 @@ public sealed class ViewCodeBehindEmitter
         var sb = new StringBuilder();
         void Line(string text = "") => sb.Append(text).Append('\n');
 
-        Line("using System;");
-        if (plan.FileDialogs.Count > 0)
+        // A namespace can be asked for from several places at once - the fixed set below, an
+        // EventArgs type, a translated statement - so they go through one gate. A duplicate
+        // using is not fatal, but it is noise in a file a human is expected to read and edit.
+        var emittedUsings = new HashSet<string>(StringComparer.Ordinal);
+        void Using(string namespaceName)
         {
-            Line("using System.Threading.Tasks;");
+            if (emittedUsings.Add(namespaceName))
+            {
+                Line($"using {namespaceName};");
+            }
         }
 
-        Line("using Avalonia.Controls;");
-        Line("using Avalonia.Input;");
-        Line("using Avalonia.Interactivity;");
+        Using("System");
         if (plan.FileDialogs.Count > 0)
         {
-            Line("using Avalonia.Platform.Storage;");
+            Using("System.Threading.Tasks");
+        }
+
+        Using("Avalonia.Controls");
+        Using("Avalonia.Input");
+        Using("Avalonia.Interactivity");
+        if (plan.FileDialogs.Count > 0)
+        {
+            Using("Avalonia.Platform.Storage");
         }
 
         if (plan.Timers.Count > 0)
         {
-            Line("using Avalonia.Threading;");
+            Using("Avalonia.Threading");
         }
 
         foreach (var namespaceName in ExtraEventArgsNamespaces(plan))
         {
-            Line($"using {namespaceName};");
+            Using(namespaceName);
         }
 
         // Namespaces the translated handler statements need - the desktop lifetime behind
@@ -70,16 +82,16 @@ public sealed class ViewCodeBehindEmitter
         // actually emitted, and never this View's own namespace, so no View gets a stray using.
         foreach (var namespaceName in plan.RequiredUsings.Where(n => !string.Equals(n, ns, StringComparison.Ordinal)))
         {
-            Line($"using {namespaceName};");
+            Using(namespaceName);
         }
 
         if (plan.RequiredFallbackKeys.Count > 0)
         {
-            Line($"using {rootNamespace}.Controls;");
+            Using($"{rootNamespace}.Controls");
         }
 
-        Line($"using {rootNamespace}.Generated;");
-        Line($"using {viewModelNamespace};");
+        Using($"{rootNamespace}.Generated");
+        Using(viewModelNamespace);
         Line();
         Line($"namespace {ns};");
         Line();

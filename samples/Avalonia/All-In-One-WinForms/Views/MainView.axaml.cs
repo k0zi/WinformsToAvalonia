@@ -171,11 +171,8 @@ public partial class MainView : Window
 
     private void clockToggleButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'clockToggleButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.clockTimer.Enabled = !this.clockTimer.Enabled;
-        this.clockToggleButton.Text = this.clockTimer.Enabled ? "Stop clock" : "Start clock";
-        */
-        MigrationTodo.NotMigrated(nameof(clockToggleButton_Click), "clockToggleButton_Click");
+        clockTimer.IsEnabled = !clockTimer.IsEnabled;
+        clockToggleButton.Content = clockTimer.IsEnabled ? "Stop clock" : "Start clock";
     }
 
     private void clockTimer_Tick(object? sender, EventArgs e)
@@ -467,8 +464,9 @@ public partial class MainView : Window
 
     private void notifyIcon1_DoubleClick(object? sender, TappedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'notifyIcon1_DoubleClick' - TODO(Winforms2Avalonia): migrate it into this method.
-        WindowState = FormWindowState.Normal;
+        WindowState = WindowState.Normal;
+
+        /* REMAINING WINFORMS BODY of 'notifyIcon1_DoubleClick' - TODO(Winforms2Avalonia): migrate it into this method.
         Activate();
         */
         MigrationTodo.NotMigrated(nameof(notifyIcon1_DoubleClick), "notifyIcon1_DoubleClick");
@@ -486,14 +484,11 @@ public partial class MainView : Window
         MigrationTodo.NotMigrated(nameof(openDialogFormButton_Click), "openDialogFormButton_Click");
     }
 
-    private void aboutButton_Click(object? sender, RoutedEventArgs e)
+    private async void aboutButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'aboutButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        using var dialog = new DialogForm();
-        dialog.Text = "About";
-        dialog.ShowDialog(this);
-        */
-        MigrationTodo.NotMigrated(nameof(aboutButton_Click), "aboutButton_Click");
+        var dialog = new DialogView();
+        dialog.Title = "About";
+        await dialog.ShowDialog(this);
     }
 
     private void demoComponent1_Ticked(object? sender, EventArgs e)

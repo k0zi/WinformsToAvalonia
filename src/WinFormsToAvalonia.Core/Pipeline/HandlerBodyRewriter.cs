@@ -63,14 +63,16 @@ public sealed class HandlerBodyRewriter
         string body,
         FormModel formModel,
         ViewNavigationContext? navigation = null,
-        HandlerSignature? signature = null) =>
+        HandlerSignature? signature = null,
+        IReadOnlySet<string>? dispatcherTimerFields = null) =>
         Rewrite(
             body,
             new ViewTarget(
                 formModel,
                 _controlMappings,
                 navigation ?? ViewNavigationContext.None,
-                signature ?? HandlerSignature.None));
+                signature ?? HandlerSignature.None,
+                dispatcherTimerFields ?? new HashSet<string>(StringComparer.Ordinal)));
 
     /// <summary>
     /// Rewrites for a promoted [RelayCommand], where every control property the body may touch
@@ -121,11 +123,17 @@ public sealed class HandlerBodyRewriter
         var fallbackKeys = new HashSet<string>(StringComparer.Ordinal);
         var requiresAsync = false;
 
+        // A trailing `DialogResult = ...;` is how a hand-written dialog closes itself, and it is
+        // one Avalonia statement even when the original spelled it as two. Matched off the end of
+        // the body before the loop, so the loop never sees those statements at all.
+        var hasDialogResultTail = TryMatchDialogResultTail(statements, target, out var tailCount, out var tailText);
+        var translatableCount = statements.Count - (hasDialogResultTail ? tailCount : 0);
+
         var migratedCount = 0;
-        foreach (var statement in statements)
+        for (var i = 0; i < translatableCount; i++)
         {
             var snapshot = target.Requirements.Snapshot();
-            if (!TryRewriteStatement(statement, target, out var rewritten))
+            if (!TryRewriteStatement(statements[i], target, out var rewritten))
             {
                 // Undo anything a half-translated expression recorded, or the method could end up
                 // `async` with nothing to await.
@@ -138,6 +146,15 @@ public sealed class HandlerBodyRewriter
             fallbackKeys.UnionWith(rewritten.RequiredFallbackKeys);
             requiresAsync |= rewritten.RequiresAsync;
             migratedCount++;
+        }
+
+        // The tail closes the window, so it may only follow a *complete* prefix: appending it to
+        // a partial one would close the dialog before the work the un-migrated statements
+        // represent had a chance to be written in.
+        if (hasDialogResultTail && migratedCount == translatableCount)
+        {
+            migrated.Add(tailText);
+            migratedCount = statements.Count;
         }
 
         // A local left at the very end of a *partial* prefix can have no user: the statements that
@@ -171,6 +188,93 @@ public sealed class HandlerBodyRewriter
             migrated, remaining, statements.Count, usings, fallbackKeys, requiresAsync,
             target.Requirements.InlinedDialogFields);
     }
+
+    /// <summary>
+    /// The WinForms way a hand-written dialog reports its outcome: <c>DialogResult =
+    /// DialogResult.OK;</c>, on its own or followed by <c>Close();</c>. Both spellings become the
+    /// single <c>Close(true)</c> the caller's <c>ShowDialog&lt;bool&gt;</c> is waiting for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Matching the <em>pair</em> is what makes this correct rather than convenient. Translated
+    /// one statement at a time, the trailing <c>Close();</c> would come out as a bare
+    /// <c>Close()</c> - which in Avalonia closes the window with <c>default(bool)</c> and so
+    /// overwrites the result the line above had just set. The two statements are one act.
+    /// </para>
+    /// <para>
+    /// Only at the very end of the body. In WinForms, assigning <c>DialogResult</c> on a modal
+    /// form closes it but the handler keeps running; Avalonia's <c>Close</c> is the last thing
+    /// that happens. Where the original has more to do afterwards those two are not equivalent,
+    /// so the assignment simply fails to translate and the prefix stops there.
+    /// </para>
+    /// </remarks>
+    private static bool TryMatchDialogResultTail(
+        SyntaxList<StatementSyntax> statements, IRewriteTarget target, out int tailCount, out string tailText)
+    {
+        tailCount = 0;
+        tailText = "";
+
+        // A ViewModel has no window to close, and a converted UserControl is not one.
+        if (!target.AllowsWindowApis || !target.HostIsWindow || statements.Count == 0)
+        {
+            return false;
+        }
+
+        var index = statements.Count - 1;
+        var closeStatements = 0;
+
+        if (IsBareClose(statements[index]))
+        {
+            index--;
+            closeStatements = 1;
+        }
+
+        if (index < 0
+            || statements[index] is not ExpressionStatementSyntax { Expression: AssignmentExpressionSyntax assignment }
+            || !assignment.OperatorToken.IsKind(SyntaxKind.EqualsToken)
+            || !IsFormDialogResult(assignment.Left)
+            || assignment.Right is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "DialogResult" },
+                Name.Identifier.ValueText: var resultName,
+            }
+            || !DialogResultCatalog.TryGetBool(resultName, out var accepted))
+        {
+            return false;
+        }
+
+        tailCount = 1 + closeStatements;
+        tailText = $"Close({(accepted ? "true" : "false")});";
+        return true;
+    }
+
+    /// <summary>The form's own <c>DialogResult</c> property, written bare or through `this`.</summary>
+    private static bool IsFormDialogResult(ExpressionSyntax expression) => expression switch
+    {
+        IdentifierNameSyntax { Identifier.ValueText: "DialogResult" } => true,
+        MemberAccessExpressionSyntax
+        {
+            Expression: ThisExpressionSyntax,
+            Name.Identifier.ValueText: "DialogResult",
+        } => true,
+        _ => false,
+    };
+
+    /// <summary>`Close();` / `this.Close();` with no arguments - the form closing itself.</summary>
+    private static bool IsBareClose(StatementSyntax statement) =>
+        statement is ExpressionStatementSyntax
+        {
+            Expression: InvocationExpressionSyntax
+            {
+                ArgumentList.Arguments.Count: 0,
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "Close" }
+                    or MemberAccessExpressionSyntax
+                    {
+                        Expression: ThisExpressionSyntax,
+                        Name.Identifier.ValueText: "Close",
+                    },
+            },
+        };
 
     /// <summary>The original body text from the first un-migrated statement onwards.</summary>
     private static string RemainingText(string body, BlockSyntax block, StatementSyntax firstRemaining)
@@ -641,6 +745,15 @@ public sealed class HandlerBodyRewriter
     {
         rewritten = default;
 
+        // `this.Text = "..."` / `dialog.WindowState = ...` - a Form property that is really a
+        // Window property. Checked before the right-hand side is translated, because an enum
+        // value like `FormWindowState.Maximized` is a WinForms name the generic expression path
+        // would (correctly) refuse.
+        if (TryRewriteWindowPropertyAssignment(assignment, target, out rewritten))
+        {
+            return true;
+        }
+
         if (!TryRewriteExpression(assignment.Right, target, out var right))
         {
             return false;
@@ -672,6 +785,17 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `clockTimer.Enabled = false;` on a Timer this run emits as a DispatcherTimer field.
+        // A whole statement rather than a left-hand side, because Interval changes type.
+        if (assignment.Left is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var timerMember } timerAccess
+            && target.TryResolveControlField(timerAccess.Expression, out var timerField)
+            && target.IsDispatcherTimerField(timerField)
+            && DispatcherTimerMemberCatalog.TryGetWrite(timerField, timerMember, right, out var timerWrite))
+        {
+            rewritten = new RewrittenStatement(timerWrite, RequiredUsings: ["System"]);
+            return true;
+        }
+
         if (!TryResolveControlProperty(assignment.Left, target, forWrite: true, out var left))
         {
             return false;
@@ -679,6 +803,115 @@ public sealed class HandlerBodyRewriter
 
         rewritten = new RewrittenStatement($"{left} = {right};");
         return true;
+    }
+
+    /// <summary>
+    /// A <c>Form</c> property with an exact <c>Window</c> counterpart, per
+    /// <see cref="WindowPropertyCatalog"/> - written either on the form itself (<c>this.Text</c>,
+    /// or the bare <c>Text</c> designer code usually uses) or on a local holding another
+    /// converted Form's View (<c>dialog.Text = "About";</c>).
+    /// </summary>
+    private static bool TryRewriteWindowPropertyAssignment(
+        AssignmentExpressionSyntax assignment, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!assignment.OperatorToken.IsKind(SyntaxKind.EqualsToken)
+            || !TryResolveWindowProperty(assignment.Left, target, out var receiverPrefix, out var property))
+        {
+            return false;
+        }
+
+        string value;
+        if (property.EnumTypeName is { } enumTypeName)
+        {
+            // `FormWindowState.Maximized` -> `WindowState.Maximized`. Only the members both
+            // frameworks spell the same way, and the receiver is not checked beyond being a name:
+            // what identifies the value is the member, and an unlisted member refuses anyway.
+            if (assignment.Right is not MemberAccessExpressionSyntax
+                {
+                    Expression: IdentifierNameSyntax,
+                    Name.Identifier.ValueText: var enumMember,
+                }
+                || property.EnumMemberNames?.Contains(enumMember) != true)
+            {
+                return false;
+            }
+
+            value = $"{enumTypeName}.{enumMember}";
+        }
+        else if (!TryRewriteExpression(assignment.Right, target, out value))
+        {
+            return false;
+        }
+
+        rewritten = new RewrittenStatement($"{receiverPrefix}{property.AvaloniaPropertyName} = {value};");
+        return true;
+    }
+
+    /// <summary>
+    /// Reading a window property. Strings are null-guarded like every other string read here:
+    /// WinForms' <c>Form.Text</c> never returns null, Avalonia's <c>Window.Title</c> is
+    /// <c>string?</c>, and the generated project enables nullable.
+    /// </summary>
+    private static bool TryRewriteWindowPropertyRead(ExpressionSyntax expression, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (!TryResolveWindowProperty(expression, target, out var receiverPrefix, out var property))
+        {
+            return false;
+        }
+
+        var access = $"{receiverPrefix}{property.AvaloniaPropertyName}";
+        text = property.ClrTypeName == "string" ? $"({access} ?? string.Empty)" : access;
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the left-hand side of a window-property access, yielding the receiver text to
+    /// prefix the Avalonia property with - empty for the View itself, <c>"dialog."</c> for a
+    /// local that holds one.
+    /// </summary>
+    private static bool TryResolveWindowProperty(
+        ExpressionSyntax expression, IRewriteTarget target, out string receiverPrefix, out WindowProperty property)
+    {
+        receiverPrefix = "";
+        property = null!;
+
+        // `dialog.Text` on a local holding another converted Form's View. That one is a Window
+        // whatever this host is, so it needs no HostIsWindow check of its own.
+        if (expression is MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: var localName },
+                Name.Identifier.ValueText: var localMember,
+            }
+            && target.Locals.TryGet(localName, out var kind)
+            && kind == LocalKind.FormView)
+        {
+            receiverPrefix = $"{localName}.";
+            return WindowPropertyCatalog.TryGet(localMember, out property);
+        }
+
+        // `this.Text` or the bare `Text` - only on a View that really is a Window. A converted
+        // UserControl has no Title, and a ViewModel has no window at all.
+        if (!target.AllowsWindowApis || !target.HostIsWindow)
+        {
+            return false;
+        }
+
+        var ownName = expression switch
+        {
+            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var name } => name,
+
+            // A bare name could just as well be a local the body declared, and that shadows the
+            // form's own property exactly as it would in the original.
+            IdentifierNameSyntax { Identifier.ValueText: var name } when !target.Locals.TryGet(name, out _) => name,
+
+            _ => "",
+        };
+
+        return ownName.Length > 0 && WindowPropertyCatalog.TryGet(ownName, out property);
     }
 
     /// <summary>`i++` / `--i` on a local - the shape a `for` incrementor almost always is.</summary>
@@ -728,6 +961,17 @@ public sealed class HandlerBodyRewriter
             && dialogKind == LocalKind.FormView)
         {
             return TryRewriteViewNavigationCall(dialogLocal, methodName, invocation, target, out rewritten);
+        }
+
+        // `clockTimer.Start();` - a DispatcherTimer keeps the same two verbs.
+        if (invocation.ArgumentList.Arguments.Count == 0
+            && receiver is not null
+            && target.TryResolveControlField(receiver, out var timerField)
+            && target.IsDispatcherTimerField(timerField)
+            && DispatcherTimerMemberCatalog.TryGetMethod(methodName, out var timerMethod))
+        {
+            rewritten = new RewrittenStatement($"{timerField}.{timerMethod}();");
+            return true;
         }
 
         // `control.Clear();` / `control.Focus();` - a zero-argument method with an exact Avalonia
@@ -960,6 +1204,11 @@ public sealed class HandlerBodyRewriter
                 text = identifier.Identifier.ValueText;
                 return true;
 
+            // The bare `Text` a Form's own code uses for its title. After the local case above,
+            // so a local of that name shadows it.
+            case IdentifierNameSyntax when TryRewriteWindowPropertyRead(expression, target, out text):
+                return true;
+
             case InterpolatedStringExpressionSyntax interpolated:
                 return TryRewriteInterpolatedString(interpolated, target, out text);
 
@@ -1113,8 +1362,24 @@ public sealed class HandlerBodyRewriter
 
     private static bool TryRewriteMemberAccess(MemberAccessExpressionSyntax memberAccess, IRewriteTarget target, out string text)
     {
+        // `this.Text` / `dialog.Title` - checked first, so a local holding a View shadows a
+        // same-named control field exactly as it would in the original.
+        if (TryRewriteWindowPropertyRead(memberAccess, target, out text))
+        {
+            return true;
+        }
+
         if (TryResolveControlProperty(memberAccess, target, forWrite: false, out text))
         {
+            return true;
+        }
+
+        // `clockTimer.Enabled` on a Timer this run emits as a DispatcherTimer field.
+        if (target.TryResolveControlField(memberAccess.Expression, out var timerField)
+            && target.IsDispatcherTimerField(timerField)
+            && DispatcherTimerMemberCatalog.TryGetRead(memberAccess.Name.Identifier.ValueText, out var timerMember))
+        {
+            text = $"{timerField}.{timerMember}";
             return true;
         }
 
@@ -1283,6 +1548,7 @@ public sealed class HandlerBodyRewriter
 
         /// <summary>A converted Form's View. Only the navigation calls are allowed on it.</summary>
         FormView,
+
     }
 
     /// <summary>
@@ -1375,6 +1641,7 @@ public sealed class HandlerBodyRewriter
         /// <summary>`e.X` and friends, rewritten against the Avalonia args type. False in a ViewModel.</summary>
         bool TryResolveEventArgsMember(ExpressionSyntax receiver, string memberName, out string text);
 
+
         bool TryResolveControlField(ExpressionSyntax expression, out string fieldName);
 
         /// <param name="forWrite">True for an assignment target, where the expression must stay assignable.</param>
@@ -1385,13 +1652,23 @@ public sealed class HandlerBodyRewriter
 
         /// <summary>The field's file-dialog kind, when it is one this converter can open inline.</summary>
         bool TryResolveFileDialog(string fieldName, out FileDialogKind kind);
+
+        /// <summary>
+        /// True when the field is a WinForms Timer this run emits as a real DispatcherTimer field,
+        /// which is what makes it something a translated body may name at all.
+        /// </summary>
+        bool IsDispatcherTimerField(string fieldName);
+
+
+
     }
 
     private sealed class ViewTarget(
         FormModel formModel,
         ControlMappingRegistry controlMappings,
         ViewNavigationContext navigation,
-        HandlerSignature signature) : IRewriteTarget
+        HandlerSignature signature,
+        IReadOnlySet<string> dispatcherTimerFields) : IRewriteTarget
     {
         public LocalScope Locals { get; } = new();
 
@@ -1479,6 +1756,14 @@ public sealed class HandlerBodyRewriter
                 && FileDialogCatalog.TryGet(control.ClrTypeName, out kind);
         }
 
+        /// <summary>
+        /// Only the timers the plan actually emits count. A Timer with no Tick handler never
+        /// becomes a field (the same evidence rule as everywhere else), so naming it here would
+        /// produce code referring to something that does not exist.
+        /// </summary>
+        public bool IsDispatcherTimerField(string fieldName) => dispatcherTimerFields.Contains(fieldName);
+
+
         public bool TryResolveControlMethod(string fieldName, string methodName, out string statement)
         {
             statement = "";
@@ -1543,12 +1828,19 @@ public sealed class HandlerBodyRewriter
             return false;
         }
 
+        /// <summary>The DispatcherTimer field lives on the View; a ViewModel cannot see it.</summary>
+        public bool IsDispatcherTimerField(string fieldName) => false;
+
+
+
+
         /// <summary>A promoted handler cannot use EventArgs at all - that is one of the promotion conditions.</summary>
         public bool TryResolveEventArgsMember(ExpressionSyntax receiver, string memberName, out string text)
         {
             text = "";
             return false;
         }
+
 
         public bool TryResolveControlField(ExpressionSyntax expression, out string fieldName)
         {

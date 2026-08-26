@@ -17,20 +17,12 @@ public partial class DialogView : Window
 
     private void okButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'okButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        DialogResult = DialogResult.OK;
-        Close();
-        */
-        MigrationTodo.NotMigrated(nameof(okButton_Click), "okButton_Click");
+        Close(true);
     }
 
     private void cancelButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'cancelButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        DialogResult = DialogResult.Cancel;
-        Close();
-        */
-        MigrationTodo.NotMigrated(nameof(cancelButton_Click), "cancelButton_Click");
+        Close(false);
     }
 
     /* ORIGINAL WINFORMS MEMBERS - NOT COMPILED, PRESERVED FOR MANUAL MIGRATION

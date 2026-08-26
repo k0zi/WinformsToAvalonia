@@ -100,27 +100,6 @@ contributors know what to expect and where to look before filing a duplicate iss
   properties, and `AxamlEmitter` emits them as a universal `ToolTip.Tip` attribute - so the
   actual tooltip feature works even though the `ToolTip` type's own registry entry stays
   `Unsupported`.
-- **Designer-declared list entries are translated; everything else about item content is not.**
-  `comboBox1.Items.AddRange(new object[] { "A", "B" })` and `listBox1.Items.Add("A")` become real
-  `ComboBoxItem`/`ListBoxItem` children. Gated on the *target* element
-  (`Mapping/AvaloniaItemsSupport`), like the styling pass and for the same reason: an item element
-  the target does not accept is an AVLN error. Consequences:
-  - only plain **literals**; an `Items.Add(someObject)` entry is not a literal and is skipped;
-  - a **fallback** control takes no item elements (`DomainUpDown` is the one that has them in
-    practice), and neither does any target not listed in that table - those entries are
-    **reported** rather than dropped silently, since a missing list is visible content;
-  - it is static content, not a binding. `ItemsSource`/`SelectedItem` still need a hand-written
-    `ObservableCollection` - only the *selection index/item* properties are in the bindable
-    catalog.
-
-  A `ListView` picks its target per-instance (`ListViewMapper`: `View=Details` or any parsed
-  `ColumnHeader` children → `DataGrid` with real columns, otherwise `ListBox`) and a
-  `MonthCalendar` maps to `Calendar`, but neither gets its rows or selection ranges. All six `DataGridView` column types are translated now: `TextBox`/`CheckBox` to
-  Avalonia's two real column types, and `ComboBox`/`Button`/`Image`/`Link` to a
-  `DataGridTemplateColumn` with a generated cell template. Those templates are **unbound** -
-  Designer.cs records the column but not its `DataPropertyName`-to-view-model mapping - so each
-  one carries a `TODO` comment naming what to add.
-
 - **Visual styling is converted, but gated by the target element.** `BackColor`, `ForeColor`,
   `Font` and `Padding` are emitted as `Background`/`Foreground`/`FontFamily`/`FontSize`/
   `FontWeight`/`FontStyle`/`TextDecorations`/`Padding` - universally, on any control, the same
@@ -165,6 +144,24 @@ rule itself; what follows is what the rule does *not* cover yet.
     reads of those same properties anywhere in the expression;
   - `Close()` / `Show()` / `Hide()` on the form (the View *is* the Window), and
     `control.Focus()`;
+  - the Form's own properties that a `Window` spells differently or not at all
+    (`Mapping/WindowPropertyCatalog`): `Text` → `Title`, `TopMost` → `Topmost`, `WindowState`
+    (with `FormWindowState.Maximized` → `WindowState.Maximized`), `ShowInTaskbar`, `Opacity` -
+    written bare or through `this`, and on a local holding another converted Form's View
+    (`dialog.Text = "About";`). Not on a converted **UserControl**, which has no title.
+    `Size`/`Width`/`Height` are deliberately absent: WinForms measures the outer frame including
+    the title bar and borders, Avalonia does not, and there is no fixed conversion between them -
+    only a guess that would silently resize every converted window. `FormBorderStyle`,
+    `ControlBox` and `StartPosition` are out for the sharper version of the same problem: their
+    Avalonia counterparts (`SystemDecorations`, `CanResize`, `WindowStartupPosition`) map
+    many-to-many, not one-to-one;
+  - the **`DispatcherTimer` this conversion creates itself** for a WinForms `Timer`
+    (`Mapping/DispatcherTimerMemberCatalog`): `Enabled` → `IsEnabled`, `Start()`/`Stop()`
+    unchanged, and `Interval = n` → `Interval = TimeSpan.FromMilliseconds(n)`. Only for a Timer
+    the plan actually emits - one with no `Tick` handler never becomes a field, so naming it
+    would produce code referring to something that does not exist. `Interval` is **write-only**:
+    WinForms counts int milliseconds and Avalonia holds a `TimeSpan`, so a write can be wrapped
+    faithfully but `if (t.Interval > 500)` would compile and quietly mean something else;
   - `MessageBox.Show(text[, caption])` → the bundled `MessageBoxFallback`, which makes the
     generated handler `async`;
   - `Application.Exit()` → the desktop lifetime's `Shutdown()`;
@@ -209,7 +206,7 @@ rule itself; what follows is what the rule does *not* cover yet.
   Everything outside that list stops the translation, including: `switch`, `try`/`catch`,
   `do`/`while`, `lock`, `using` blocks, calls to code-behind helpers,
   control APIs with no bindable counterpart (`treeView1.Nodes.Add`), properties on
-  *fallback*-mapped controls, `DialogResult`, and unrecognized static receivers
+  *fallback*-mapped controls, and unrecognized static receivers
   (`Clipboard`, `Cursor`, ...). The `MessageBox.Show` overloads that take buttons or icons are
   deliberately excluded: they return a `DialogResult` the caller branches on.
 
@@ -228,8 +225,19 @@ rule itself; what follows is what the rule does *not* cover yet.
     dialog returns. A dialog closed by its title bar yields `default(bool)` - false - which is
     what WinForms reports for that case too.
 
-  Not covered: `this.DialogResult = ...;` assigned inside a handler - a Form member, so the
-  handler stays in code-behind with its body commented.
+  The **hand-written** side of that contract is translated too: `DialogResult = DialogResult.OK;`
+  - with or without the `Close();` that usually follows - becomes a single `Close(true)`.
+  Matching the *pair* is what makes this correct rather than convenient: translated one statement
+  at a time, that trailing bare `Close()` would close the window with `default(bool)` and
+  overwrite the result the line above had just set. The two statements are one act.
+
+  Only at the very **end** of the body, and only for a value with a faithful bool (OK/Yes/Cancel/No).
+  In WinForms, assigning `DialogResult` on a modal form closes it but the handler keeps running;
+  Avalonia's `Close` is the last thing that happens. Where the original still had work to do
+  afterwards the two are not equivalent, so the assignment simply does not translate and the
+  prefix stops there. A handler that writes `DialogResult` also never promotes to a ViewModel -
+  bare or `this.`-qualified alike - since a ViewModel has no window to close and promoting it
+  would move the body somewhere it cannot be translated at all.
 
   **Component file dialogs** look identical at the call site but are not Forms, and take a
   different route: `if (openFileDialog1.ShowDialog(this) == DialogResult.OK)` becomes

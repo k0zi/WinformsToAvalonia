@@ -104,6 +104,12 @@ public sealed class FormMigrationPlanner
             formViews ?? new Dictionary<string, FormViewInfo>(StringComparer.Ordinal),
             HostIsWindow: artifactKind != WinFormsArtifactKind.UserControl);
 
+        // Planned *before* the rewrite, unlike the file dialogs below: these fields are something
+        // a handler body may name, so the rewriter has to know they exist. (The file dialogs go
+        // the other way - what to emit for them depends on what the rewrite did.)
+        var timers = PlanTimers(formModel);
+        var timerFields = timers.Select(t => t.FieldName).ToHashSet(StringComparer.Ordinal);
+
         var rewrittenHandlers = ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings)
             .Select(h => h.Rewrite is not null
                 // Already synthesized (a designer-set DialogResult) - there is no original body
@@ -112,7 +118,7 @@ public sealed class FormMigrationPlanner
                 : h with
                 {
                     Rewrite = rewriter.RewriteForView(
-                        h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind)),
+                        h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields),
                 })
             .ToList();
 
@@ -127,7 +133,7 @@ public sealed class FormMigrationPlanner
             [.. viewModelCommands
                 .Select(c => c with { Rewrite = rewriter.RewriteForViewModel(c.OriginalBody, formModel, boundProperties) })],
             boundProperties,
-            PlanTimers(formModel),
+            timers,
             PlanFileDialogs(formModel, inlinedDialogFields),
             codeBehind.HelperMembers,
             codeBehind.ConstructorExtraStatements,
@@ -609,7 +615,7 @@ public sealed class FormMigrationPlanner
             }
 
             var methodName = $"{control.FieldName}_Click";
-            var closesWithSuccess = resultName is "OK" or "Yes";
+            var closesWithSuccess = DialogResultCatalog.ClosesWithSuccess(resultName);
 
             yield return new CodeBehindHandlerPlan(
                 methodName,

@@ -34,6 +34,19 @@ public sealed class CodeBehindAnalyzer
         "CreateGraphics", "BeginInvoke", "Invoke", "Controls", "WindowState", "TopMost",
     };
 
+    /// <summary>
+    /// True when an identifier names something in its own right, rather than being the member
+    /// half of someone else's access.
+    /// </summary>
+    /// <remarks>
+    /// Without this, <c>items.Select(...)</c> would read as a use of the Form's own
+    /// <c>Select</c> - <c>DescendantNodes</c> visits the name of a member access as a plain
+    /// identifier - and block promotion for a body doing ordinary LINQ.
+    /// </remarks>
+    private static bool IsStandaloneReference(IdentifierNameSyntax identifier) =>
+        identifier.Parent is not MemberAccessExpressionSyntax memberAccess
+        || memberAccess.Expression == identifier;
+
     public CodeBehindModel Analyze(string? primaryFilePath, FormModel formModel)
     {
         if (primaryFilePath is null || !File.Exists(primaryFilePath))
@@ -233,6 +246,19 @@ public sealed class CodeBehindAnalyzer
                         else if (name == eventArgsParameter)
                         {
                             usesEventArgs = true;
+                        }
+                        else if (WellKnownFormMembers.Contains(name)
+                            && !controlFields.Contains(name)
+                            && !declaredMethodNames.Contains(name)
+                            && IsStandaloneReference(identifier))
+                        {
+                            // The bare `DialogResult = DialogResult.OK;` / `WindowState = ...`
+                            // designer-era code writes, which `this.`-qualified code reaches
+                            // through the member-access arm below. Both drive the window, and a
+                            // ViewModel has no window - so both must block promotion, or a
+                            // handler whose whole point is closing the dialog would be promoted
+                            // to a place where it cannot be translated at all.
+                            touchedFormMembers.Add(name);
                         }
 
                         break;
