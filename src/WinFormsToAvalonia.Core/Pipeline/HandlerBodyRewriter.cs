@@ -45,6 +45,10 @@ public sealed class HandlerBodyRewriter
         "bool", "Boolean", "char", "Char", "string", "String",
         "Math", "Convert", "DateTime", "DateTimeOffset", "TimeSpan", "Guid", "Environment",
 
+        // System.Threading: `Thread.Sleep` blocks the UI thread in Avalonia exactly as it did in
+        // WinForms. Faithful, which is this converter's bar - not wise, which is not.
+        "Thread",
+
         // System.IO: plain .NET, and exactly what a file-dialog handler reaches for next.
         "File", "Directory", "Path",
     };
@@ -1112,6 +1116,17 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `Thread.Sleep(100);` / `File.WriteAllText(path, text);` - a call on a safe BCL type used
+        // for its side effect. The expression path already accepts these; a statement is the other
+        // half, and the shape a save-dialog handler reaches for on its very next line.
+        if (receiver is not null
+            && IsSafeStaticReceiver(receiver, out _)
+            && TryRewriteCallExpression(invocation, target, out var staticCall))
+        {
+            rewritten = new RewrittenStatement($"{staticCall};");
+            return true;
+        }
+
         // `soundPlayer1.Play();` / `eventLog1.WriteEntry("...");` - a call on an unchanged .NET
         // component. The arguments still go through the ordinary expression path, so one that
         // names a control is translated and one that names a WinForms API refuses.
@@ -1138,11 +1153,23 @@ public sealed class HandlerBodyRewriter
 
             switch (methodName)
             {
-                case "Close":
+                // Only a Window has these. A converted UserControl is not one - Avalonia's
+                // UserControl has no Close/Show/Activate at all - so emitting them there would
+                // not compile.
+                case "Close" when target.HostIsWindow:
                     rewritten = new RewrittenStatement("Close();");
                     return true;
-                case "Show":
+                case "Activate" when target.HostIsWindow:
+                    rewritten = new RewrittenStatement("Activate();");
+                    return true;
+                case "Show" when target.HostIsWindow:
                     rewritten = new RewrittenStatement("Show();");
+                    return true;
+
+                // On a UserControl the same call means what it meant in WinForms: make me
+                // visible. Which is also why Hide() needs no host check at all.
+                case "Show":
+                    rewritten = new RewrittenStatement("IsVisible = true;");
                     return true;
                 case "Hide":
                     // Avalonia's Window.Hide() exists, but WinForms' Hide() on a control means
@@ -1268,10 +1295,17 @@ public sealed class HandlerBodyRewriter
     {
         rewritten = default;
 
-        var arguments = invocation.ArgumentList.Arguments;
-        if (arguments.Count is not (1 or 2))
+        IEnumerable<ArgumentSyntax> arguments = invocation.ArgumentList.Arguments;
+
+        // `MessageBox.Show(this, text, caption)`: the owner overloads put the form first, and
+        // the translated call supplies its own owner. Only a literal `this` is stripped - that is
+        // what makes the arity unambiguous, since `Show(text, caption)` and `Show(owner, text)`
+        // are otherwise the same shape, as are `Show(owner, text, caption)` and
+        // `Show(text, caption, buttons)`. The buttons overloads return a DialogResult the caller
+        // branches on, and must keep being refused.
+        if (invocation.ArgumentList.Arguments is [{ Expression: ThisExpressionSyntax }, ..])
         {
-            return false;
+            arguments = arguments.Skip(1);
         }
 
         var rewrittenArguments = new List<string>();
@@ -1283,6 +1317,11 @@ public sealed class HandlerBodyRewriter
             }
 
             rewrittenArguments.Add(text);
+        }
+
+        if (rewrittenArguments.Count is not (1 or 2))
+        {
+            return false;
         }
 
         var caption = rewrittenArguments.Count == 2 ? rewrittenArguments[1] : "\"\"";

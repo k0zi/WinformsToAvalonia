@@ -13,6 +13,7 @@ using System.ServiceProcess;
 using All_In_One_WinForms.Views.Forms;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
+using All_In_One_WinForms.Controls;
 using All_In_One_WinForms.Generated;
 using All_In_One_WinForms.ViewModels;
 
@@ -209,12 +210,9 @@ public partial class MainView : Window
         MigrationTodo.NotMigrated(nameof(linkLabel1_LinkClicked), "linkLabel1_LinkClicked");
     }
 
-    private void demoButton_Click(object? sender, RoutedEventArgs e)
+    private async void demoButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'demoButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        MessageBox.Show(this, $"Hello, {this.titleTextBox.Text}!", "All-In-One");
-        */
-        MigrationTodo.NotMigrated(nameof(demoButton_Click), "demoButton_Click");
+        await MessageBoxFallback.ShowAsync(this, $"Hello, {(titleTextBox.Text ?? string.Empty)}!", "All-In-One");
     }
 
     private void sharedButton_Click(object? sender, RoutedEventArgs e)
@@ -483,20 +481,16 @@ public partial class MainView : Window
 
     private void backgroundWorker1_DoWork(object? sender, DoWorkEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'backgroundWorker1_DoWork' - TODO(Winforms2Avalonia): migrate it into this method.
         for (var i = 0; i <= 100; i += 10)
         {
-            if (this.backgroundWorker1.CancellationPending)
+            if (backgroundWorker1.CancellationPending)
             {
                 e.Cancel = true;
                 return;
             }
-
             Thread.Sleep(100);
-            this.backgroundWorker1.ReportProgress(i);
+            backgroundWorker1.ReportProgress(i);
         }
-        */
-        MigrationTodo.NotMigrated(nameof(backgroundWorker1_DoWork), "backgroundWorker1_DoWork");
     }
 
     private void backgroundWorker1_ProgressChanged(object? sender, ProgressChangedEventArgs e)
@@ -520,11 +514,7 @@ public partial class MainView : Window
     private void notifyIcon1_DoubleClick(object? sender, TappedEventArgs e)
     {
         WindowState = WindowState.Normal;
-
-        /* REMAINING WINFORMS BODY of 'notifyIcon1_DoubleClick' - TODO(Winforms2Avalonia): migrate it into this method.
         Activate();
-        */
-        MigrationTodo.NotMigrated(nameof(notifyIcon1_DoubleClick), "notifyIcon1_DoubleClick");
     }
 
     private async void copyContextMenuItem_Click(object? sender, RoutedEventArgs e)

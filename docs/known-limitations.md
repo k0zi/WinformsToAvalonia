@@ -203,7 +203,11 @@ rule itself; what follows is what the rule does *not* cover yet.
   - a write to a control property in `BindablePropertyCatalog`, on a `Direct`-mapped control
     (`this.label1.Text = ...` → `label1.Text = ...`, `Checked` → `IsChecked`, and so on), plus
     reads of those same properties anywhere in the expression;
-  - `Close()` / `Show()` / `Hide()` on the form (the View *is* the Window), and the control
+  - `Close()` / `Show()` / `Hide()` / `Activate()` on the form (the View *is* the Window). Only
+    `Show()` and `Hide()` survive on a converted **UserControl**, and as a visibility write rather
+    than a call: Avalonia's `UserControl` has no `Close`/`Show`/`Activate` at all, so the others
+    would not compile there - and WinForms' `Control.Show()` always meant `Visible = true` anyway;
+  - the control
     methods in `Mapping/ControlMethodCatalog`: `Focus()`/`Select()`, `Invalidate()`/`Refresh()`,
     `Hide()`, and on the TextBox family `Clear()`, `SelectAll()` and `AppendText(x)`. The last is
     the only entry whose equivalence is of *content* rather than of everything the method did:
@@ -232,7 +236,11 @@ rule itself; what follows is what the rule does *not* cover yet.
     WinForms counts int milliseconds and Avalonia holds a `TimeSpan`, so a write can be wrapped
     faithfully but `if (t.Interval > 500)` would compile and quietly mean something else;
   - `MessageBox.Show(text[, caption])` → the bundled `MessageBoxFallback`, which makes the
-    generated handler `async`;
+    generated handler `async`. The owner overloads (`Show(this, text[, caption])`) work too: a
+    literal leading `this` is dropped, since the translated call supplies its own owner. Only a
+    literal `this` - that is what keeps the arity unambiguous, because `Show(text, caption)` and
+    `Show(owner, text)` are otherwise the same shape. The **buttons** overloads still refuse: they
+    return a `DialogResult` the caller branches on;
   - `Application.Exit()` → the desktop lifetime's `Shutdown()`;
   - opening another converted Form: `new SettingsForm().ShowDialog([owner]);` →
     `await new SettingsView().ShowDialog(this);` (async, and the target View's namespace is
@@ -241,7 +249,10 @@ rule itself; what follows is what the rule does *not* cover yet.
   - anything else in the expression that is plain .NET (`int.Parse`, `string.Empty`,
     `Math`/`Convert`/`DateTime` statics, literals, operators), including **interpolated strings** -
     every hole is translated like any other expression, and one un-translatable hole rejects the
-    whole string rather than producing a half-converted message;
+    whole string rather than producing a half-converted message. A call on one of those types is
+    taken as a **statement** too, not just as a value - `Thread.Sleep(100);`,
+    `File.WriteAllText(path, text);` - which is the shape a handler reaches for right after a save
+    dialog;
   - **`if`/`else`** (and a bare `return;`), when the condition *and every branch* translate.
     Braces are always emitted, even where the original had none, so a rewritten branch can never
     change what an `else` binds to; `else if` keeps its shape rather than becoming a nested block;

@@ -2070,6 +2070,82 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- Form lifetime, message boxes, and blocking calls -----------------------------------
+
+    [Fact]
+    public void RewriteForView_Activate_IsTranslatedOnAWindow()
+    {
+        var result = Rewriter.RewriteForView("this.Activate();", FormWith(), Navigation());
+
+        Assert.Equal(["Activate();"], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Avalonia's UserControl has no Close/Show/Activate at all, so emitting them into a converted
+    /// UserControl would not compile - which is what used to happen.
+    /// </summary>
+    [Theory]
+    [InlineData("this.Close();")]
+    [InlineData("this.Activate();")]
+    public void RewriteForView_WindowOnlyLifetimeCall_IsNotMigratedInAUserControl(string body)
+    {
+        var result = Rewriter.RewriteForView(body, FormWith(), Navigation(hostIsWindow: false));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// `Show()` is the one that has an answer on both hosts: on a WinForms control it always meant
+    /// `Visible = true`, which is exactly what it has to mean on a UserControl here.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ShowInAUserControl_BecomesAVisibilityWrite()
+    {
+        var result = Rewriter.RewriteForView("this.Show();", FormWith(), Navigation(hostIsWindow: false));
+
+        Assert.Equal(["IsVisible = true;"], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The owner overloads put the form first, and the translated call supplies its own owner.
+    /// Stripping only a literal `this` is what keeps the arity unambiguous.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_MessageBoxWithAnOwner_DropsTheOwnerArgument()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView(
+            "MessageBox.Show(this, $\"Hello, {this.nameTextBox.Text}!\", \"Demo\");", form);
+
+        Assert.Equal(
+            ["await MessageBoxFallback.ShowAsync(this, $\"Hello, {(nameTextBox.Text ?? string.Empty)}!\", \"Demo\");"],
+            result.MigratedStatements);
+        Assert.True(result.RequiresAsync);
+    }
+
+    /// <summary>
+    /// The buttons overloads return a DialogResult the caller branches on, and inventing an answer
+    /// would change what the original did - so the same arity must still refuse without an owner.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_MessageBoxWithButtons_IsStillNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "MessageBox.Show(\"Sure?\", \"Demo\", MessageBoxButtons.YesNo);", FormWith());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>Blocking the UI thread is what the original did; faithful is the bar, not wise.</summary>
+    [Fact]
+    public void RewriteForView_ThreadSleep_PassesThrough()
+    {
+        var result = Rewriter.RewriteForView("Thread.Sleep(100);", FormWith());
+
+        Assert.Equal(["Thread.Sleep(100);"], result.MigratedStatements);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

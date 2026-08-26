@@ -1,3 +1,5 @@
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using System.Text;
 
 namespace WinFormsToAvalonia.Core.Emission;
@@ -29,6 +31,15 @@ public static class NamingConventions
         }
 
         if (builder.Length == 0 || char.IsDigit(builder[0]))
+        {
+            builder.Insert(0, '_');
+        }
+
+        // A directory called `out`, `class` or `new` sanitizes to a reserved keyword, which is not
+        // a legal namespace - and every generated file opens with it, so the whole project fails
+        // to compile. Only *reserved* words need this: a contextual keyword like `var` or `record`
+        // is a perfectly good identifier.
+        if (SyntaxFacts.GetKeywordKind(builder.ToString()) != SyntaxKind.None)
         {
             builder.Insert(0, '_');
         }
