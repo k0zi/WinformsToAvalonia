@@ -112,6 +112,25 @@ public sealed record FileDialogPlan(
     string OptionsTypeName);
 
 /// <summary>
+/// A non-visual WinForms component that is really a plain .NET type
+/// (<see cref="WinFormsToAvalonia.Core.Mapping.ComponentFieldCatalog"/>), emitted as a real field
+/// on the generated View so handler bodies can name it.
+/// </summary>
+/// <param name="Initializers">
+/// Designer-set properties whose value could be reproduced as a C# literal, already formatted
+/// (<c>"Path = \"/tmp\""</c>). Everything else about the component is reported rather than guessed.
+/// </param>
+/// <param name="Subscriptions">Designer-wired events, as (event name, handler method name).</param>
+public sealed record ComponentFieldPlan(
+    string FieldName,
+    string ClrTypeName,
+    string Namespace,
+    string? NuGetPackage,
+    bool WindowsOnly,
+    IReadOnlyList<string> Initializers,
+    IReadOnlyList<(string EventName, string HandlerMethodName)> Subscriptions);
+
+/// <summary>
 /// The single migration decision set for one Form, built once by FormMigrationPlanner and shared
 /// by all three emitters (AXAML, View code-behind, ViewModel) so they can never disagree about
 /// where a handler went or which properties are bound.
@@ -121,12 +140,13 @@ public sealed record FormMigrationPlan(
     IReadOnlyList<ViewModelCommandPlan> ViewModelCommands,
     IReadOnlyList<BoundPropertyPlan> BoundProperties,
     IReadOnlyList<TimerFieldPlan> Timers,
+    IReadOnlyList<ComponentFieldPlan> Components,
     IReadOnlyList<FileDialogPlan> FileDialogs,
     IReadOnlyList<HelperMemberModel> PreservedMembers,
     IReadOnlyList<string> ConstructorExtraStatements,
     IReadOnlyList<string> Warnings)
 {
-    public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], []);
+    public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], []);
 
     /// <summary>Every body rewrite in this plan - both the code-behind and the ViewModel side.</summary>
     private IEnumerable<RewrittenBody> Rewrites =>
@@ -145,6 +165,14 @@ public sealed record FormMigrationPlan(
     /// </summary>
     public IReadOnlyList<string> RequiredFallbackKeys =>
         [.. Rewrites.SelectMany(r => r.RequiredFallbackKeys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal)];
+
+    /// <summary>
+    /// NuGet packages the emitted component fields need. Like a mapper's
+    /// <c>RequiredNuGetPackage</c>, this only takes effect if the same package is also listed in
+    /// <c>AvaloniaProjectScaffolder.ExtraPackageVersions</c>.
+    /// </summary>
+    public IReadOnlyList<string> RequiredNuGetPackages =>
+        [.. Components.Select(c => c.NuGetPackage).OfType<string>().Distinct(StringComparer.Ordinal).OrderBy(p => p, StringComparer.Ordinal)];
 
     /// <summary>Statements translated into real Avalonia code, out of every statement seen.</summary>
     public (int Migrated, int Total) StatementMigration =>

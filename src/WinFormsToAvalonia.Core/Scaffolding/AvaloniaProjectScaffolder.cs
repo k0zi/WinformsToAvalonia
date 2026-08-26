@@ -17,6 +17,15 @@ public sealed class AvaloniaProjectScaffolder
     private static readonly IReadOnlyDictionary<string, string> ExtraPackageVersions = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["Avalonia.Controls.DataGrid"] = "12.1.2",
+
+        // Non-visual components that survive the conversion unchanged but do not ship in-box.
+        // Named here *and* in ComponentFieldCatalog: this table is what the csproj writer emits,
+        // so a package missing from it is silently dropped and the generated project fails.
+        ["System.Diagnostics.EventLog"] = "10.0.0",
+        ["System.Diagnostics.PerformanceCounter"] = "10.0.0",
+        ["System.IO.Ports"] = "10.0.0",
+        ["System.ServiceProcess.ServiceController"] = "10.0.0",
+        ["System.Windows.Extensions"] = "10.0.0",
     };
 
     public VirtualFileSystem BuildEmptySkeleton(string projectName, IReadOnlyList<NotifyIconInfo>? notifyIcons = null)

@@ -88,18 +88,70 @@ contributors know what to expect and where to look before filing a duplicate iss
   conversion could not inline still gets its `Show...Async()` helper to call by hand.
   `ColorDialog`, `FontDialog` and the print dialogs have no Avalonia built-in equivalent at all
   and stay guidance-only.
-- **Non-visual components** (`BackgroundWorker`, `BindingSource`, `Timer`, `ImageList`,
-  dialogs, ...) are collected into `FormModel.Components` by `ControlGraphBuilder` (anything
-  never `Controls.Add`-ed) and are run through `ControlMappingRegistry.Map` by
-  `ConversionPipeline.Run`; any `Fallback`/`Unsupported` result's guidance text is added to
-  the conversion report's warnings - so it now surfaces during a real conversion, not only in
-  the static `list-mappings` reference table. They never get a visual element or ViewModel
-  stub, since there's nothing to render. `ToolTip` is the one exception: the component field
+- **Non-visual components that are really plain .NET types survive unchanged.**
+  `BackgroundWorker`, `FileSystemWatcher`, `Process`, `SerialPort`, `EventLog`,
+  `PerformanceCounter`, `ServiceController` and `SoundPlayer` are the same classes in an Avalonia
+  project as in a WinForms one, so the generated View declares a **real field** of the same type
+  (`Mapping/ComponentFieldCatalog`), reproduces the designer's literal property values in its
+  constructor, and **subscribes the component's events** - which is what closes the old "the
+  handler is emitted but nothing subscribes it" gap for this group. Handler bodies may then say
+  anything about such a field, nested paths (`process1.StartInfo.FileName`) included: a member of
+  an unchanged .NET object is ordinary .NET, the same argument that allows members of a
+  translated local. That is why this table has no per-member whitelist, unlike every other
+  catalog here - nothing is being *translated*.
+
+  What it costs, and what is therefore bounded:
+  - **evidence, as everywhere else**: a component gets a field only if a designer-wired event or
+    a handler body actually uses it. Declaring the rest would add fields, package references and
+    platform constraints for objects the converted app never touches;
+  - **only literal designer values** are reproduced. A resource lookup or computed expression has
+    no faithful spelling here, so it is reported rather than guessed at;
+  - **four of them need a NuGet package**, and a package must be listed *both* in that catalog
+    and in `AvaloniaProjectScaffolder.ExtraPackageVersions` - the csproj writer emits only what
+    the second one names, so a package in one and not the other is silently dropped;
+  - **`EventLog`, `PerformanceCounter`, `ServiceController` and `SoundPlayer` are Windows-only**
+    (`[SupportedOSPlatform("windows")]`), and the generated project targets plain `net10.0`. The
+    emitted View carries `#pragma warning disable CA1416` for the whole file, because those uses
+    are spread across the field, the constructor and whichever handlers touch them rather than
+    confined to one line. Scoped to the one file that needs it, never the project, and the
+    conversion **reports each such component by name**: the generated app compiles everywhere and
+    throws at exactly those points on Linux and macOS. `SerialPort` is not in this group - it
+    looks Windows-shaped and is genuinely cross-platform;
+  - **`Timer` is not in this table** - it is the one component whose target type is *different*
+    (`DispatcherTimer`), with its own event wiring and start semantics, so it keeps its own plan.
+
+  Everything else (`BindingSource`, `ImageList`, the dialogs, ...) is still collected into
+  `FormModel.Components` by `ControlGraphBuilder` (anything never `Controls.Add`-ed) and run
+  through `ControlMappingRegistry.Map` by `ConversionPipeline.Run`; any `Fallback`/`Unsupported`
+  result's guidance text is added to the conversion report's warnings - so it surfaces during a
+  real conversion, not only in the static `list-mappings` reference table. Those never get a
+  visual element or ViewModel stub, since there's nothing to render. `ToolTip` is the one exception: the component field
   itself still gets no element, but `DesignerSyntaxWalker.HandleSetToolTipInvocation` resolves
   `this.toolTip1.SetToolTip(this.control1, "text")` calls onto the *target* control's own
   properties, and `AxamlEmitter` emits them as a universal `ToolTip.Tip` attribute - so the
   actual tooltip feature works even though the `ToolTip` type's own registry entry stays
   `Unsupported`.
+- **Designer-declared list entries are translated; everything else about item content is not.**
+  `comboBox1.Items.AddRange(new object[] { "A", "B" })` and `listBox1.Items.Add("A")` become real
+  `ComboBoxItem`/`ListBoxItem` children. Gated on the *target* element
+  (`Mapping/AvaloniaItemsSupport`), like the styling pass and for the same reason: an item element
+  the target does not accept is an AVLN error. Consequences:
+  - only plain **literals**; an `Items.Add(someObject)` entry is not a literal and is skipped;
+  - a **fallback** control takes no item elements (`DomainUpDown` is the one that has them in
+    practice), and neither does any target not listed in that table - those entries are
+    **reported** rather than dropped silently, since a missing list is visible content;
+  - it is static content, not a binding. `ItemsSource`/`SelectedItem` still need a hand-written
+    `ObservableCollection` - only the *selection index/item* properties are in the bindable
+    catalog.
+
+  A `ListView` picks its target per-instance (`ListViewMapper`: `View=Details` or any parsed
+  `ColumnHeader` children → `DataGrid` with real columns, otherwise `ListBox`) and a
+  `MonthCalendar` maps to `Calendar`, but neither gets its rows or selection ranges. All six `DataGridView` column types are translated now: `TextBox`/`CheckBox` to
+  Avalonia's two real column types, and `ComboBox`/`Button`/`Image`/`Link` to a
+  `DataGridTemplateColumn` with a generated cell template. Those templates are **unbound** -
+  Designer.cs records the column but not its `DataPropertyName`-to-view-model mapping - so each
+  one carries a `TODO` comment naming what to add.
+
 - **Visual styling is converted, but gated by the target element.** `BackColor`, `ForeColor`,
   `Font` and `Padding` are emitted as `Background`/`Foreground`/`FontFamily`/`FontSize`/
   `FontWeight`/`FontStyle`/`TextDecorations`/`Padding` - universally, on any control, the same
@@ -354,9 +406,11 @@ rule itself; what follows is what the rule does *not* cover yet.
 - **Item sources are still not bound.** See the item-content note above: designer-declared
   literals are emitted as static items, but a real `ItemsSource` needs hand-written code.
 - **Events with no Avalonia equivalent** (`Paint`, `Validating`, `Validated`, `ItemCheck`,
-  `VisibleChanged`, and the events of non-visual components like `BackgroundWorker.DoWork` or
-  `FileSystemWatcher.Changed`) get their handler method emitted but nothing subscribes it; the
-  conversion report names each one and why. `Scroll` is in this group only for controls that
+  `VisibleChanged`) get their handler method emitted but nothing subscribes it; the
+  conversion report names each one and why. The non-visual components above are no longer in
+  this group: `BackgroundWorker.DoWork` and `FileSystemWatcher.Changed` are subscribed from the
+  generated constructor, with the handler declared against the real .NET args type rather than
+  the "unknown type" `EventArgs` fallback. `Scroll` is in this group only for controls that
   aren't a `TrackBar` or a `ScrollBar`: `EventMappingRegistry` has a per-control-type override
   table (consulted before the generic one) that maps `TrackBar.Scroll` → `Slider.ValueChanged`,
   `HScrollBar`/`VScrollBar`.`Scroll` → `ScrollBar.Scroll`, `DataGridView.CellClick` →

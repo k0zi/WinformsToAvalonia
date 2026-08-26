@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -109,6 +110,8 @@ public sealed class FormMigrationPlanner
         // the other way - what to emit for them depends on what the rewrite did.)
         var timers = PlanTimers(formModel);
         var timerFields = timers.Select(t => t.FieldName).ToHashSet(StringComparer.Ordinal);
+        var components = PlanComponents(formModel, codeBehind, warnings);
+        var componentFields = components.Select(c => c.FieldName).ToHashSet(StringComparer.Ordinal);
 
         var rewrittenHandlers = ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings)
             .Select(h => h.Rewrite is not null
@@ -118,7 +121,7 @@ public sealed class FormMigrationPlanner
                 : h with
                 {
                     Rewrite = rewriter.RewriteForView(
-                        h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields),
+                        h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields, componentFields),
                 })
             .ToList();
 
@@ -134,6 +137,7 @@ public sealed class FormMigrationPlanner
                 .Select(c => c with { Rewrite = rewriter.RewriteForViewModel(c.OriginalBody, formModel, boundProperties) })],
             boundProperties,
             timers,
+            components,
             PlanFileDialogs(formModel, inlinedDialogFields),
             codeBehind.HelperMembers,
             codeBehind.ConstructorExtraStatements,
@@ -221,6 +225,101 @@ public sealed class FormMigrationPlanner
         }
 
         return timers;
+    }
+
+    /// <summary>
+    /// The non-visual components that are plain .NET types, emitted as real fields so a handler
+    /// body can name them - which before this it could not, on a component the conversion simply
+    /// dropped.
+    /// </summary>
+    /// <remarks>
+    /// Evidence-driven like everything else here: a component gets a field only if something
+    /// actually uses it - a designer-wired event, or a handler body that mentions it. Declaring
+    /// the rest would add fields (and NuGet references, and platform constraints) for objects the
+    /// converted app never touches.
+    /// </remarks>
+    private static List<ComponentFieldPlan> PlanComponents(
+        FormModel formModel, CodeBehindModel codeBehind, List<string> warnings)
+    {
+        var referenced = codeBehind.HandlerMethods
+            .SelectMany(h => h.ReferencedControlFields)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var components = new List<ComponentFieldPlan>();
+
+        foreach (var component in formModel.Controls.Values.OrderBy(c => c.FieldName, StringComparer.Ordinal))
+        {
+            if (!ComponentFieldCatalog.TryGet(component.ClrTypeName, out var kind))
+            {
+                continue;
+            }
+
+            var subscriptions = component.Events
+                .Where(e => e.HandlerMethodName is not null
+                    && ComponentFieldCatalog.TryGetEvent(component.ClrTypeName, e.EventName, out _))
+                .Select(e => (e.EventName, e.HandlerMethodName!))
+                .ToList();
+
+            if (subscriptions.Count == 0 && !referenced.Contains(component.FieldName))
+            {
+                continue;
+            }
+
+            var initializers = new List<string>();
+            foreach (var (propertyName, value) in component.Properties.OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                if (TryFormatCSharpLiteral(value, out var literal))
+                {
+                    initializers.Add($"{propertyName} = {literal}");
+                }
+                else
+                {
+                    warnings.Add(
+                        $"Component '{component.FieldName}' ({component.ClrTypeName}): designer property "
+                        + $"'{propertyName}' was not reproduced - only literal values are, and this one is not.");
+                }
+            }
+
+            if (kind.WindowsOnly)
+            {
+                warnings.Add(
+                    $"Component '{component.FieldName}' ({component.ClrTypeName}) is Windows-only. The generated "
+                    + "View declares it and compiles everywhere, with the platform analyser suppressed for that "
+                    + "file - but these calls throw on Linux and macOS.");
+            }
+
+            components.Add(new ComponentFieldPlan(
+                component.FieldName,
+                component.ClrTypeName,
+                kind.Namespace,
+                kind.NuGetPackage,
+                kind.WindowsOnly,
+                initializers,
+                subscriptions));
+        }
+
+        return components;
+    }
+
+    /// <summary>
+    /// A designer value as C# source. Only literals: these components are unchanged .NET types,
+    /// so any property of theirs would be valid - but a value this converter cannot resolve to a
+    /// literal (a resource lookup, a computed expression, an enum whose type the evaluator does
+    /// not track) has no faithful spelling, and guessing one would configure the component wrong.
+    /// </summary>
+    private static bool TryFormatCSharpLiteral(PropertyValue value, out string text)
+    {
+        text = value switch
+        {
+            PropertyValue.Literal { Value: string s } => SymbolDisplay.FormatLiteral(s, quote: true),
+            PropertyValue.Literal { Value: bool b } => b ? "true" : "false",
+            PropertyValue.Literal { Value: int i } => i.ToString(CultureInfo.InvariantCulture),
+            PropertyValue.Literal { Value: double d } => d.ToString("R", CultureInfo.InvariantCulture),
+            PropertyValue.Literal { Value: float f } => f.ToString("R", CultureInfo.InvariantCulture) + "f",
+            _ => "",
+        };
+
+        return text.Length > 0;
     }
 
     /// <param name="inlinedFields">

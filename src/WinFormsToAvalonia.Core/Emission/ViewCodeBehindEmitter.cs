@@ -1,4 +1,5 @@
 using System.Text;
+using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 
 namespace WinFormsToAvalonia.Core.Emission;
@@ -77,6 +78,13 @@ public sealed class ViewCodeBehindEmitter
             Using(namespaceName);
         }
 
+        // The non-visual components emitted as real fields, and the .NET args types their
+        // events carry.
+        foreach (var namespaceName in ComponentNamespaces(plan))
+        {
+            Using(namespaceName);
+        }
+
         // Namespaces the translated handler statements need - the desktop lifetime behind
         // Application.Exit(), or another Form's View for a navigation call. Only what this plan
         // actually emitted, and never this View's own namespace, so no View gets a stray using.
@@ -98,6 +106,21 @@ public sealed class ViewCodeBehindEmitter
         // Must match the AXAML root element AxamlEmitter chose for the same artifact - a
         // partial class whose base type disagrees with its .axaml root is an AVLN2000 error.
         var baseTypeName = artifactKind == WinFormsArtifactKind.UserControl ? "UserControl" : "Window";
+
+        // Windows-only components are declared and used all over this class - the field, the
+        // constructor, and whichever handlers touch them - so the platform analyser is silenced
+        // for the file rather than at each site. Scoped to the one file that needs it, never the
+        // project, and the conversion report names every component this covers: the generated app
+        // compiles everywhere and throws at these points off Windows.
+        var windowsOnly = plan.Components.Where(c => c.WindowsOnly).Select(c => c.ClrTypeName).Distinct(StringComparer.Ordinal).ToList();
+        if (windowsOnly.Count > 0)
+        {
+            Line($"// This view uses {string.Join(", ", windowsOnly)}, which .NET marks as Windows-only.");
+            Line("// The generated project targets net10.0 so it builds everywhere; these calls throw elsewhere.");
+            Line("#pragma warning disable CA1416");
+            Line();
+        }
+
         Line($"public partial class {viewClassName} : {baseTypeName}");
         Line("{");
 
@@ -106,7 +129,12 @@ public sealed class ViewCodeBehindEmitter
             Line($"    private readonly DispatcherTimer {timer.FieldName};");
         }
 
-        if (plan.Timers.Count > 0)
+        foreach (var component in plan.Components)
+        {
+            Line($"    private readonly {component.ClrTypeName} {component.FieldName} = new();");
+        }
+
+        if (plan.Timers.Count > 0 || plan.Components.Count > 0)
         {
             Line();
         }
@@ -115,6 +143,25 @@ public sealed class ViewCodeBehindEmitter
         Line("    {");
         Line("        InitializeComponent();");
         Line($"        DataContext = new {viewModelClassName}();");
+
+        foreach (var component in plan.Components)
+        {
+            if (component.Initializers.Count == 0 && component.Subscriptions.Count == 0)
+            {
+                continue;
+            }
+
+            Line();
+            foreach (var initializer in component.Initializers)
+            {
+                Line($"        {component.FieldName}.{initializer};");
+            }
+
+            foreach (var (eventName, handlerMethodName) in component.Subscriptions)
+            {
+                Line($"        {component.FieldName}.{eventName} += {handlerMethodName};");
+            }
+        }
 
         foreach (var timer in plan.Timers)
         {
@@ -177,6 +224,12 @@ public sealed class ViewCodeBehindEmitter
         }
 
         Line("}");
+
+        if (windowsOnly.Count > 0)
+        {
+            Line();
+            Line("#pragma warning restore CA1416");
+        }
 
         return sb.ToString();
     }
@@ -261,6 +314,20 @@ public sealed class ViewCodeBehindEmitter
             ["RangeBaseValueChangedEventArgs"] = "Avalonia.Controls.Primitives",
             ["ScrollEventArgs"] = "Avalonia.Controls.Primitives",
         };
+
+    /// <summary>
+    /// The namespaces a plan's component fields need: the component types themselves, plus the
+    /// .NET args types their events carry - which are not Avalonia types, so nothing else brings
+    /// them in.
+    /// </summary>
+    private static IEnumerable<string> ComponentNamespaces(FormMigrationPlan plan) =>
+        plan.Components
+            .SelectMany(c => new[] { c.Namespace }.Concat(
+                c.Subscriptions
+                    .Select(s => ComponentFieldCatalog.TryGetEvent(c.ClrTypeName, s.EventName, out var e) ? e.ArgsNamespace : null)
+                    .OfType<string>()))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(n => n, StringComparer.Ordinal);
 
     private static IEnumerable<string> ExtraEventArgsNamespaces(FormMigrationPlan plan) =>
         plan.CodeBehindHandlers

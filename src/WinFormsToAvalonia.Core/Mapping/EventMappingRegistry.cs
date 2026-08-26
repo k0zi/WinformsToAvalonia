@@ -141,6 +141,15 @@ public sealed class EventMappingRegistry
             return componentMapping;
         }
 
+        // A non-visual component this run emits as a real field of the same, unchanged .NET type:
+        // the event keeps its name and its own args type, and the constructor subscribes it. The
+        // catalog is consulted rather than duplicated here because the same table decides that
+        // the field exists at all - the two answers must not drift apart.
+        if (ComponentFieldCatalog.TryGetEvent(winFormsControlTypeName, eventName, out var componentEvent))
+        {
+            return new EventMapping(eventName, eventName, componentEvent.ArgsTypeName, SubscribeInCode: true);
+        }
+
         return ControlEvents.TryGetValue(eventName, out var mapping) ? mapping : Unmapped(eventName);
     }
 

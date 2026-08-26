@@ -133,6 +133,10 @@ public sealed class ConversionPipeline
             // (MessageBoxFallback) rather than from an element in the AXAML, so they have to be
             // unioned in here - AxamlEmissionResult never sees them.
             allUsedFallbackKeys.UnionWith(migrationPlan.RequiredFallbackKeys);
+
+            // Non-visual components emitted as real fields can need a package of their own, the
+            // same double-allowlist path a mapper's RequiredNuGetPackage takes.
+            allRequiredNuGetPackages.UnionWith(migrationPlan.RequiredNuGetPackages);
             var (migratedStatements, totalStatements) = migrationPlan.StatementMigration;
             allMigratedStatements += migratedStatements;
             allHandlerStatements += totalStatements;

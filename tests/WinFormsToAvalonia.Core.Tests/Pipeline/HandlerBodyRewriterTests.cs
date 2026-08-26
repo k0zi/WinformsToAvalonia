@@ -1825,6 +1825,71 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- Non-visual components emitted as real fields -------------------------------------
+
+    /// <summary>
+    /// These components are the same .NET type they were in WinForms, so anything hanging off one
+    /// is ordinary .NET - which is why there is no per-member catalog for them, and why a nested
+    /// path like `process1.StartInfo.FileName` works for exactly the same reason.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ComponentMembers_PassThroughUnchanged()
+    {
+        var form = FormWith(("worker1", "BackgroundWorker"), ("process1", "Process"), ("statusLabel", "Label"));
+        var components = new HashSet<string>(StringComparer.Ordinal) { "worker1", "process1" };
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.process1.StartInfo.FileName = "dotnet";
+            this.worker1.RunWorkerAsync();
+            this.statusLabel.Text = this.worker1.IsBusy.ToString();
+            """,
+            form,
+            Navigation(),
+            componentFields: components);
+
+        Assert.Equal(
+            [
+                "process1.StartInfo.FileName = \"dotnet\";",
+                "worker1.RunWorkerAsync();",
+                "statusLabel.Text = worker1.IsBusy.ToString();",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A component with no field is a component the plan decided not to emit - naming it would
+    /// produce code referring to something that does not exist.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ComponentWithNoField_IsNotMigrated()
+    {
+        var form = FormWith(("worker1", "BackgroundWorker"));
+
+        var result = Rewriter.RewriteForView("this.worker1.RunWorkerAsync();", form, Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The arguments of a component call still go through the ordinary expression path, so one
+    /// that reaches for a WinForms API stops the translation like anywhere else.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ComponentCallWithAnUntranslatableArgument_IsNotMigrated()
+    {
+        var form = FormWith(("worker1", "BackgroundWorker"), ("treeView1", "TreeView"));
+        var components = new HashSet<string>(StringComparer.Ordinal) { "worker1" };
+
+        var result = Rewriter.RewriteForView(
+            "this.worker1.ReportProgress(this.treeView1.Nodes.Count);",
+            form,
+            Navigation(),
+            componentFields: components);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

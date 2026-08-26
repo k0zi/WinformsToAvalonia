@@ -4,6 +4,12 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.Controls.Primitives;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Ports;
+using System.Media;
+using System.ServiceProcess;
 using All_In_One_WinForms.Views.Forms;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
@@ -12,14 +18,48 @@ using All_In_One_WinForms.ViewModels;
 
 namespace All_In_One_WinForms.Views;
 
+// This view uses EventLog, PerformanceCounter, ServiceController, SoundPlayer, which .NET marks as Windows-only.
+// The generated project targets net10.0 so it builds everywhere; these calls throw elsewhere.
+#pragma warning disable CA1416
+
 public partial class MainView : Window
 {
     private readonly DispatcherTimer clockTimer;
+    private readonly BackgroundWorker backgroundWorker1 = new();
+    private readonly EventLog eventLog1 = new();
+    private readonly FileSystemWatcher fileSystemWatcher1 = new();
+    private readonly PerformanceCounter performanceCounter1 = new();
+    private readonly Process process1 = new();
+    private readonly SerialPort serialPort1 = new();
+    private readonly ServiceController serviceController1 = new();
+    private readonly SoundPlayer soundPlayer1 = new();
 
     public MainView()
     {
         InitializeComponent();
         DataContext = new MainViewModel();
+
+        backgroundWorker1.WorkerReportsProgress = true;
+        backgroundWorker1.WorkerSupportsCancellation = true;
+        backgroundWorker1.DoWork += backgroundWorker1_DoWork;
+        backgroundWorker1.ProgressChanged += backgroundWorker1_ProgressChanged;
+        backgroundWorker1.RunWorkerCompleted += backgroundWorker1_RunWorkerCompleted;
+
+        eventLog1.Log = "Application";
+        eventLog1.Source = "AllInOneWinForms";
+
+        fileSystemWatcher1.EnableRaisingEvents = false;
+        fileSystemWatcher1.Filter = "*.txt";
+        fileSystemWatcher1.Changed += fileSystemWatcher1_Changed;
+
+        performanceCounter1.CategoryName = "Processor";
+        performanceCounter1.CounterName = "% Processor Time";
+        performanceCounter1.InstanceName = "_Total";
+
+        serialPort1.BaudRate = 115200;
+        serialPort1.PortName = "COM1";
+
+        serviceController1.ServiceName = "Spooler";
 
         clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         clockTimer.Tick += clockTimer_Tick;
@@ -304,13 +344,13 @@ public partial class MainView : Window
 
     private void startWorkerButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'startWorkerButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.backgroundWorker1.IsBusy)
+        if (backgroundWorker1.IsBusy)
         {
-            this.backgroundWorker1.CancelAsync();
+            backgroundWorker1.CancelAsync();
             return;
         }
 
+        /* REMAINING WINFORMS BODY of 'startWorkerButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         SetBusy(true);
         this.backgroundWorker1.RunWorkerAsync();
         */
@@ -319,22 +359,18 @@ public partial class MainView : Window
 
     private void watchButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'watchButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.fileSystemWatcher1.Path = Path.GetTempPath();
-        this.fileSystemWatcher1.EnableRaisingEvents = !this.fileSystemWatcher1.EnableRaisingEvents;
-        this.watcherLabel.Text = this.fileSystemWatcher1.EnableRaisingEvents
-            ? $"Watching {this.fileSystemWatcher1.Path}"
-            : "Watcher idle";
-        */
-        MigrationTodo.NotMigrated(nameof(watchButton_Click), "watchButton_Click");
+        fileSystemWatcher1.Path = Path.GetTempPath();
+        fileSystemWatcher1.EnableRaisingEvents = !fileSystemWatcher1.EnableRaisingEvents;
+        watcherLabel.Text = fileSystemWatcher1.EnableRaisingEvents ? $"Watching {fileSystemWatcher1.Path}" : "Watcher idle";
     }
 
     private void launchProcessButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'launchProcessButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.process1.StartInfo.FileName = "notepad.exe";
-        this.process1.StartInfo.UseShellExecute = true;
-        this.process1.Start();
+        process1.StartInfo.FileName = "notepad.exe";
+        process1.StartInfo.UseShellExecute = true;
+        process1.Start();
+
+        /* REMAINING WINFORMS BODY of 'launchProcessButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         Log("Started notepad.exe");
         */
         MigrationTodo.NotMigrated(nameof(launchProcessButton_Click), "launchProcessButton_Click");
@@ -342,8 +378,9 @@ public partial class MainView : Window
 
     private void writeEventLogButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'writeEventLogButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.eventLog1.WriteEntry("All-In-One sample wrote an entry.");
+        eventLog1.WriteEntry("All-In-One sample wrote an entry.");
+
+        /* REMAINING WINFORMS BODY of 'writeEventLogButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         Log("Event log entry written.");
         */
         MigrationTodo.NotMigrated(nameof(writeEventLogButton_Click), "writeEventLogButton_Click");
@@ -359,8 +396,9 @@ public partial class MainView : Window
 
     private void serviceStatusButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'serviceStatusButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.serviceController1.Refresh();
+        serviceController1.Refresh();
+
+        /* REMAINING WINFORMS BODY of 'serviceStatusButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         Log($"{this.serviceController1.ServiceName}: {this.serviceController1.Status}");
         */
         MigrationTodo.NotMigrated(nameof(serviceStatusButton_Click), "serviceStatusButton_Click");
@@ -384,8 +422,9 @@ public partial class MainView : Window
 
     private void playSoundButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'playSoundButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.soundPlayer1.Play();
+        soundPlayer1.Play();
+
+        /* REMAINING WINFORMS BODY of 'playSoundButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         Log("Sound played.");
         */
         MigrationTodo.NotMigrated(nameof(playSoundButton_Click), "playSoundButton_Click");
@@ -413,7 +452,7 @@ public partial class MainView : Window
         e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
     }
 
-    private void backgroundWorker1_DoWork(object? sender, EventArgs e)
+    private void backgroundWorker1_DoWork(object? sender, DoWorkEventArgs e)
     {
         /* ORIGINAL WINFORMS BODY of 'backgroundWorker1_DoWork' - TODO(Winforms2Avalonia): migrate it into this method.
         for (var i = 0; i <= 100; i += 10)
@@ -431,16 +470,13 @@ public partial class MainView : Window
         MigrationTodo.NotMigrated(nameof(backgroundWorker1_DoWork), "backgroundWorker1_DoWork");
     }
 
-    private void backgroundWorker1_ProgressChanged(object? sender, EventArgs e)
+    private void backgroundWorker1_ProgressChanged(object? sender, ProgressChangedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'backgroundWorker1_ProgressChanged' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.workerProgressBar.Value = e.ProgressPercentage;
-        this.statusProgressBar.Value = e.ProgressPercentage;
-        */
-        MigrationTodo.NotMigrated(nameof(backgroundWorker1_ProgressChanged), "backgroundWorker1_ProgressChanged");
+        workerProgressBar.Value = e.ProgressPercentage;
+        statusProgressBar.Value = e.ProgressPercentage;
     }
 
-    private void backgroundWorker1_RunWorkerCompleted(object? sender, EventArgs e)
+    private void backgroundWorker1_RunWorkerCompleted(object? sender, RunWorkerCompletedEventArgs e)
     {
         /* ORIGINAL WINFORMS BODY of 'backgroundWorker1_RunWorkerCompleted' - TODO(Winforms2Avalonia): migrate it into this method.
         SetBusy(false);
@@ -449,10 +485,11 @@ public partial class MainView : Window
         MigrationTodo.NotMigrated(nameof(backgroundWorker1_RunWorkerCompleted), "backgroundWorker1_RunWorkerCompleted");
     }
 
-    private void fileSystemWatcher1_Changed(object? sender, EventArgs e)
+    private void fileSystemWatcher1_Changed(object? sender, FileSystemEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'fileSystemWatcher1_Changed' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.watcherLabel.Text = $"{e.ChangeType}: {e.Name}";
+        watcherLabel.Text = $"{e.ChangeType}: {e.Name}";
+
+        /* REMAINING WINFORMS BODY of 'fileSystemWatcher1_Changed' - TODO(Winforms2Avalonia): migrate it into this method.
         Log($"{e.ChangeType}: {e.FullPath}");
         */
         MigrationTodo.NotMigrated(nameof(fileSystemWatcher1_Changed), "fileSystemWatcher1_Changed");
@@ -1012,3 +1049,5 @@ public partial class MainForm : Form
 
     */
 }
+
+#pragma warning restore CA1416

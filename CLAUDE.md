@@ -80,6 +80,8 @@ single orchestrator — read it first, every stage below is a field on it:
    smaller tables cover what the *conversion itself* creates rather than what it maps:
    `WindowPropertyCatalog` (Form properties a `Window` spells differently - `Text` → `Title`),
    `DispatcherTimerMemberCatalog` (a Timer this run emitted as a `DispatcherTimer` field), and
+   `ComponentFieldCatalog` (the non-visual components that are plain .NET types and survive
+   unchanged - the one table here that *doesn't* translate, so it has no per-member whitelist),
    and `DialogResultCatalog`, whose two members are deliberately different shapes - a *total*
    `ClosesWithSuccess` for synthesizing a designer-declared button, a *partial* `TryGetBool` for
    a hand-written result that has to round-trip. `BindablePropertyCatalog` and the mappers name the same Avalonia property from two
@@ -95,9 +97,9 @@ single orchestrator — read it first, every stage below is a field on it:
    promoted body may name is only settled once every handler is classified. It has two targets
    (a View still has control fields; a ViewModel has only `[ObservableProperty]`s) and stops at
    the first statement it cannot prove equivalent, so the emitted code is always a faithful
-   *prefix* of the original. The `DispatcherTimer` fields are planned **before** that rewrite
-   rather than after, because a body may *name* them; `PlanFileDialogs` stays after, since what it
-   emits depends on what the rewrite did.
+   *prefix* of the original. The `DispatcherTimer`/component fields are planned **before** that
+   rewrite rather than after, because a body may *name* them; `PlanFileDialogs` stays after, since
+   what it emits depends on what the rewrite did.
 4. **Emission** (`Core/Emission`) — `AxamlEmitter` (+ `AxamlDocumentBuilder`),
    `ViewCodeBehindEmitter`, `ViewModelEmitter`. All naming (`Form1` → `Form1View`/`Form1ViewModel`,
    nested-folder namespaces, command names) goes through `NamingConventions` — never hand-roll it.
@@ -141,8 +143,9 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
   Form to its View in a separate pass before emission, because a handler body that opens another
   Form must name a View whose Form may not be converted yet — ordering alone cannot fix a cycle.
 - **Extra NuGet packages are allowlisted twice.** A mapper declares `RequiredNuGetPackage` (e.g.
-  `Avalonia.Controls.DataGrid`); it flows `AxamlEmitter` → pipeline → `BuildProject`, but the csproj
-  writer emits *only* packages present in `AvaloniaProjectScaffolder.ExtraPackageVersions`. Adding a
+  `Avalonia.Controls.DataGrid`) and `ComponentFieldCatalog` names one per component; both flow
+  through the pipeline into `BuildProject`, but the csproj writer emits *only* packages present in
+  `AvaloniaProjectScaffolder.ExtraPackageVersions`. Adding a
   package needs both, or it is silently dropped and the generated project fails to compile.
   The generated project's Avalonia / CommunityToolkit.Mvvm versions are `const`s on that same class.
 - **App-level components are not per-View.** `NotifyIcon` becomes `TrayIcon.Icons` in `App.axaml`,

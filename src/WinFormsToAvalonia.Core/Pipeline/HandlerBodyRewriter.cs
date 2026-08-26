@@ -92,7 +92,8 @@ public sealed class HandlerBodyRewriter
         FormModel formModel,
         ViewNavigationContext? navigation = null,
         HandlerSignature? signature = null,
-        IReadOnlySet<string>? dispatcherTimerFields = null) =>
+        IReadOnlySet<string>? dispatcherTimerFields = null,
+        IReadOnlySet<string>? componentFields = null) =>
         Rewrite(
             body,
             new ViewTarget(
@@ -100,7 +101,8 @@ public sealed class HandlerBodyRewriter
                 _controlMappings,
                 navigation ?? ViewNavigationContext.None,
                 signature ?? HandlerSignature.None,
-                dispatcherTimerFields ?? new HashSet<string>(StringComparer.Ordinal)));
+                dispatcherTimerFields ?? new HashSet<string>(StringComparer.Ordinal),
+                componentFields ?? new HashSet<string>(StringComparer.Ordinal)));
 
     /// <summary>
     /// Rewrites for a promoted [RelayCommand], where every control property the body may touch
@@ -833,6 +835,17 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `fileSystemWatcher1.Path = ...` / `process1.StartInfo.FileName = ...` - a property of
+        // a component this run emits unchanged, so the path survives verbatim. Only `=`: a
+        // compound operator on this shape could just as easily be an event subscription
+        // (`worker.DoWork += Foo`), which is a different thing entirely.
+        if (assignment.Left is MemberAccessExpressionSyntax componentLeftAccess
+            && TryRewriteComponentPath(componentLeftAccess, target, out var componentLeft))
+        {
+            rewritten = new RewrittenStatement($"{componentLeft} = {right};");
+            return true;
+        }
+
         // `clockTimer.Enabled = false;` on a Timer this run emits as a DispatcherTimer field.
         // A whole statement rather than a left-hand side, because Interval changes type.
         if (assignment.Left is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var timerMember } timerAccess
@@ -1030,6 +1043,17 @@ public sealed class HandlerBodyRewriter
             && target.TryResolveControlMethod(controlField, methodName, out var call))
         {
             rewritten = new RewrittenStatement(call);
+            return true;
+        }
+
+        // `soundPlayer1.Play();` / `eventLog1.WriteEntry("...");` - a call on an unchanged .NET
+        // component. The arguments still go through the ordinary expression path, so one that
+        // names a control is translated and one that names a WinForms API refuses.
+        if (receiver is not null
+            && TryRewriteComponentPath(receiver, target, out _)
+            && TryRewriteCallExpression(invocation, target, out var componentCall))
+        {
+            rewritten = new RewrittenStatement($"{componentCall};");
             return true;
         }
 
@@ -1496,6 +1520,15 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `backgroundWorker1.IsBusy` / `process1.StartInfo` - a member of a component this run
+        // emits unchanged. Safe for the same reason members of a translated local are: the
+        // object is the very same .NET type it was in WinForms, so everything hanging off it is
+        // ordinary .NET. That is what makes a per-member catalog unnecessary here.
+        if (TryRewriteComponentPath(memberAccess, target, out text))
+        {
+            return true;
+        }
+
         // `text.Length` on a local. Same argument: a Value local can only hold what a
         // translatable expression produced, which is always a plain .NET value.
         if (memberAccess.Expression is IdentifierNameSyntax { Identifier.ValueText: var localName }
@@ -1612,6 +1645,36 @@ public sealed class HandlerBodyRewriter
         }
 
         text = $"{parameterName}.DataTransfer.Contains(DataFormat.{avaloniaFormat})";
+        return true;
+    }
+
+    /// <summary>
+    /// A member path rooted at a non-visual component field - <c>process1.StartInfo.FileName</c>
+    /// as readily as <c>worker1.IsBusy</c>. The path survives verbatim; only the `this.` and the
+    /// field name at the root are resolved.
+    /// </summary>
+    private static bool TryRewriteComponentPath(ExpressionSyntax expression, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (expression is not MemberAccessExpressionSyntax memberAccess)
+        {
+            // The root itself: `worker1` or `this.worker1`.
+            return target.TryResolveControlField(expression, out text) && target.IsComponentField(text);
+        }
+
+        if (target.TryResolveControlField(memberAccess, out var rootField) && target.IsComponentField(rootField))
+        {
+            text = rootField;
+            return true;
+        }
+
+        if (!TryRewriteComponentPath(memberAccess.Expression, target, out var receiver))
+        {
+            return false;
+        }
+
+        text = $"{receiver}.{memberAccess.Name}";
         return true;
     }
 
@@ -1823,6 +1886,11 @@ public sealed class HandlerBodyRewriter
         /// </summary>
         bool TryResolveSenderCast(TypeSyntax castType, out string fieldName);
 
+        /// <summary>
+        /// True when the field is a non-visual component this run emits as a real field of the
+        /// same, unchanged .NET type - so anything the body says about it is ordinary .NET.
+        /// </summary>
+        bool IsComponentField(string fieldName);
 
     }
 
@@ -1831,7 +1899,8 @@ public sealed class HandlerBodyRewriter
         ControlMappingRegistry controlMappings,
         ViewNavigationContext navigation,
         HandlerSignature signature,
-        IReadOnlySet<string> dispatcherTimerFields) : IRewriteTarget
+        IReadOnlySet<string> dispatcherTimerFields,
+        IReadOnlySet<string> componentFields) : IRewriteTarget
     {
         public LocalScope Locals { get; } = new();
 
@@ -1952,6 +2021,8 @@ public sealed class HandlerBodyRewriter
         /// </summary>
         public bool IsDispatcherTimerField(string fieldName) => dispatcherTimerFields.Contains(fieldName);
 
+        public bool IsComponentField(string fieldName) => componentFields.Contains(fieldName);
+
         /// <summary>
         /// The cast has to name the control's own WinForms type. A base type (`(Control)sender`)
         /// is refused rather than widened: what the body then does with the local is checked
@@ -2040,6 +2111,8 @@ public sealed class HandlerBodyRewriter
         /// <summary>The DispatcherTimer field lives on the View; a ViewModel cannot see it.</summary>
         public bool IsDispatcherTimerField(string fieldName) => false;
 
+        /// <summary>Component fields live on the View too.</summary>
+        public bool IsComponentField(string fieldName) => false;
 
 
         /// <summary>A promoted handler has no sender - that is one of the promotion conditions.</summary>
