@@ -249,7 +249,7 @@ public static class DefaultControlMappers
         ]),
         new FallbackControlMapper("PrintPreviewControl", "PrintPreviewControlFallback"),
 
-        new UnsupportedControlMapper("BackgroundWorker", "No Avalonia equivalent - recommend Task.Run/async instead; manual migration required."),
+        new UnsupportedControlMapper("BackgroundWorker", EmittedAsField + "It predates async/await, so Task.Run with IProgress<T> is usually the better end state - but that is a design improvement, not a migration step: the converted code runs as it is."),
         new UnsupportedControlMapper("BindingSource", "No runtime equivalent shipped - recommend an ObservableCollection<T> in the ViewModel instead."),
 
         // Menu/toolbar family - ContextMenuStrip is never Controls.Add-ed (assigned to
@@ -289,19 +289,39 @@ public static class DefaultControlMappers
 
         // Non-visual component family.
         new UnsupportedControlMapper("NotifyIcon", "No per-View mapping - Avalonia's tray-icon support is app-level, configured in App.axaml's TrayIcon.Icons (now generated automatically by ConversionPipeline.Run's cross-form aggregation - see AvaloniaProjectScaffolder.BuildTrayIconsSection). A literal icon path that resolves to a real file is copied into the generated project's Assets/ folder; otherwise (the common case - resx/dynamic icons) the TrayIcon block is emitted commented out with a TODO, since Avalonia resolves TrayIcon.Icon at run time and a dangling asset reference would throw out of App.Initialize()."),
-        new UnsupportedControlMapper("Timer", "No control mapping - but a DispatcherTimer field + Tick-handler wiring IS now generated in the ViewModel whenever the field has a real Tick handler (see ViewModelEmitter.AddTimerStub)."),
+        new UnsupportedControlMapper("Timer", "No control mapping - but a DispatcherTimer field, its Interval and its Tick wiring ARE generated on the View whenever the component has a real Tick handler (see FormMigrationPlanner.PlanTimers). A handler body can then drive it: Enabled, Start() and Stop() translate, and Interval can be written but not read - WinForms counts milliseconds, Avalonia holds a TimeSpan."),
         new UnsupportedControlMapper("ImageList", "No control mapping - reference images directly per-control, or via a shared resource dictionary."),
         new UnsupportedControlMapper("ToolTip", "The ToolTip component itself has no element - but its this.toolTip1.SetToolTip(this.control1, \"text\") calls ARE now translated automatically into a ToolTip.Tip attribute on the target control (see DesignerSyntaxWalker.HandleSetToolTipInvocation)."),
         new UnsupportedControlMapper("HelpProvider", "No built-in Avalonia equivalent - manual migration required."),
 
-        // Framework-agnostic .NET components: these aren't WinForms-specific and work
-        // unchanged in any .NET app - they just shouldn't live in View code-behind anymore.
-        new UnsupportedControlMapper("FileSystemWatcher", "Plain .NET API, unaffected by the UI migration - move its construction into a service/ViewModel instead of View code-behind."),
-        new UnsupportedControlMapper("Process", "Plain .NET API, unaffected by the UI migration - move its construction into a service/ViewModel instead of View code-behind."),
-        new UnsupportedControlMapper("EventLog", "Plain .NET API, unaffected by the UI migration - move its construction into a service/ViewModel instead of View code-behind."),
-        new UnsupportedControlMapper("PerformanceCounter", "Plain .NET API, unaffected by the UI migration - move its construction into a service/ViewModel instead of View code-behind."),
-        new UnsupportedControlMapper("ServiceController", "Plain .NET API, unaffected by the UI migration - move its construction into a service/ViewModel instead of View code-behind."),
-        new UnsupportedControlMapper("SerialPort", "Plain .NET API, unaffected by the UI migration - move its construction into a service/ViewModel instead of View code-behind."),
-        new UnsupportedControlMapper("SoundPlayer", "Windows-only System.Media API with no Avalonia equivalent - use a cross-platform audio library, or keep it behind a platform check in a service."),
+        // Framework-agnostic .NET components: not WinForms-specific, and the very same class in
+        // an Avalonia project - which is why ComponentFieldCatalog emits them rather than asking
+        // the user to. These entries stay Unsupported because there is no *control* to map, so
+        // the guidance has to say what does happen instead.
+        new UnsupportedControlMapper("FileSystemWatcher", EmittedAsField + MoveToAService),
+        new UnsupportedControlMapper("Process", EmittedAsField + MoveToAService),
+        new UnsupportedControlMapper("SerialPort", EmittedAsField + MoveToAService),
+        new UnsupportedControlMapper("EventLog", EmittedAsField + WindowsOnly),
+        new UnsupportedControlMapper("PerformanceCounter", EmittedAsField + WindowsOnly),
+        new UnsupportedControlMapper("ServiceController", EmittedAsField + WindowsOnly),
+        new UnsupportedControlMapper("SoundPlayer", EmittedAsField + WindowsOnly + " There is no Avalonia audio API either, so a cross-platform library is the eventual answer."),
     ];
+
+    /// <summary>
+    /// What now happens to a non-visual component that is really a plain .NET type. Shared,
+    /// because the alternative is eight copies of a sentence that has already gone stale once:
+    /// these used to tell the user to construct the component by hand, long after the conversion
+    /// had started doing it for them.
+    /// </summary>
+    private const string EmittedAsField =
+        "Not a control, but this run emits it as a real field on the generated View - same .NET "
+        + "type, designer values applied, designer-wired events subscribed - so handler bodies "
+        + "keep working as they were. ";
+
+    private const string MoveToAService =
+        "Moving it into a service later is a design improvement, not a migration step.";
+
+    private const string WindowsOnly =
+        "Windows-only, so it is built lazily: the app starts everywhere, but touching it throws "
+        + "off Windows.";
 }

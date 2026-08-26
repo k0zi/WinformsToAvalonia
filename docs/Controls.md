@@ -24,8 +24,9 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 
 > The registry also has three `Unsupported` entries not present in the source list above:
 > `PrintDocument` (same guidance as `PrintDialog`/`PrintPreviewDialog` — no Avalonia printing
-> API), `SerialPort` and `SoundPlayer`. Omitted from the tables since they weren't part of the
-> requested control list.
+> API), `SerialPort` and `SoundPlayer`. Not in the tables because they weren't part of the
+> requested control list, but both are in `ComponentFieldCatalog` and get a real field like the
+> rest of that family — `SoundPlayer` lazily, being Windows-only.
 
 ## Controls
 
@@ -165,18 +166,18 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 
 | WinForms type | Status | Avalonia target | Notes |
 |---|---|---|---|
-| `Timer` | ❌ Unsupported | | Now generates a `DispatcherTimer` field + constructor wiring in the ViewModel, gated on the field actually having a `Tick` handler. See [Implementation plan](#timer). |
-| `BackgroundWorker` | ❌ Unsupported | | Recommend `Task.Run`/async. |
-| `FileSystemWatcher` | ❌ Unsupported | | Framework-agnostic — works as-is. See [Implementation plan](#framework-agnostic-components). |
+| `Timer` | ❌ Unsupported | | Generates a `DispatcherTimer` field, its `Interval` and its `Tick` wiring **on the View**, gated on the component actually having a `Tick` handler. A handler body can drive it (`Enabled`, `Start()`, `Stop()`; `Interval` write-only). See [Implementation plan](#timer). |
+| `BackgroundWorker` | ❌ Unsupported | | Emitted as a **real field** on the View (`ComponentFieldCatalog`), designer values and events wired, so handler bodies keep working. `Task.Run` with `IProgress<T>` is the better end state, but that is a redesign, not a migration step. |
+| `FileSystemWatcher` | ❌ Unsupported | | Emitted as a **real field** on the View — same .NET type, designer values applied, events subscribed. See [Implementation plan](#framework-agnostic-components). |
 
 ### Windows / System Components
 
 | WinForms type | Status | Avalonia target | Notes |
 |---|---|---|---|
-| `Process` | ❌ Unsupported | | Framework-agnostic — works as-is. |
-| `EventLog` | ❌ Unsupported | | Framework-agnostic — works as-is. |
-| `PerformanceCounter` | ❌ Unsupported | | Framework-agnostic — works as-is. |
-| `ServiceController` | ❌ Unsupported | | Framework-agnostic — works as-is. |
+| `Process` | ❌ Unsupported | | Emitted as a **real field** on the View; nested paths like `process1.StartInfo.FileName` translate too. |
+| `EventLog` | ❌ Unsupported | | Real field, but **built lazily** — Windows-only, so eager construction made the converted app unlaunchable elsewhere. Needs the `System.Diagnostics.EventLog` package. |
+| `PerformanceCounter` | ❌ Unsupported | | Real field, built lazily (Windows-only). Needs the `System.Diagnostics.PerformanceCounter` package. |
+| `ServiceController` | ❌ Unsupported | | Real field, built lazily (Windows-only). Needs the `System.ServiceProcess.ServiceController` package. |
 
 ### UI Helper Components
 
@@ -378,14 +379,20 @@ before it showed a single window.
 
 **Done**, gated on real evidence: a `DispatcherTimer` field, constructor wiring
 (`new DispatcherTimer { Interval = ... }`, `Tick +=`, and `.Start()` when the WinForms
-`Enabled` was `true`), and a Tick-handler stub method are generated in the ViewModel only
-when the `Timer` field actually has a `Tick` subscription - `control.Events` already captured
-it generically (`HandleEventSubscription` records every `+=`, not just `Click`).
-`Interval`/`Enabled` were already captured as ordinary `PropertyValue.Literal`s via the
-normal assignment path, so no parser changes were needed - purely a `ViewModelEmitter`
-change. The handler method keeps its original WinForms name verbatim (unlike
-Click→RelayCommand renaming), since it's wired directly in the constructor rather than bound
-from AXAML, preserving 1:1 traceability for whoever migrates the logic.
+`Enabled` was `true`), and the Tick handler are generated on the **View** (`FormMigrationPlanner.PlanTimers`
+→ `ViewCodeBehindEmitter`) only when the `Timer` field actually has a `Tick` subscription -
+`control.Events` already captured it generically (`HandleEventSubscription` records every `+=`,
+not just `Click`). `Interval`/`Enabled` were already captured as ordinary
+`PropertyValue.Literal`s via the normal assignment path, so no parser changes were needed. The
+handler method keeps its original WinForms name verbatim (unlike Click→RelayCommand renaming),
+since it's wired directly in the constructor rather than bound from AXAML, preserving 1:1
+traceability for whoever migrates the logic.
+
+`PlanTimers` runs *before* the body rewrite, which is what lets a handler drive the timer it
+created: `DispatcherTimerMemberCatalog` translates `Enabled` → `IsEnabled`, `Start()`/`Stop()`
+unchanged, and `Interval = n` → `TimeSpan.FromMilliseconds(n)`. `Interval` is write-only, because
+WinForms counts int milliseconds where Avalonia holds a `TimeSpan` and a read would compile while
+quietly meaning something else.
 
 ### ImageList
 
@@ -447,10 +454,18 @@ realistic implementation plan, permanently guidance-only.
 
 ### Framework-agnostic components
 
-`FileSystemWatcher`/`Process`/`EventLog`/`PerformanceCounter`/`ServiceController` already work
-unchanged in any .NET app, Avalonia included. The only possible enhancement is
-`ViewModelEmitter` generating a field stub for them instead of just a warning — a minor
-nice-to-have, not a real gap.
+**Done.** `FileSystemWatcher`/`Process`/`SerialPort`/`EventLog`/`PerformanceCounter`/
+`ServiceController`/`SoundPlayer`/`BackgroundWorker` are the same .NET classes in an Avalonia app,
+so `ComponentFieldCatalog` + `FormMigrationPlanner.PlanComponents` emit each as a real field on the
+generated **View** — designer literals applied, designer-wired events subscribed — whenever
+something actually uses it, and handler bodies may then name it freely.
+
+What this turned out to cost, and the two things worth remembering:
+- four of them need a NuGet package, which must be listed in `ComponentFieldCatalog` **and** in
+  `AvaloniaProjectScaffolder.ExtraPackageVersions`, or the csproj writer drops it silently;
+- the four Windows-only ones are built **lazily**. Eagerly, `new EventLog()` threw from the View's
+  constructor — which Avalonia calls before the first window exists — and took the whole converted
+  app down on Linux. `GeneratedAppStartupTests` exists because building alone never saw that.
 
 ### UserControl conversion
 
