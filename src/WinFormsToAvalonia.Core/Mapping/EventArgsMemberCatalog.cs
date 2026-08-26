@@ -29,6 +29,15 @@ public readonly record struct EventArgsMember(string Format, bool NeedsSourceCon
 /// <c>DataGridViewCellEventArgs.RowIndex</c> has no exact answer - Avalonia reports the cell
 /// through an object rather than an index pair - so it is left for a human.
 /// </para>
+/// <para>
+/// <c>DragEventArgs.Data</c> is deliberately <em>not</em> here even though Avalonia has a
+/// property of that name. The pass-through rule elsewhere in this converter is only safe because
+/// what it passes through is a plain BCL value (a <c>string</c>, an <c>int</c>) whose members are
+/// ordinary .NET; <c>IDataObject</c> is a framework type whose methods Avalonia renamed, so
+/// letting <c>e.Data</c> through would emit <c>e.Data.GetFormats()</c> against a type that has
+/// no such method. Only the one exact call shape - <c>GetDataPresent</c> -> <c>Contains</c> - is
+/// translated, in the rewriter.
+/// </para>
 /// </remarks>
 public static class EventArgsMemberCatalog
 {
@@ -63,6 +72,11 @@ public static class EventArgsMemberCatalog
             [("ScrollEventArgs", "NewValue")] = new("{0}.NewValue"),
             [("RangeBaseValueChangedEventArgs", "NewValue")] = new("{0}.NewValue"),
             [("RangeBaseValueChangedEventArgs", "OldValue")] = new("{0}.OldValue"),
+
+            // Drag and drop: Avalonia renames the effect but keeps the DragDropEffects enum, so
+            // the value on the right of the assignment passes through unchanged.
+            [("DragEventArgs", "Effect")] = new("{0}.DragEffects"),
+            [("DragEventArgs", "Effects")] = new("{0}.DragEffects"),
 
             // WinForms' pointer coordinates are relative to the control that raised the event -
             // which is exactly the argument Avalonia's GetPosition takes.

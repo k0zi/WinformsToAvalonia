@@ -215,7 +215,7 @@ public sealed class CodeBehindAnalyzer
         var usesSender = false;
         var usesEventArgs = false;
         var createsOtherForms = false;
-        var callsDialogApis = false;
+        var needsTopLevel = false;
         var referencedControlFields = new List<string>();
         var seenControlFields = new HashSet<string>(StringComparer.Ordinal);
         var controlMemberAccesses = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -321,9 +321,11 @@ public sealed class CodeBehindAnalyzer
                         createsOtherForms = true;
                         break;
 
-                    // `MessageBox.Show(...)`. Recorded separately from CreatesOtherForms because
-                    // it is not a Form construction, but it has the same consequence: showing a
-                    // dialog needs a TopLevel to own it, which is a View, never a ViewModel.
+                    // `MessageBox.Show(...)` and `Clipboard.SetText(...)`. Recorded separately
+                    // from CreatesOtherForms because neither is a Form construction, but both
+                    // have the same consequence: their Avalonia replacements hang off the
+                    // TopLevel, which is a View and never a ViewModel. Recording it is what stops
+                    // such a handler being promoted somewhere its body cannot be translated.
                     case InvocationExpressionSyntax
                     {
                         Expression: MemberAccessExpressionSyntax
@@ -332,7 +334,14 @@ public sealed class CodeBehindAnalyzer
                             Name.Identifier.ValueText: "Show",
                         },
                     }:
-                        callsDialogApis = true;
+                    case InvocationExpressionSyntax
+                    {
+                        Expression: MemberAccessExpressionSyntax
+                        {
+                            Expression: IdentifierNameSyntax { Identifier.ValueText: "Clipboard" },
+                        },
+                    }:
+                        needsTopLevel = true;
                         break;
                 }
             }
@@ -363,7 +372,7 @@ public sealed class CodeBehindAnalyzer
             UsesSender = usesSender,
             UsesEventArgs = usesEventArgs,
             CreatesOtherForms = createsOtherForms,
-            CallsDialogApis = callsDialogApis,
+            NeedsTopLevel = needsTopLevel,
             ReferencedControlFields = referencedControlFields,
             ControlMemberAccesses = controlMemberAccesses.ToDictionary(
                 kvp => kvp.Key,

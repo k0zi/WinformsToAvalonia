@@ -192,13 +192,13 @@
                     <Canvas x:Name="contextPanel" Canvas.Left="12" Canvas.Top="320" Width="784" Height="60" DragDrop.Drop="contextPanel_DragDrop" DragDrop.DragEnter="contextPanel_DragEnter">
                         <Control.ContextMenu>
                             <ContextMenu>
-                                <MenuItem x:Name="copyContextMenuItem" Header="&amp;Copy" Command="{Binding CopyContextMenuItemCommand}" />
+                                <MenuItem x:Name="copyContextMenuItem" Header="&amp;Copy" Click="copyContextMenuItem_Click" />
                                 <MenuItem x:Name="pasteContextMenuItem" Header="&amp;Paste" />
                                 <Separator x:Name="contextMenuSeparator" />
                                 <MenuItem x:Name="selectAllContextMenuItem" Header="Select &amp;all" />
                             </ContextMenu>
                         </Control.ContextMenu>
-                        <TextBlock x:Name="contextPanelLabel" Canvas.Left="8" Canvas.Top="8" Width="600" Height="20" Text="{Binding ContextPanelLabelText, Mode=TwoWay}" />
+                        <TextBlock x:Name="contextPanelLabel" Canvas.Left="8" Canvas.Top="8" Width="600" Height="20" Text="Right-click for a ContextMenuStrip, or drop a file here." />
                     </Canvas>
                 </Canvas>
             </TabItem>

@@ -49,6 +49,34 @@ public sealed class HandlerBodyRewriter
         "File", "Directory", "Path",
     };
 
+    /// <summary>
+    /// Enum types both frameworks declare, member for member, under the same name - so a value
+    /// of one can be written through untranslated.
+    /// </summary>
+    /// <remarks>
+    /// Only the members that exist on <em>both</em> sides are listed. WinForms'
+    /// <c>DragDropEffects</c> also has <c>Scroll</c> and <c>All</c>, which Avalonia does not, and
+    /// emitting one of those would be a compile error in the generated project rather than a
+    /// wrong-but-compiling translation.
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> PassThroughEnums =
+        new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)
+        {
+            ["DragDropEffects"] = new HashSet<string>(StringComparer.Ordinal) { "None", "Copy", "Move", "Link" },
+        };
+
+    /// <summary>
+    /// The drag payload formats both frameworks name, across Avalonia 12's rework of them:
+    /// <c>DataFormats.FileDrop</c> is <c>DataFormat.File</c>, and the class lost its plural.
+    /// Kept here rather than in a Mapping table because exactly one call shape consults it.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> DataFormatNames =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["FileDrop"] = "File",
+            ["Text"] = "Text",
+        };
+
     private readonly ControlMappingRegistry _controlMappings;
 
     public HandlerBodyRewriter(ControlMappingRegistry controlMappings)
@@ -185,7 +213,12 @@ public sealed class HandlerBodyRewriter
         requiresAsync |= target.Requirements.RequiresAsync;
 
         return new RewrittenBody(
-            migrated, remaining, statements.Count, usings, fallbackKeys, requiresAsync,
+            // A statement can be *absorbed* rather than translated - `var b = (Button)sender;`
+            // only renames a control this View already has a field for, and emits nothing. It is
+            // carried through the loop as an empty entry so the list stays aligned with the
+            // statements (the trailing-local trim above indexes into both), and dropped here.
+            [.. migrated.Where(text => text.Length > 0)],
+            remaining, statements.Count, usings, fallbackKeys, requiresAsync,
             target.Requirements.InlinedDialogFields);
     }
 
@@ -711,6 +744,21 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `var button = (Button)sender!;` - in a handler wired to exactly one control, `sender`
+        // provably *is* that control, so the local becomes another name for its field and the
+        // cast disappears. Casting it to the Avalonia element type instead would need the type
+        // this converter deliberately does not have a semantic model for.
+        if (!isUsing
+            && StripSuppression(initializer) is CastExpressionSyntax cast
+            && StripSuppression(cast.Expression) is IdentifierNameSyntax { Identifier.ValueText: var castOperand }
+            && castOperand == "sender"
+            && target.TryResolveSenderCast(cast.Type, out var senderField))
+        {
+            target.Locals.Declare(name, LocalKind.Control, senderField);
+            rewritten = new RewrittenStatement("");
+            return true;
+        }
+
         if (isUsing || !TryRewriteExpression(initializer, target, out var value))
         {
             return false;
@@ -1021,6 +1069,23 @@ public sealed class HandlerBodyRewriter
             return TryRewriteMessageBox(invocation, target, out rewritten);
         }
 
+        // `Clipboard.SetText(x)`. Avalonia's clipboard hangs off the TopLevel and is async, so
+        // this makes the handler async - the same consequence a message box has.
+        if (receiver is IdentifierNameSyntax { Identifier.ValueText: "Clipboard" }
+            && methodName == "SetText"
+            && invocation.ArgumentList.Arguments is [{ Expression: var clipboardText }]
+            && TryRewriteExpression(clipboardText, target, out var clipboardValue))
+        {
+            rewritten = new RewrittenStatement(
+                // SetTextAsync is an extension method on IClipboard, so the namespace matters -
+                // and TopLevel.Clipboard is nullable, so the argument needs the second `!` to
+                // keep the generated project warning-free under nullable.
+                $"await TopLevel.GetTopLevel(this)!.Clipboard!.SetTextAsync({clipboardValue});",
+                RequiredUsings: ["Avalonia.Controls", "Avalonia.Input.Platform"],
+                RequiresAsync: true);
+            return true;
+        }
+
         if (receiver is IdentifierNameSyntax { Identifier.ValueText: "Application" }
             && methodName == "Exit"
             && invocation.ArgumentList.Arguments.Count == 0)
@@ -1151,6 +1216,10 @@ public sealed class HandlerBodyRewriter
             case LiteralExpressionSyntax:
                 text = expression.ToString();
                 return true;
+
+            // `e.Data!` - see StripSuppression: the assertion is about the WinForms expression.
+            case PostfixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.SuppressNullableWarningExpression } suppressed:
+                return TryRewriteExpression(suppressed.Operand, target, out text);
 
             case ParenthesizedExpressionSyntax parenthesized:
                 if (!TryRewriteExpression(parenthesized.Expression, target, out var inner))
@@ -1418,6 +1487,15 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `DragDropEffects.Copy` - an enum both frameworks spell the same way.
+        if (memberAccess.Expression is IdentifierNameSyntax { Identifier.ValueText: var enumTypeName }
+            && PassThroughEnums.TryGetValue(enumTypeName, out var enumMembers)
+            && enumMembers.Contains(memberAccess.Name.Identifier.ValueText))
+        {
+            text = $"{enumTypeName}.{memberAccess.Name.Identifier.ValueText}";
+            return true;
+        }
+
         // `text.Length` on a local. Same argument: a Value local can only hold what a
         // translatable expression produced, which is always a plain .NET value.
         if (memberAccess.Expression is IdentifierNameSyntax { Identifier.ValueText: var localName }
@@ -1456,6 +1534,11 @@ public sealed class HandlerBodyRewriter
     {
         text = "";
 
+        if (TryRewriteDragDataQuery(invocation, target, out text))
+        {
+            return true;
+        }
+
         if (invocation.Expression is not MemberAccessExpressionSyntax { Name: var name } call)
         {
             return false;
@@ -1489,6 +1572,49 @@ public sealed class HandlerBodyRewriter
         return true;
     }
 
+    /// <summary>
+    /// <c>e.Data.GetDataPresent(DataFormats.FileDrop)</c> -> <c>e.DataTransfer.Contains(DataFormat.File)</c>,
+    /// the one thing a translated body may ask a drag payload.
+    /// </summary>
+    /// <remarks>
+    /// Matched as a whole shape rather than assembled from parts, because not one part of it
+    /// survives on its own: Avalonia 12 renamed the property (<c>Data</c> -> <c>DataTransfer</c>),
+    /// changed its type (<c>IDataObject</c> -> <c>IDataTransfer</c>, with different method names),
+    /// and replaced the format constants (<c>DataFormats.FileDrop</c> -> <c>DataFormat.File</c>).
+    /// Reading the payload itself (<c>GetData</c>) is left alone - Avalonia hands back storage
+    /// items rather than a <c>string[]</c>, which is a change of shape, not of spelling.
+    /// </remarks>
+    private static bool TryRewriteDragDataQuery(
+        InvocationExpressionSyntax invocation, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (invocation.Expression is not MemberAccessExpressionSyntax
+            {
+                Name.Identifier.ValueText: "GetDataPresent",
+                Expression: var dataReceiver,
+            }
+            || StripSuppression(dataReceiver) is not MemberAccessExpressionSyntax
+            {
+                Name.Identifier.ValueText: "Data",
+                Expression: var argsReceiver,
+            }
+            || !target.TryResolveEventArgsParameter(argsReceiver, "DragEventArgs", out var parameterName)
+            || invocation.ArgumentList.Arguments is not [{ Expression: var formatArgument }]
+            || formatArgument is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "DataFormats" },
+                Name.Identifier.ValueText: var formatName,
+            }
+            || !DataFormatNames.TryGetValue(formatName, out var avaloniaFormat))
+        {
+            return false;
+        }
+
+        text = $"{parameterName}.DataTransfer.Contains(DataFormat.{avaloniaFormat})";
+        return true;
+    }
+
     /// <summary>`this.label1.Text` / `label1.Text` resolved to whatever it is on the target side.</summary>
     private static bool TryResolveControlProperty(
         ExpressionSyntax expression, IRewriteTarget target, bool forWrite, out string text)
@@ -1503,6 +1629,16 @@ public sealed class HandlerBodyRewriter
 
         return target.TryResolveProperty(fieldName, propertyName, forWrite, out text);
     }
+
+    /// <summary>
+    /// Drops a trailing null-forgiving `!`. The operator asserts something about the *WinForms*
+    /// expression's nullability, and the translated expression is a different one whose
+    /// nullability this converter decides itself - it null-guards the reads that need it.
+    /// </summary>
+    private static ExpressionSyntax StripSuppression(ExpressionSyntax expression) =>
+        expression is PostfixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.SuppressNullableWarningExpression } suppression
+            ? StripSuppression(suppression.Operand)
+            : expression;
 
     /// <summary>Splits `a.B(...)` into receiver `a` and name `B`; `B(...)` yields a null receiver.</summary>
     private static bool TrySplitInvocation(
@@ -1549,7 +1685,16 @@ public sealed class HandlerBodyRewriter
         /// <summary>A converted Form's View. Only the navigation calls are allowed on it.</summary>
         FormView,
 
+        /// <summary>
+        /// Another name for one of the form's controls - what `var button = (Button)sender;`
+        /// declares in a handler wired to exactly one control. Everything a control field
+        /// supports works through it, because it *is* that field.
+        /// </summary>
+        Control,
     }
+
+    /// <summary>One local, and the control it aliases when it is a <see cref="LocalKind.Control"/>.</summary>
+    private readonly record struct LocalBinding(LocalKind Kind, string? ControlFieldName = null);
 
     /// <summary>
     /// The locals in scope while one body is translated. Block-scoped, so a declaration inside an
@@ -1558,25 +1703,33 @@ public sealed class HandlerBodyRewriter
     /// </summary>
     private sealed class LocalScope
     {
-        private readonly List<Dictionary<string, LocalKind>> _scopes = [new(StringComparer.Ordinal)];
+        private readonly List<Dictionary<string, LocalBinding>> _scopes = [new(StringComparer.Ordinal)];
 
-        public void Push() => _scopes.Add(new Dictionary<string, LocalKind>(StringComparer.Ordinal));
+        public void Push() => _scopes.Add(new Dictionary<string, LocalBinding>(StringComparer.Ordinal));
 
         public void Pop() => _scopes.RemoveAt(_scopes.Count - 1);
 
-        public void Declare(string name, LocalKind kind) => _scopes[^1][name] = kind;
+        public void Declare(string name, LocalKind kind, string? controlFieldName = null) =>
+            _scopes[^1][name] = new LocalBinding(kind, controlFieldName);
 
         public bool TryGet(string name, out LocalKind kind)
         {
+            var found = TryGetBinding(name, out var binding);
+            kind = binding.Kind;
+            return found;
+        }
+
+        public bool TryGetBinding(string name, out LocalBinding binding)
+        {
             for (var i = _scopes.Count - 1; i >= 0; i--)
             {
-                if (_scopes[i].TryGetValue(name, out kind))
+                if (_scopes[i].TryGetValue(name, out binding))
                 {
                     return true;
                 }
             }
 
-            kind = default;
+            binding = default;
             return false;
         }
     }
@@ -1641,6 +1794,12 @@ public sealed class HandlerBodyRewriter
         /// <summary>`e.X` and friends, rewritten against the Avalonia args type. False in a ViewModel.</summary>
         bool TryResolveEventArgsMember(ExpressionSyntax receiver, string memberName, out string text);
 
+        /// <summary>
+        /// The handler's own EventArgs parameter, when <paramref name="expression"/> names it and
+        /// its Avalonia args type is the one asked for - the check a whole-shape translation needs
+        /// before it can trust what the parameter's members mean.
+        /// </summary>
+        bool TryResolveEventArgsParameter(ExpressionSyntax expression, string argsTypeName, out string parameterName);
 
         bool TryResolveControlField(ExpressionSyntax expression, out string fieldName);
 
@@ -1659,6 +1818,10 @@ public sealed class HandlerBodyRewriter
         /// </summary>
         bool IsDispatcherTimerField(string fieldName);
 
+        /// <summary>
+        /// `(Button)sender` in a handler wired to exactly one control - which control that is.
+        /// </summary>
+        bool TryResolveSenderCast(TypeSyntax castType, out string fieldName);
 
 
     }
@@ -1703,6 +1866,22 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        public bool TryResolveEventArgsParameter(ExpressionSyntax expression, string argsTypeName, out string parameterName)
+        {
+            parameterName = "";
+
+            if (signature.EventArgsParameterName is not { } name
+                || expression is not IdentifierNameSyntax { Identifier.ValueText: var referenced }
+                || referenced != name
+                || signature.EventArgsTypeName != argsTypeName)
+            {
+                return false;
+            }
+
+            parameterName = name;
+            return true;
+        }
+
         public bool AllowsWindowApis => true;
 
         public bool HostIsWindow => navigation.HostIsWindow;
@@ -1712,6 +1891,16 @@ public sealed class HandlerBodyRewriter
 
         public bool TryResolveControlField(ExpressionSyntax expression, out string fieldName)
         {
+            // A local that aliases a control resolves to that control, so every path below this
+            // one - properties, methods, the timer members - works through the alias unchanged.
+            if (expression is IdentifierNameSyntax { Identifier.ValueText: var aliasName }
+                && Locals.TryGetBinding(aliasName, out var binding)
+                && binding is { Kind: LocalKind.Control, ControlFieldName: { } aliased })
+            {
+                fieldName = aliased;
+                return true;
+            }
+
             fieldName = expression switch
             {
                 MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var name } => name,
@@ -1763,6 +1952,26 @@ public sealed class HandlerBodyRewriter
         /// </summary>
         public bool IsDispatcherTimerField(string fieldName) => dispatcherTimerFields.Contains(fieldName);
 
+        /// <summary>
+        /// The cast has to name the control's own WinForms type. A base type (`(Control)sender`)
+        /// is refused rather than widened: what the body then does with the local is checked
+        /// against the *actual* control either way, so accepting the wider cast would only make
+        /// the translated code claim something the original did not.
+        /// </summary>
+        public bool TryResolveSenderCast(TypeSyntax castType, out string fieldName)
+        {
+            fieldName = "";
+
+            if (signature.SourceControlFieldName is not { } sourceField
+                || !formModel.Controls.TryGetValue(sourceField, out var control)
+                || RoslynTypeNameHelper.GetSimpleTypeName(castType) != control.ClrTypeName)
+            {
+                return false;
+            }
+
+            fieldName = sourceField;
+            return true;
+        }
 
         public bool TryResolveControlMethod(string fieldName, string methodName, out string statement)
         {
@@ -1833,6 +2042,12 @@ public sealed class HandlerBodyRewriter
 
 
 
+        /// <summary>A promoted handler has no sender - that is one of the promotion conditions.</summary>
+        public bool TryResolveSenderCast(TypeSyntax castType, out string fieldName)
+        {
+            fieldName = "";
+            return false;
+        }
 
         /// <summary>A promoted handler cannot use EventArgs at all - that is one of the promotion conditions.</summary>
         public bool TryResolveEventArgsMember(ExpressionSyntax receiver, string memberName, out string text)
@@ -1841,6 +2056,11 @@ public sealed class HandlerBodyRewriter
             return false;
         }
 
+        public bool TryResolveEventArgsParameter(ExpressionSyntax expression, string argsTypeName, out string parameterName)
+        {
+            parameterName = "";
+            return false;
+        }
 
         public bool TryResolveControlField(ExpressionSyntax expression, out string fieldName)
         {

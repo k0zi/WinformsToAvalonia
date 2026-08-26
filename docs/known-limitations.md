@@ -176,6 +176,20 @@ rule itself; what follows is what the rule does *not* cover yet.
   - **`if`/`else`** (and a bare `return;`), when the condition *and every branch* translate.
     Braces are always emitted, even where the original had none, so a rewritten branch can never
     change what an `else` binds to; `else if` keeps its shape rather than becoming a nested block;
+  - **`sender`, on a handler wired to exactly one control.** `var button = (Button)sender;`
+    does not become a cast - it becomes *nothing*. In a single-control handler `sender` provably
+    is that control, so the local is recorded as another name for its field and every later use
+    (`button.Text`) resolves through the ordinary control path. That sidesteps the reason `sender`
+    was untranslatable before: casting it correctly needs the Avalonia element type, which is
+    exactly what a syntax-only tool does not have. The cast must name the control's own WinForms
+    type - a widening `(Control)sender` is refused rather than accepted, since it would let the
+    translated code claim something the original did not - and a handler shared by two controls
+    has no single answer, so it keeps its comment;
+  - **`Clipboard.SetText(x)`** → `await TopLevel.GetTopLevel(this)!.Clipboard!.SetTextAsync(x)`,
+    which makes the handler `async`. `Clipboard.GetText()` is not translated: Avalonia's
+    counterpart returns a `Task`, so a read that can appear anywhere in an expression would need
+    the whole expression restructured. Like a message box, this now blocks ViewModel promotion -
+    the replacement hangs off the `TopLevel`, which a View has and a ViewModel does not;
   - **`EventArgs` members**, through `Mapping/EventArgsMemberCatalog`. Three kinds show up and
     only two are translated: a member Avalonia's own args type spells identically (`Cancel` on
     `WindowClosingEventArgs`, `NewValue` on `ScrollEventArgs`), and a member of an args type that
@@ -184,8 +198,18 @@ rule itself; what follows is what the rule does *not* cover yet.
     WinForms' `e.X`/`e.Y` are relative to the control that raised the event, which is exactly
     what `GetPosition(control)` takes, so it needs a handler wired to exactly one control.
     Anything with no exact answer (`DataGridViewCellEventArgs.RowIndex`, whose Avalonia
-    counterpart reports a cell object rather than an index pair) is left for a human, and so is
-    `sender` - casting it correctly needs the Avalonia element type, not the WinForms one.
+    counterpart reports a cell object rather than an index pair) is left for a human.
+
+    **Drag and drop** is where the two frameworks diverge most, and only the one shape with an
+    exact answer is translated: `e.Effect` → `e.DragEffects` (the `DragDropEffects` members both
+    declare - `Scroll` and `All` are WinForms-only and refuse), and
+    `e.Data.GetDataPresent(DataFormats.FileDrop)` → `e.DataTransfer.Contains(DataFormat.File)`.
+    That second one is matched as a whole shape because not one part of it survives alone:
+    Avalonia 12 renamed the property, changed its type (`IDataObject` → `IDataTransfer`, with
+    different method names) and replaced the format constants. `e.Data` is deliberately *not* a
+    pass-through member for the same reason - letting it through would emit an `IDataObject`
+    method against a type that has none. Reading the payload (`GetData`) is left alone: Avalonia
+    hands back storage items rather than a `string[]`, which is a change of shape, not spelling.
 
     Plain `EventArgs` is deliberately **not** treated as pass-through: it is the fallback the
     planner uses when an event has no Avalonia equivalent, so it means "unknown type", and the
@@ -204,7 +228,7 @@ rule itself; what follows is what the rule does *not* cover yet.
     dropped. `const` locals are not translated.
 
   Everything outside that list stops the translation, including: `switch`, `try`/`catch`,
-  `do`/`while`, `lock`, `using` blocks, calls to code-behind helpers,
+  `do`/`while`, `lock`, `using` blocks, calls to code-behind helpers, `Paint`/`Graphics` drawing,
   control APIs with no bindable counterpart (`treeView1.Nodes.Add`), properties on
   *fallback*-mapped controls, and unrecognized static receivers
   (`Clipboard`, `Cursor`, ...). The `MessageBox.Show` overloads that take buttons or icons are

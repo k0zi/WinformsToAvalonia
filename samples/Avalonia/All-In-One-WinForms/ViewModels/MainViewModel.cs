@@ -35,10 +35,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial int ItemsComboBoxSelectedIndex { get; set; }
 
-    /// <summary>Bound to contextPanelLabel.Text in the view.</summary>
-    [ObservableProperty]
-    public partial string ContextPanelLabelText { get; set; } = "Right-click for a ContextMenuStrip, or drop a file here.";
-
     [RelayCommand]
     private void ToolStripNewButton()
     {
@@ -60,15 +56,5 @@ public sealed partial class MainViewModel : ViewModelBase
         EnabledCheckBoxIsChecked = false;
         AmountUpDownValue = 0;
         ItemsComboBoxSelectedIndex = -1;
-    }
-
-    [RelayCommand]
-    private void CopyContextMenuItem()
-    {
-        /* ORIGINAL WINFORMS BODY of 'copyContextMenuItem_Click' - TODO(Winforms2Avalonia): rewrite it against this ViewModel's properties.
-        Clipboard.SetText(this.contextPanelLabel.Text);
-        this.statusLabel.Text = "Copied";
-        */
-        MigrationTodo.NotMigrated(nameof(CopyContextMenuItem), "copyContextMenuItem_Click");
     }
 }

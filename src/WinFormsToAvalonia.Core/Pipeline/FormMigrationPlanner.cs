@@ -373,10 +373,10 @@ public sealed class FormMigrationPlanner
             return false;
         }
 
-        if (source.CallsDialogApis)
+        if (source.NeedsTopLevel)
         {
-            reason = "it shows a message box, and the Avalonia replacement needs a window to own the dialog - "
-                + "which the View has and a ViewModel does not.";
+            reason = "it uses an API whose Avalonia replacement hangs off the TopLevel (a message box, the "
+                + "clipboard) - which the View has and a ViewModel does not.";
             return false;
         }
 

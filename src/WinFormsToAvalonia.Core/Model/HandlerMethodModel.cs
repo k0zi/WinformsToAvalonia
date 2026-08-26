@@ -35,11 +35,12 @@ public sealed record HandlerMethodModel
     public bool CreatesOtherForms { get; init; }
 
     /// <summary>
-    /// True when the body calls <c>MessageBox.Show(...)</c>. Like <see cref="CreatesOtherForms"/>
-    /// this keeps the handler in code-behind: Avalonia's replacement is a dialog that needs a
-    /// TopLevel to own it, and a ViewModel has none.
+    /// True when the body calls a WinForms API whose Avalonia replacement hangs off the
+    /// <c>TopLevel</c> - <c>MessageBox.Show(...)</c>, the clipboard. Like
+    /// <see cref="CreatesOtherForms"/> this keeps the handler in code-behind: a ViewModel has no
+    /// TopLevel, so a body promoted there could not be translated at all.
     /// </summary>
-    public bool CallsDialogApis { get; init; }
+    public bool NeedsTopLevel { get; init; }
 
     /// <summary>Designer field names (keys of <see cref="FormModel.Controls"/>) the body touches.</summary>
     public IReadOnlyList<string> ReferencedControlFields { get; init; } = [];

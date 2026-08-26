@@ -1687,6 +1687,144 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- sender, the clipboard, and drag payloads -----------------------------------------
+
+    /// <summary>
+    /// In a handler wired to exactly one control, `sender` provably *is* that control - so the
+    /// local becomes another name for its field and the cast disappears rather than being
+    /// translated. Casting to the Avalonia element type would need the semantic model this
+    /// converter deliberately does without.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SenderCastOnASingleControlHandler_BecomesAnAliasForThatControl()
+    {
+        var form = FormWith(("okButton", "Button"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var button = (Button)sender!;
+            button.Text = "Clicked";
+            button.Enabled = false;
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", "okButton"));
+
+        Assert.Equal(
+            ["okButton.Content = \"Clicked\";", "okButton.IsEnabled = false;"],
+            result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>A handler shared by two controls has no single answer for what `sender` is.</summary>
+    [Fact]
+    public void RewriteForView_SenderCastOnASharedHandler_IsNotMigrated()
+    {
+        var form = FormWith(("okButton", "Button"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var button = (Button)sender!;
+            button.Text = "Clicked";
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", SourceControlFieldName: null));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A base-type cast is refused rather than widened: what the body does with the local is
+    /// checked against the actual control either way, so accepting it would only let the
+    /// translated code claim something the original did not.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SenderCastToADifferentType_IsNotMigrated()
+    {
+        var form = FormWith(("okButton", "Button"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var control = (Control)sender!;
+            control.Text = "Clicked";
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", "okButton"));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_ClipboardSetText_GoesThroughTheTopLevelAndTurnsTheHandlerAsync()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView("Clipboard.SetText(this.statusLabel.Text);", form);
+
+        Assert.Equal(
+            ["await TopLevel.GetTopLevel(this)!.Clipboard!.SetTextAsync((statusLabel.Text ?? string.Empty));"],
+            result.MigratedStatements);
+        Assert.True(result.RequiresAsync);
+    }
+
+    [Fact]
+    public void RewriteForView_DragEffectAndPayloadQuery_AreTranslated()
+    {
+        var form = FormWith(("dropPanel", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            e.Effect = e.Data!.GetDataPresent(DataFormats.FileDrop)
+                ? DragDropEffects.Copy
+                : DragDropEffects.None;
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "DragEventArgs", "dropPanel"));
+
+        Assert.Equal(
+            ["e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Reading the payload is a change of shape, not of spelling: Avalonia hands back storage
+    /// items rather than the `string[]` the original casts to.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ReadingTheDragPayload_IsNotMigrated()
+    {
+        var form = FormWith(("dropPanel", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            "var files = (string[])e.Data!.GetData(DataFormats.FileDrop)!;",
+            form,
+            Navigation(),
+            new HandlerSignature("e", "DragEventArgs", "dropPanel"));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// WinForms' DragDropEffects has members Avalonia's does not, and emitting one would be a
+    /// compile error in the generated project.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DragEffectAvaloniaDoesNotHave_IsNotMigrated()
+    {
+        var form = FormWith(("dropPanel", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            "e.Effect = DragDropEffects.Scroll;",
+            form,
+            Navigation(),
+            new HandlerSignature("e", "DragEventArgs", "dropPanel"));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

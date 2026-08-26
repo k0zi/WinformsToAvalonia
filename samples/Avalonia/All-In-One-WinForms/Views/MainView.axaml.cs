@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.Controls.Primitives;
 using All_In_One_WinForms.Views.Forms;
+using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using All_In_One_WinForms.Generated;
 using All_In_One_WinForms.ViewModels;
@@ -409,12 +410,7 @@ public partial class MainView : Window
 
     private void contextPanel_DragEnter(object? sender, DragEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'contextPanel_DragEnter' - TODO(Winforms2Avalonia): migrate it into this method.
-        e.Effect = e.Data!.GetDataPresent(DataFormats.FileDrop)
-            ? DragDropEffects.Copy
-            : DragDropEffects.None;
-        */
-        MigrationTodo.NotMigrated(nameof(contextPanel_DragEnter), "contextPanel_DragEnter");
+        e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
     }
 
     private void backgroundWorker1_DoWork(object? sender, EventArgs e)
@@ -470,6 +466,12 @@ public partial class MainView : Window
         Activate();
         */
         MigrationTodo.NotMigrated(nameof(notifyIcon1_DoubleClick), "notifyIcon1_DoubleClick");
+    }
+
+    private async void copyContextMenuItem_Click(object? sender, RoutedEventArgs e)
+    {
+        await TopLevel.GetTopLevel(this)!.Clipboard!.SetTextAsync((contextPanelLabel.Text ?? string.Empty));
+        statusLabel.Text = "Copied";
     }
 
     private void openDialogFormButton_Click(object? sender, RoutedEventArgs e)
