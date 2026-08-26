@@ -84,8 +84,14 @@ public class HandlerMigrationConversionTests
                 """,
                 viewModel.Replace("\r\n", "\n"));
 
-            Assert.Equal(12, result.Report.MigratedStatementCount);
-            Assert.Equal(15, result.Report.HandlerStatementCount);
+            // The WinForms validation idiom, onto the bundled fallback - a static call, and the
+            // second place a *handler body* pulls a template in rather than the AXAML.
+            Assert.Contains("ErrorProviderFallback.SetError(nameTextBox, \"A name is required.\");", codeBehind);
+            Assert.Contains("Controls/ErrorProviderFallback.cs", result.Vfs.RelativePaths);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(flagButton_Click)", codeBehind);
+
+            Assert.Equal(13, result.Report.MigratedStatementCount);
+            Assert.Equal(16, result.Report.HandlerStatementCount);
 
             var buildResult = await RunDotnetAsync("build", outputDir);
             Assert.True(

@@ -1116,6 +1116,12 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `errorProvider1.SetError(this.nameTextBox, "…")` - see TryRewriteSetError.
+        if (TryRewriteSetError(invocation, receiver, methodName, target, out rewritten))
+        {
+            return true;
+        }
+
         // `Thread.Sleep(100);` / `File.WriteAllText(path, text);` - a call on a safe BCL type used
         // for its side effect. The expression path already accepts these; a statement is the other
         // half, and the shape a save-dialog handler reaches for on its very next line.
@@ -1738,6 +1744,54 @@ public sealed class HandlerBodyRewriter
     }
 
     /// <summary>
+    /// <c>errorProvider1.SetError(control, "message")</c> - the WinForms validation idiom, onto the
+    /// bundled <c>ErrorProviderFallback</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The only translation whose result is a <em>static</em> call on a fallback type. Everywhere
+    /// else a fallback is something the AXAML instantiates and the handler then talks to; here the
+    /// WinForms component has no element at all, and its Avalonia counterpart is an attached
+    /// property set from outside - so the instance call becomes a static one. That is also why it
+    /// cannot live in <see cref="ControlMethodCatalog"/>, which names members of the *target*
+    /// control.
+    /// </para>
+    /// <para>
+    /// Like <c>MessageBox.Show</c>, this pulls a bundled template in from a <em>handler body</em>
+    /// rather than from an element, which is what <c>RequiredFallbackKeys</c> exists for.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteSetError(
+        InvocationExpressionSyntax invocation,
+        ExpressionSyntax? receiver,
+        string methodName,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (methodName != "SetError"
+            || receiver is null
+            || !target.TryResolveControlField(receiver, out var providerField)
+            || !target.TryResolveFallbackTemplate(providerField, out var templateKey)
+            || templateKey != "ErrorProviderFallback"
+            || invocation.ArgumentList.Arguments is not [{ Expression: var controlArgument }, { Expression: var messageArgument }]
+            // The first argument has to be a control the AXAML actually names, or there is no
+            // field on the generated View to hand the fallback.
+            || !target.TryResolveControlField(controlArgument, out var controlField)
+            || !target.IsMappedElement(controlField)
+            || !TryRewriteExpression(messageArgument, target, out var message))
+        {
+            return false;
+        }
+
+        rewritten = new RewrittenStatement(
+            $"ErrorProviderFallback.SetError({controlField}, {message});",
+            RequiredFallbackKeys: ["ErrorProviderFallback"]);
+        return true;
+    }
+
+    /// <summary>
     /// <c>e.Data.GetDataPresent(DataFormats.FileDrop)</c> -> <c>e.DataTransfer.Contains(DataFormat.File)</c>,
     /// the one thing a translated body may ask a drag payload.
     /// </summary>
@@ -2043,6 +2097,15 @@ public sealed class HandlerBodyRewriter
         /// <summary>The field's file-dialog kind, when it is one this converter can open inline.</summary>
         bool TryResolveFileDialog(string fieldName, out FileDialogKind kind);
 
+        /// <summary>The bundled fallback template a field maps to, when it maps to one.</summary>
+        bool TryResolveFallbackTemplate(string fieldName, out string templateKey);
+
+        /// <summary>
+        /// True when the field really becomes a named element in the AXAML - so the generated View
+        /// has a `Control`-typed field for it, which is what an API taking a control can be given.
+        /// </summary>
+        bool IsMappedElement(string fieldName);
+
         /// <summary>
         /// True when the field is a WinForms Timer this run emits as a real DispatcherTimer field,
         /// which is what makes it something a translated body may name at all.
@@ -2204,6 +2267,24 @@ public sealed class HandlerBodyRewriter
 
         public bool IsComponentField(string fieldName) => componentFields.Contains(fieldName);
 
+        public bool TryResolveFallbackTemplate(string fieldName, out string templateKey)
+        {
+            templateKey = "";
+
+            if (!formModel.Controls.TryGetValue(fieldName, out var control))
+            {
+                return false;
+            }
+
+            var mapped = controlMappings.Map(control);
+            templateKey = mapped is { Status: MappingStatus.Fallback, FallbackTemplateKey: { } key } ? key : "";
+            return templateKey.Length > 0;
+        }
+
+        public bool IsMappedElement(string fieldName) =>
+            formModel.Controls.TryGetValue(fieldName, out var control)
+            && controlMappings.Map(control).Status is MappingStatus.Direct or MappingStatus.Fallback;
+
         public bool TryResolveHelperCall(string methodName, int argumentCount, out HelperCallInfo helper) =>
             promotedHelpers.TryGetValue(methodName, out helper!) && helper.ParameterCount == argumentCount;
 
@@ -2305,6 +2386,15 @@ public sealed class HandlerBodyRewriter
 
         /// <summary>Component fields live on the View too.</summary>
         public bool IsComponentField(string fieldName) => false;
+
+        /// <summary>A ViewModel has no elements, so nothing here maps to one.</summary>
+        public bool TryResolveFallbackTemplate(string fieldName, out string templateKey)
+        {
+            templateKey = "";
+            return false;
+        }
+
+        public bool IsMappedElement(string fieldName) => false;
 
         /// <summary>
         /// Helpers stay on the View. A handler that calls one is not promoted in the first place,

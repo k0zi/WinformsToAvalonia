@@ -185,7 +185,7 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 |---|---|---|---|
 | `ToolTip` | ❌ Unsupported | | The component itself has no element, but `SetToolTip(...)` calls are now translated automatically into a `ToolTip.Tip` attribute on the target control. See [Implementation plan](#tooltip). |
 | `HelpProvider` | ❌ Unsupported | | No Avalonia analog — permanently guidance-only. |
-| `ErrorProvider` | ✅ Fallback | `ErrorProviderFallback` | |
+| `ErrorProvider` | ✅ Fallback | `ErrorProviderFallback` | An attached property rather than a control, so it has no element of its own — and `errorProvider1.SetError(ctrl, "…")` in a handler body is translated into a static call on the template. |
 | `NotifyIcon` | ❌ Unsupported | | Aggregated across all forms into App.axaml's `TrayIcon.Icons`. The icon is copied into `Assets/` from either a literal path or the form's `.resx`; only when it is neither — a computed `Icon`, or an undecodable payload — is the block emitted **commented out** with a TODO, because Avalonia resolves `TrayIcon.Icon` at run time and a dangling asset reference throws out of `App.Initialize()`. See [Implementation plan](#notifyicon). |
 | `ImageList` | ❌ Unsupported | | See [Implementation plan](#imagelist). |
 

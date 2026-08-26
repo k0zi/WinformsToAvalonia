@@ -226,17 +226,14 @@ public partial class MainView : Window
 
     private void validateButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'validateButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (string.IsNullOrWhiteSpace(this.titleTextBox.Text))
+        if (string.IsNullOrWhiteSpace((titleTextBox.Text ?? string.Empty)))
         {
-            this.errorProvider1.SetError(this.titleTextBox, "A title is required.");
+            ErrorProviderFallback.SetError(titleTextBox, "A title is required.");
         }
         else
         {
-            this.errorProvider1.SetError(this.titleTextBox, string.Empty);
+            ErrorProviderFallback.SetError(titleTextBox, string.Empty);
         }
-        */
-        MigrationTodo.NotMigrated(nameof(validateButton_Click), "validateButton_Click");
     }
 
     private void itemsListBox_SelectedIndexChanged(object? sender, SelectionChangedEventArgs e)

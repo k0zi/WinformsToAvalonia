@@ -25,7 +25,17 @@ namespace HandlerMigrationApp
             this.validateButton = new System.Windows.Forms.Button();
             this.countButton = new System.Windows.Forms.Button();
             this.canvas = new System.Windows.Forms.Panel();
+            this.errorProvider1 = new System.Windows.Forms.ErrorProvider();
+            this.flagButton = new System.Windows.Forms.Button();
             this.SuspendLayout();
+            //
+            // flagButton
+            //
+            this.flagButton.Location = new System.Drawing.Point(320, 12);
+            this.flagButton.Name = "flagButton";
+            this.flagButton.Size = new System.Drawing.Size(90, 28);
+            this.flagButton.Text = "Flag";
+            this.flagButton.Click += new System.EventHandler(this.flagButton_Click);
             //
             // okButton
             //
@@ -127,12 +137,15 @@ namespace HandlerMigrationApp
             this.Controls.Add(this.validateButton);
             this.Controls.Add(this.countButton);
             this.Controls.Add(this.canvas);
+            this.Controls.Add(this.flagButton);
             this.Name = "MainForm";
             this.Text = "Handler Migration Demo";
             this.ResumeLayout(false);
             this.PerformLayout();
         }
 
+        private System.Windows.Forms.ErrorProvider errorProvider1;
+        private System.Windows.Forms.Button flagButton;
         private System.Windows.Forms.Button okButton;
         private System.Windows.Forms.Button aboutButton;
         private System.Windows.Forms.Button resetButton;

@@ -256,6 +256,14 @@ rule itself; what follows is what the rule does *not* cover yet.
   - **`if`/`else`** (and a bare `return;`), when the condition *and every branch* translate.
     Braces are always emitted, even where the original had none, so a rewritten branch can never
     change what an `else` binds to; `else if` keeps its shape rather than becoming a nested block;
+  - **`errorProvider1.SetError(control, "message")`** → `ErrorProviderFallback.SetError(control, "message")`.
+    The one translation whose result is a *static* call on a bundled fallback: everywhere else a
+    fallback is something the AXAML instantiates and the handler then talks to, but a WinForms
+    `ErrorProvider` has no element at all and its counterpart is an attached property set from
+    outside. That is also why it cannot live in `ControlMethodCatalog`, which names members of the
+    *target* control. Like `MessageBox.Show`, it pulls the template in from a **handler body**
+    rather than from an element. The control it flags has to be one the AXAML really names, or the
+    generated View has no field to hand over;
   - **`sender`, on a handler wired to exactly one control.** `var button = (Button)sender;`
     does not become a cast - it becomes *nothing*. In a single-control handler `sender` provably
     is that control, so the local is recorded as another name for its field and every later use

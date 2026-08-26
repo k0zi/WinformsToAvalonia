@@ -2146,6 +2146,40 @@ public class HandlerBodyRewriterTests
         Assert.Equal(["Thread.Sleep(100);"], result.MigratedStatements);
     }
 
+    // ---- ErrorProvider ----------------------------------------------------------------------
+
+    /// <summary>
+    /// The one translation whose result is a *static* call on a fallback type: the WinForms
+    /// component has no element at all, and its Avalonia counterpart is an attached property set
+    /// from outside.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SetError_BecomesAStaticCallOnTheBundledFallback()
+    {
+        var form = FormWith(("errorProvider1", "ErrorProvider"), ("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView(
+            "this.errorProvider1.SetError(this.nameTextBox, \"Required.\");", form);
+
+        Assert.Equal(["ErrorProviderFallback.SetError(nameTextBox, \"Required.\");"], result.MigratedStatements);
+        Assert.Contains("ErrorProviderFallback", result.RequiredFallbackKeys);
+    }
+
+    /// <summary>
+    /// The first argument has to be a control the AXAML actually names - otherwise the generated
+    /// View has no field to hand the fallback.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SetErrorOnSomethingWithNoElement_IsNotMigrated()
+    {
+        var form = FormWith(("errorProvider1", "ErrorProvider"), ("timer1", "Timer"));
+
+        var result = Rewriter.RewriteForView(
+            "this.errorProvider1.SetError(this.timer1, \"Required.\");", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

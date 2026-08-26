@@ -39,6 +39,13 @@ namespace HandlerMigrationApp
             this.statusLabel.Text = "Saved";
         }
 
+        // The WinForms validation idiom: the component has no element of its own, so its Avalonia
+        // answer is a static call on the bundled fallback.
+        private void flagButton_Click(object sender, EventArgs e)
+        {
+            this.errorProvider1.SetError(this.nameTextBox, "A name is required.");
+        }
+
         // Control flow: the condition and both branches translate, so the whole `if` does.
         private void validateButton_Click(object sender, EventArgs e)
         {
