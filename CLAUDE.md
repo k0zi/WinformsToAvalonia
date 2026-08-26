@@ -164,6 +164,12 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
   and asserts `dotnet build` on the generated output succeeds. Add a `SampleApps` folder + an
   `[InlineData]` row (in `RealFormConversionBuildTests` or the feature-specific test class) when
   adding a feature that changes generated code.
+- `GeneratedAppStartupTests` covers the **other half** of "always builds and runs": it replaces the
+  generated `Program.cs` with a harness that boots the same `App` on Avalonia's headless platform,
+  so `OnFrameworkInitializationCompleted` really constructs the main View and the AXAML is really
+  parsed. Building alone missed a Windows-only component whose field initializer threw from the
+  View constructor — perfectly compiled, unlaunchable. Add an `[InlineData]` row here for anything
+  that emits code into a **constructor** or into `App.axaml`.
 - Both test csprojs `Compile Remove` their fixture/sample `.cs` files and copy them to output
   instead — fixtures must never be compiled into the test assembly. Keep that when adding fixtures.
 
