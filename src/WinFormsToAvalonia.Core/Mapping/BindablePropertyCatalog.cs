@@ -27,7 +27,10 @@ public static class BindablePropertyCatalog
         ["MaskedTextBox"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
         ["RichTextBox"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
         ["Label"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
-        ["LinkLabel"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
+        // Content, not Text: a LinkLabel maps to a HyperlinkButton, which has no Text property.
+        // Getting this wrong is an AVLN2000 in the *generated* project - see the consistency test
+        // in BindablePropertyCatalogTests, which is what this table is checked against.
+        ["LinkLabel"] = new(StringComparer.Ordinal) { ["Text"] = new("Content", "string", " = string.Empty;") },
         ["Button"] = new(StringComparer.Ordinal) { ["Text"] = new("Content", "string", " = string.Empty;") },
         ["CheckBox"] = new(StringComparer.Ordinal)
         {
@@ -54,6 +57,33 @@ public static class BindablePropertyCatalog
             ["SelectedIndex"] = new("SelectedIndex", "int"),
         },
         ["DateTimePicker"] = new(StringComparer.Ordinal) { ["Value"] = new("SelectedDate", "DateTimeOffset?") },
+        ["CheckedListBox"] = new(StringComparer.Ordinal)
+        {
+            ["SelectedItem"] = new("SelectedItem", "object?"),
+            ["SelectedIndex"] = new("SelectedIndex", "int"),
+        },
+
+        // ToolStrip items. Every one of these is already Direct-mapped to a real Avalonia element
+        // (see DefaultControlMappers), so their values were always bindable in principle - they
+        // were simply missing from this table, which is what makes a property writable from a
+        // translated handler or bindable from a promoted command.
+        ["ToolStripMenuItem"] = new(StringComparer.Ordinal)
+        {
+            ["Text"] = new("Header", "string", " = string.Empty;"),
+            ["Checked"] = new("IsChecked", "bool"),
+        },
+        ["ToolStripButton"] = new(StringComparer.Ordinal) { ["Text"] = new("Content", "string", " = string.Empty;") },
+        ["ToolStripDropDownButton"] = new(StringComparer.Ordinal) { ["Text"] = new("Content", "string", " = string.Empty;") },
+        ["ToolStripSplitButton"] = new(StringComparer.Ordinal) { ["Text"] = new("Content", "string", " = string.Empty;") },
+        ["ToolStripLabel"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
+        ["ToolStripStatusLabel"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
+        ["ToolStripTextBox"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
+        ["ToolStripComboBox"] = new(StringComparer.Ordinal)
+        {
+            ["SelectedItem"] = new("SelectedItem", "object?"),
+            ["SelectedIndex"] = new("SelectedIndex", "int"),
+        },
+        ["ToolStripProgressBar"] = new(StringComparer.Ordinal) { ["Value"] = new("Value", "double") },
     };
 
     public static bool TryGet(string winFormsControlTypeName, string propertyName, out BindableProperty property)

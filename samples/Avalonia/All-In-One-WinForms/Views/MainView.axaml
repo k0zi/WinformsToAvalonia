@@ -192,13 +192,13 @@
                     <Canvas x:Name="contextPanel" Canvas.Left="12" Canvas.Top="320" Width="784" Height="60" DragDrop.Drop="contextPanel_DragDrop" DragDrop.DragEnter="contextPanel_DragEnter">
                         <Control.ContextMenu>
                             <ContextMenu>
-                                <MenuItem x:Name="copyContextMenuItem" Header="&amp;Copy" Click="copyContextMenuItem_Click" />
+                                <MenuItem x:Name="copyContextMenuItem" Header="&amp;Copy" Command="{Binding CopyContextMenuItemCommand}" />
                                 <MenuItem x:Name="pasteContextMenuItem" Header="&amp;Paste" />
                                 <Separator x:Name="contextMenuSeparator" />
                                 <MenuItem x:Name="selectAllContextMenuItem" Header="Select &amp;all" />
                             </ContextMenu>
                         </Control.ContextMenu>
-                        <TextBlock x:Name="contextPanelLabel" Canvas.Left="8" Canvas.Top="8" Width="600" Height="20" Text="Right-click for a ContextMenuStrip, or drop a file here." />
+                        <TextBlock x:Name="contextPanelLabel" Canvas.Left="8" Canvas.Top="8" Width="600" Height="20" Text="{Binding ContextPanelLabelText, Mode=TwoWay}" />
                     </Canvas>
                 </Canvas>
             </TabItem>
@@ -213,17 +213,17 @@
             </TabItem>
         </TabControl>
         <controls:StatusStripFallback x:Name="statusStrip1" Canvas.Left="0" Canvas.Top="698" Width="1024" Height="22">
-            <TextBlock x:Name="statusLabel" Text="Ready" />
+            <TextBlock x:Name="statusLabel" Text="{Binding StatusLabelText, Mode=TwoWay}" />
             <TextBlock x:Name="statusInfoLabel" Text="All-In-One WinForms control gallery" />
             <ProgressBar x:Name="statusProgressBar" Width="100" Height="16" />
         </controls:StatusStripFallback>
         <controls:ToolStripFallback x:Name="toolStrip1" Canvas.Left="0" Canvas.Top="24" Width="1024" Height="25">
-            <Button x:Name="toolStripNewButton" Content="New" Click="toolStripNewButton_Click" ToolTip.Tip="Create a new document" />
+            <Button x:Name="toolStripNewButton" Content="New" Command="{Binding ToolStripNewButtonCommand}" ToolTip.Tip="Create a new document" />
             <TextBlock x:Name="toolStripLabel1" Text="Filter:" />
             <Separator x:Name="toolStripSeparator1" />
             <ComboBox x:Name="toolStripComboBox1" Width="140" Height="25" />
             <TextBox x:Name="toolStripTextBox1" Width="140" Height="25" />
-            <ProgressBar x:Name="toolStripProgressBar1" Width="100" Height="22" Value="35" />
+            <ProgressBar x:Name="toolStripProgressBar1" Width="100" Height="22" Value="{Binding ToolStripProgressBar1Value, Mode=TwoWay}" />
             <Button x:Name="toolStripDropDownButton1" Content="Layout">
                 <Button.Flyout>
                     <MenuFlyout>

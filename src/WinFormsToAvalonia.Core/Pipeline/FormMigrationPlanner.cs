@@ -33,14 +33,6 @@ namespace WinFormsToAvalonia.Core.Pipeline;
 /// </remarks>
 public sealed class FormMigrationPlanner
 {
-    private static readonly IReadOnlyDictionary<string, (string PickerMethod, string OptionsTypeName)> FileDialogTemplates =
-        new Dictionary<string, (string, string)>(StringComparer.Ordinal)
-        {
-            ["OpenFileDialog"] = ("OpenFilePickerAsync", "FilePickerOpenOptions"),
-            ["SaveFileDialog"] = ("SaveFilePickerAsync", "FilePickerSaveOptions"),
-            ["FolderBrowserDialog"] = ("OpenFolderPickerAsync", "FolderPickerOpenOptions"),
-        };
-
     private readonly ControlMappingRegistry _controlMappings;
     private readonly EventMappingRegistry _eventMappings;
 
@@ -97,6 +89,9 @@ public sealed class FormMigrationPlanner
             codeBehindHandlers.AddRange(PlanCodeBehindHandler(handlerMethodName, subscriptions, source, warnings));
         }
 
+        // A designer-set DialogResult is a whole handler the designer never had to write.
+        codeBehindHandlers.AddRange(PlanDialogResultButtons(formModel, artifactKind));
+
         // A handler that exists only to keep a promoted button's Enabled state in sync is a
         // CanExecute guard written imperatively - fold it into the command and drop it.
         DeriveCanExecuteGuards(formModel, codeBehind, codeBehindHandlers, viewModelCommands, boundProperties, seenBoundProperties, warnings);
@@ -109,14 +104,31 @@ public sealed class FormMigrationPlanner
             formViews ?? new Dictionary<string, FormViewInfo>(StringComparer.Ordinal),
             HostIsWindow: artifactKind != WinFormsArtifactKind.UserControl);
 
+        var rewrittenHandlers = ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings)
+            .Select(h => h.Rewrite is not null
+                // Already synthesized (a designer-set DialogResult) - there is no original body
+                // to translate, and re-running the rewriter would erase it.
+                ? h
+                : h with
+                {
+                    Rewrite = rewriter.RewriteForView(
+                        h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind)),
+                })
+            .ToList();
+
+        // Which file dialogs a body opened inline is only known once the bodies are translated,
+        // and it decides whether a separate picker method is still worth emitting.
+        var inlinedDialogFields = rewrittenHandlers
+            .SelectMany(h => h.Rewrite?.InlinedDialogFields ?? (IReadOnlySet<string>)new HashSet<string>())
+            .ToHashSet(StringComparer.Ordinal);
+
         return new FormMigrationPlan(
-            [.. ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings)
-                .Select(h => h with { Rewrite = rewriter.RewriteForView(h.OriginalBody, formModel, navigation) })],
+            rewrittenHandlers,
             [.. viewModelCommands
                 .Select(c => c with { Rewrite = rewriter.RewriteForViewModel(c.OriginalBody, formModel, boundProperties) })],
             boundProperties,
             PlanTimers(formModel),
-            PlanFileDialogs(formModel),
+            PlanFileDialogs(formModel, inlinedDialogFields),
             codeBehind.HelperMembers,
             codeBehind.ConstructorExtraStatements,
             warnings);
@@ -205,14 +217,22 @@ public sealed class FormMigrationPlanner
         return timers;
     }
 
-    private static List<FileDialogPlan> PlanFileDialogs(FormModel formModel) =>
+    /// <param name="inlinedFields">
+    /// Dialogs a handler body already opens inline. Emitting a separate method for those too
+    /// would leave a dead one behind, since nothing would ever call it.
+    /// </param>
+    private static List<FileDialogPlan> PlanFileDialogs(FormModel formModel, IReadOnlySet<string> inlinedFields) =>
     [
         .. formModel.Controls.Values
-            .Where(c => FileDialogTemplates.ContainsKey(c.ClrTypeName))
+            .Where(c => FileDialogCatalog.TryGet(c.ClrTypeName, out _) && !inlinedFields.Contains(c.FieldName))
             .Select(c =>
             {
-                var (pickerMethod, optionsType) = FileDialogTemplates[c.ClrTypeName];
-                return new FileDialogPlan(c.FieldName, $"Show{NamingConventions.Capitalize(c.FieldName)}Async", pickerMethod, optionsType);
+                FileDialogCatalog.TryGet(c.ClrTypeName, out var kind);
+                return new FileDialogPlan(
+                    c.FieldName,
+                    $"Show{NamingConventions.Capitalize(c.FieldName)}Async",
+                    kind.PickerMethodName,
+                    kind.OptionsTypeName);
             }),
     ];
 
@@ -541,6 +561,82 @@ public sealed class FormMigrationPlanner
         conditionText = assignment.Right.ToString();
         return buttonField.Length > 0;
     }
+
+    /// <summary>
+    /// What a handler's own parameters mean, for the body rewrite. The EventArgs parameter keeps
+    /// its original name in the generated method, and the raising control is only unambiguous
+    /// when exactly one subscription feeds the handler.
+    /// </summary>
+    /// <summary>
+    /// WinForms' one piece of designer-declared behaviour: a control with a <c>DialogResult</c>
+    /// closes its form with that result when clicked, without any handler existing. Avalonia has
+    /// no such thing, so the handler is synthesized here.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The result becomes a <c>bool</c> - <c>Close(true)</c> for OK/Yes, <c>Close(false)</c>
+    /// otherwise - which is what makes the caller side (<c>await dlg.ShowDialog&lt;bool&gt;(this)</c>)
+    /// expressible. A dialog closed by its title bar yields <c>default(bool)</c>, i.e. false,
+    /// which is exactly what WinForms reports for that case too.
+    /// </para>
+    /// <para>
+    /// Only for a control with no Click handler of its own: when the designer wired one, the
+    /// button's behaviour is whatever that handler does, and prepending a Close would change it.
+    /// And only on a Form - a converted UserControl has no window to close.
+    /// </para>
+    /// </remarks>
+    private IEnumerable<CodeBehindHandlerPlan> PlanDialogResultButtons(FormModel formModel, WinFormsArtifactKind artifactKind)
+    {
+        if (artifactKind == WinFormsArtifactKind.UserControl)
+        {
+            yield break;
+        }
+
+        foreach (var control in formModel.Controls.Values)
+        {
+            if (control.Events.Any(e => e.EventName == "Click")
+                || !control.Properties.TryGetValue("DialogResult", out var value)
+                || value is not PropertyValue.EnumMembers { MemberNames: [var resultName] }
+                || _controlMappings.Map(control).Status != MappingStatus.Direct)
+            {
+                continue;
+            }
+
+            var mapping = _eventMappings.ResolveControlEvent(control.ClrTypeName, "Click");
+            if (mapping.XamlAttributeName is null)
+            {
+                continue;
+            }
+
+            var methodName = $"{control.FieldName}_Click";
+            var closesWithSuccess = resultName is "OK" or "Yes";
+
+            yield return new CodeBehindHandlerPlan(
+                methodName,
+                mapping.AvaloniaEventArgsTypeName,
+                IsAsync: false,
+                methodName,
+                OriginalBody: "",
+                [new EventSubscriptionPlan(control.FieldName, control.ClrTypeName, "Click", mapping, methodName)],
+                RewrittenBody.Synthesized($"Close({(closesWithSuccess ? "true" : "false")});"));
+        }
+    }
+
+
+    private static HandlerSignature SignatureOf(CodeBehindHandlerPlan handler, CodeBehindModel codeBehind)
+    {
+        var source = codeBehind.FindHandler(handler.OriginalMethodName);
+        var controlFields = handler.Subscriptions
+            .Select(s => s.ControlFieldName)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        return new HandlerSignature(
+            source?.EventArgsParameterName,
+            handler.EventArgsTypeName,
+            controlFields is [{ } single] ? single : null);
+    }
+
 
     private static void AddBoundProperties(
         FormModel formModel,

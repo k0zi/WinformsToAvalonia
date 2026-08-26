@@ -183,14 +183,70 @@ public class HandlerBodyRewriterTests
         Assert.Equal([expected], result.MigratedStatements);
     }
 
+    /// <summary>Zero-argument control methods with an exact Avalonia equivalent.</summary>
+    [Theory]
+    [InlineData("TextBox", "Focus", "nameTextBox.Focus();")]
+    [InlineData("TextBox", "Select", "nameTextBox.Focus();")]
+    [InlineData("TextBox", "Clear", "nameTextBox.Clear();")]
+    [InlineData("TextBox", "SelectAll", "nameTextBox.SelectAll();")]
+    [InlineData("TextBox", "Invalidate", "nameTextBox.InvalidateVisual();")]
+    [InlineData("TextBox", "Refresh", "nameTextBox.InvalidateVisual();")]
+    [InlineData("Label", "Hide", "nameTextBox.IsVisible = false;")]
+    public void RewriteForView_ControlMethodWithAnExactEquivalent_IsTranslated(
+        string typeName, string methodName, string expected)
+    {
+        var form = FormWith(("nameTextBox", typeName));
+
+        var result = Rewriter.RewriteForView($"this.nameTextBox.{methodName}();", form);
+
+        Assert.Equal([expected], result.MigratedStatements);
+    }
+
+    /// <summary>`Clear` is a TextBox method; a Label has no such thing.</summary>
     [Fact]
-    public void RewriteForView_ControlFocus_IsTheSameCallOnTheSameField()
+    public void RewriteForView_TypeSpecificMethodOnTheWrongControl_IsNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView("this.statusLabel.Clear();", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A method with arguments is outside this table, which is zero-argument only.</summary>
+    [Fact]
+    public void RewriteForView_ControlMethodWithArguments_IsNotMigrated()
     {
         var form = FormWith(("nameTextBox", "TextBox"));
 
-        var result = Rewriter.RewriteForView("this.nameTextBox.Focus();", form);
+        var result = Rewriter.RewriteForView("this.nameTextBox.Select(0, 3);", form);
 
-        Assert.Equal(["nameTextBox.Focus();"], result.MigratedStatements);
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// RichTextBoxFallback derives from Avalonia's TextBox, so Clear() is a known fact - the same
+    /// rule that lets its Text be written.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_MethodOnAFallbackThatExposesIt_IsTranslated()
+    {
+        var form = FormWith(("notesRichTextBox", "RichTextBox"));
+
+        var result = Rewriter.RewriteForView("this.notesRichTextBox.Clear();", form);
+
+        Assert.Equal(["notesRichTextBox.Clear();"], result.MigratedStatements);
+    }
+
+    /// <summary>A component is not a control; nothing about it carries over.</summary>
+    [Fact]
+    public void RewriteForView_MethodOnANonVisualComponent_IsNotMigrated()
+    {
+        var form = FormWith(("clockTimer", "Timer"));
+
+        var result = Rewriter.RewriteForView("this.clockTimer.Refresh();", form);
+
+        Assert.Empty(result.MigratedStatements);
     }
 
     [Fact]
@@ -233,6 +289,189 @@ public class HandlerBodyRewriterTests
             "MessageBox.Show(\"Sure?\", \"Confirm\", MessageBoxButtons.YesNo);", FormWith());
 
         Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- Control flow --------------------------------------------------------------------
+
+    [Fact]
+    public void RewriteForView_IfWithATranslatableConditionAndBody_BecomesRealCode()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (string.IsNullOrWhiteSpace(this.nameTextBox.Text))
+            {
+                this.statusLabel.Text = "Name is required";
+            }
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                """
+                if (string.IsNullOrWhiteSpace((nameTextBox.Text ?? string.Empty)))
+                {
+                    statusLabel.Text = "Name is required";
+                }
+                """,
+            ],
+            result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    [Fact]
+    public void RewriteForView_IfElse_TranslatesBothBranches()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("agreeCheckBox", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.agreeCheckBox.Checked)
+            {
+                this.statusLabel.Text = "yes";
+            }
+            else
+            {
+                this.statusLabel.Text = "no";
+            }
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                """
+                if (agreeCheckBox.IsChecked)
+                {
+                    statusLabel.Text = "yes";
+                }
+                else
+                {
+                    statusLabel.Text = "no";
+                }
+                """,
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>`else if` stays an `else if` rather than becoming a nested braced block.</summary>
+    [Fact]
+    public void RewriteForView_ElseIfChain_KeepsItsShape()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("a", "CheckBox"), ("b", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.a.Checked)
+            {
+                this.statusLabel.Text = "a";
+            }
+            else if (this.b.Checked)
+            {
+                this.statusLabel.Text = "b";
+            }
+            """,
+            form);
+
+        Assert.Contains("else if (b.IsChecked)", Assert.Single(result.MigratedStatements));
+    }
+
+    /// <summary>Braces are added even where the original had none, so `else` cannot re-bind.</summary>
+    [Fact]
+    public void RewriteForView_BracelessIf_GetsBraces()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("agreeCheckBox", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            "if (this.agreeCheckBox.Checked) this.statusLabel.Text = \"yes\";", form);
+
+        Assert.Equal(
+            [
+                """
+                if (agreeCheckBox.IsChecked)
+                {
+                    statusLabel.Text = "yes";
+                }
+                """,
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The prefix rule stops at the top level only. Inside a branch it is all-or-nothing: the
+    /// un-migrated remainder is emitted *after* the whole statement, so a partly translated
+    /// branch would silently drop its own tail with nothing at that spot to say so.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_IfWhoseBranchIsOnlyPartlyTranslatable_IsNotMigratedAtAll()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("agreeCheckBox", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.agreeCheckBox.Checked)
+            {
+                this.statusLabel.Text = "yes";
+                PersistEverything();
+            }
+            """,
+            form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_IfWithAnUntranslatableCondition_IsNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("treeView1", "TreeView"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.treeView1.Nodes.Count > 0)
+            {
+                this.statusLabel.Text = "has nodes";
+            }
+            """,
+            form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_EarlyReturnInsideAnIf_IsTranslated()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (string.IsNullOrEmpty(this.nameTextBox.Text))
+            {
+                return;
+            }
+            """,
+            form);
+
+        Assert.Contains("return;", Assert.Single(result.MigratedStatements));
+    }
+
+    /// <summary>Anything a branch needs propagates out to the whole handler.</summary>
+    [Fact]
+    public void RewriteForView_MessageBoxInsideAnIf_MakesTheWholeHandlerAsync()
+    {
+        var form = FormWith(("agreeCheckBox", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.agreeCheckBox.Checked)
+            {
+                MessageBox.Show("Thanks");
+            }
+            """,
+            form);
+
+        Assert.True(result.RequiresAsync);
+        Assert.Contains("MessageBoxFallback", result.RequiredFallbackKeys);
+        Assert.Contains("await MessageBoxFallback.ShowAsync", Assert.Single(result.MigratedStatements));
     }
 
     // ---- Window navigation ---------------------------------------------------------------
@@ -283,17 +522,241 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// The shape most WinForms code actually uses. Avalonia's ShowDialog returns a Task whose
-    /// result is whatever the dialog passed to Close(), so translating the call without the
-    /// branch around it would silently change the control flow.
+    /// The shape most WinForms code actually uses. A converted dialog closes with a bool (see
+    /// FormMigrationPlanner.PlanDialogResultButtons), so the whole comparison collapses into the
+    /// awaited call.
     /// </summary>
     [Fact]
-    public void RewriteForView_ShowDialogInsideAnIfCondition_IsNotMigrated()
+    public void RewriteForView_ShowDialogComparedToOk_BecomesTheAwaitedCall()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (new SettingsForm().ShowDialog(this) == DialogResult.OK)
+            {
+                this.statusLabel.Text = "accepted";
+            }
+            """,
+            form,
+            Navigation());
+
+        Assert.Contains("if (await new SettingsView().ShowDialog<bool>(this))", Assert.Single(result.MigratedStatements));
+        Assert.True(result.RequiresAsync);
+        Assert.Contains("Demo.Views.Dialogs", result.RequiredUsings);
+    }
+
+    /// <summary>`== OK` and `!= Cancel` both mean "accepted"; the other two mean the opposite.</summary>
+    [Theory]
+    [InlineData("== DialogResult.OK", "await")]
+    [InlineData("!= DialogResult.Cancel", "await")]
+    [InlineData("== DialogResult.Cancel", "!await")]
+    [InlineData("!= DialogResult.OK", "!await")]
+    public void RewriteForView_DialogResultComparisons_AreNegatedCorrectly(string comparison, string expectedPrefix)
     {
         var result = Rewriter.RewriteForView(
-            "if (new SettingsForm().ShowDialog() == DialogResult.OK) { }", FormWith(), Navigation());
+            $"if (new SettingsForm().ShowDialog(this) {comparison}) {{ this.Close(); }}",
+            FormWith(),
+            Navigation());
+
+        Assert.Contains($"if ({expectedPrefix} new SettingsView()", Assert.Single(result.MigratedStatements));
+    }
+
+    [Fact]
+    public void RewriteForView_DialogResultComparisonOnALocal_IsTranslated()
+    {
+        var result = Rewriter.RewriteForView(
+            """
+            var dialog = new SettingsForm();
+            if (dialog.ShowDialog(this) == DialogResult.OK)
+            {
+                this.Close();
+            }
+            """,
+            FormWith(),
+            Navigation());
+
+        Assert.Equal(2, result.MigratedStatements.Count);
+        Assert.Contains("if (await dialog.ShowDialog<bool>(this))", result.MigratedStatements[1]);
+    }
+
+    /// <summary>
+    /// A three-way dialog cannot be expressed as a bool, and inventing a wider result type would
+    /// change what the converted dialog returns.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogResultComparedToYes_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "if (new SettingsForm().ShowDialog(this) == DialogResult.Yes) { }", FormWith(), Navigation());
 
         Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- Component file dialogs ----------------------------------------------------------
+
+    /// <summary>
+    /// The one translation that changes an expression's shape: Avalonia has no dialog object to
+    /// ask afterwards, so the picker's own return value becomes the selection - bound inline by a
+    /// list pattern so nothing has to be inserted before the `if`.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_OpenFileDialogBranch_BecomesAnInlinedPicker()
+    {
+        var form = FormWith(("openFileDialog1", "OpenFileDialog"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.statusLabel.Text = this.openFileDialog1.FileName;
+            }
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                """
+                if (await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions()) is [var openFileDialog1File, ..])
+                {
+                    statusLabel.Text = openFileDialog1File.Path.LocalPath;
+                }
+                """,
+            ],
+            result.MigratedStatements);
+        Assert.True(result.RequiresAsync);
+        Assert.Contains("Avalonia.Platform.Storage", result.RequiredUsings);
+        Assert.Contains("openFileDialog1", result.InlinedDialogFields);
+    }
+
+    /// <summary>The save picker returns a single nullable file, so it needs a different pattern.</summary>
+    [Fact]
+    public void RewriteForView_SaveFileDialogBranch_UsesTheSingleFilePattern()
+    {
+        var form = FormWith(("saveFileDialog1", "SaveFileDialog"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.saveFileDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.statusLabel.Text = this.saveFileDialog1.FileName;
+            }
+            """,
+            form);
+
+        Assert.Contains(
+            "if (await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions()) is { } saveFileDialog1File)",
+            Assert.Single(result.MigratedStatements));
+    }
+
+    [Fact]
+    public void RewriteForView_FolderBrowserBranch_TranslatesSelectedPath()
+    {
+        var form = FormWith(("folderBrowserDialog1", "FolderBrowserDialog"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.folderBrowserDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.statusLabel.Text = this.folderBrowserDialog1.SelectedPath;
+            }
+            """,
+            form);
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.Contains("OpenFolderPickerAsync(new FolderPickerOpenOptions()) is [var folderBrowserDialog1Folder, ..]", statement);
+        Assert.Contains("statusLabel.Text = folderBrowserDialog1Folder.Path.LocalPath;", statement);
+    }
+
+    /// <summary>The selection is a pattern variable scoped to the branch, not a lasting object.</summary>
+    [Fact]
+    public void RewriteForView_DialogPropertyReadAfterTheBranch_IsNotMigrated()
+    {
+        var form = FormWith(("openFileDialog1", "OpenFileDialog"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.statusLabel.Text = "picked";
+            }
+            this.statusLabel.Text = this.openFileDialog1.FileName;
+            """,
+            form);
+
+        Assert.Single(result.MigratedStatements);
+        Assert.Contains("openFileDialog1.FileName", result.RemainingBody);
+    }
+
+    /// <summary>An `else` runs when the user cancelled; it cannot see the selection.</summary>
+    [Fact]
+    public void RewriteForView_DialogBranchWithElse_TranslatesBothAndScopesTheSelection()
+    {
+        var form = FormWith(("openFileDialog1", "OpenFileDialog"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.statusLabel.Text = this.openFileDialog1.FileName;
+            }
+            else
+            {
+                this.statusLabel.Text = "cancelled";
+            }
+            """,
+            form);
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.Contains("openFileDialog1File.Path.LocalPath", statement);
+        Assert.Contains("statusLabel.Text = \"cancelled\";", statement);
+    }
+
+    /// <summary>ColorDialog and friends have no Avalonia equivalent at all.</summary>
+    [Fact]
+    public void RewriteForView_DialogWithNoAvaloniaEquivalent_IsNotMigrated()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            "if (this.colorDialog1.ShowDialog(this) == DialogResult.OK) { this.panel1.Visible = true; }",
+            form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>Multi-select has no single path to bind, so the whole branch is left alone.</summary>
+    [Fact]
+    public void RewriteForView_DialogFileNamesCollection_IsNotMigrated()
+    {
+        var form = FormWith(("openFileDialog1", "OpenFileDialog"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.statusLabel.Text = this.openFileDialog1.FileNames[0];
+            }
+            """,
+            form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A failed statement must not leave the method marked async: the requirements an expression
+    /// records are rolled back with it.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogComparisonInsideAnUntranslatableStatement_LeavesNoAsyncBehind()
+    {
+        var result = Rewriter.RewriteForView(
+            "var accepted = new SettingsForm().ShowDialog(this) == DialogResult.Yes;",
+            FormWith(),
+            Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+        Assert.False(result.RequiresAsync);
     }
 
     /// <summary>A converted UserControl is not a Window, so it cannot own a modal dialog.</summary>
@@ -338,17 +801,57 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// A fallback control is one of this tool's own templates and does not necessarily expose
-    /// the property the catalog names - the same reasoning that stops it being event-wired.
+    /// A fallback control only exposes what its bundled template demonstrably has -
+    /// StatusStripFallback is a StackPanel, so a catalog property on it stays un-migrated.
     /// </summary>
     [Fact]
-    public void RewriteForView_PropertyOnAFallbackMappedControl_IsNotMigrated()
+    public void RewriteForView_PropertyOnAFallbackThatDoesNotExposeIt_IsNotMigrated()
     {
         var form = FormWith(("statusStrip1", "StatusStrip"));
 
         var result = Rewriter.RewriteForView("this.statusStrip1.Visible = false;", form);
 
         Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// RichTextBoxFallback derives from Avalonia's TextBox, so its Text is a known fact rather
+    /// than a guess - and these templates ship in this repo, which is what makes that checkable.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_PropertyOnAFallbackThatExposesIt_IsMigrated()
+    {
+        var form = FormWith(("notesRichTextBox", "RichTextBox"), ("maskedTextBox1", "MaskedTextBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.notesRichTextBox.Text = "hello";
+            this.maskedTextBox1.Text = this.notesRichTextBox.Text;
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                "notesRichTextBox.Text = \"hello\";",
+                "maskedTextBox1.Text = (notesRichTextBox.Text ?? string.Empty);",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>The ToolStrip items are Direct-mapped, so their values were always reachable in principle.</summary>
+    [Theory]
+    [InlineData("ToolStripStatusLabel", "Text = \"busy\"", "field1.Text = \"busy\";")]
+    [InlineData("ToolStripButton", "Text = \"Go\"", "field1.Content = \"Go\";")]
+    [InlineData("ToolStripMenuItem", "Text = \"File\"", "field1.Header = \"File\";")]
+    [InlineData("ToolStripMenuItem", "Checked = true", "field1.IsChecked = true;")]
+    [InlineData("ToolStripProgressBar", "Value = 40", "field1.Value = 40;")]
+    public void RewriteForView_ToolStripItemProperties_AreTranslated(string typeName, string assignment, string expected)
+    {
+        var form = FormWith(("field1", typeName));
+
+        var result = Rewriter.RewriteForView($"this.field1.{assignment};", form);
+
+        Assert.Equal([expected], result.MigratedStatements);
     }
 
     [Fact]
@@ -359,14 +862,485 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
-    [Fact]
-    public void RewriteForView_LocalVariableDeclaration_IsNotMigrated()
-    {
-        var form = FormWith(("label1", "Label"));
+    // ---- EventArgs -----------------------------------------------------------------------
 
-        var result = Rewriter.RewriteForView("var text = label1.Text;", form);
+    /// <summary>Avalonia spells these exactly as WinForms did, so the member passes through.</summary>
+    [Theory]
+    [InlineData("ScrollEventArgs", "NewValue")]
+    [InlineData("RangeBaseValueChangedEventArgs", "NewValue")]
+    public void RewriteForView_EventArgsMemberAvaloniaSpellsTheSame_PassesThrough(string argsType, string member)
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            $"this.statusLabel.Text = e.{member}.ToString();",
+            form,
+            navigation: null,
+            new HandlerSignature("e", argsType, "trackBar1"));
+
+        Assert.Equal([$"statusLabel.Text = e.{member}.ToString();"], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// WinForms' e.X/e.Y are relative to the control that raised the event - which is exactly
+    /// what Avalonia's GetPosition takes.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_PointerCoordinates_BecomeGetPositionOnTheRaisingControl()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("canvas", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = $\"{e.X},{e.Y}\";",
+            form,
+            navigation: null,
+            new HandlerSignature("e", "PointerPressedEventArgs", "canvas"));
+
+        Assert.Equal(
+            ["statusLabel.Text = $\"{e.GetPosition(canvas).X},{e.GetPosition(canvas).Y}\";"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>A shared handler has no single raising control, so there is no exact answer.</summary>
+    [Fact]
+    public void RewriteForView_PointerCoordinatesOnASharedHandler_AreNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = e.X.ToString();",
+            form,
+            navigation: null,
+            new HandlerSignature("e", "PointerPressedEventArgs", SourceControlFieldName: null));
 
         Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>An args type that is plain .NET reached the generated project untouched.</summary>
+    [Fact]
+    public void RewriteForView_MemberOfAnUnchangedArgsType_PassesThrough()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = e.FullPath;",
+            form,
+            navigation: null,
+            new HandlerSignature("e", "FileSystemEventArgs", "watcher1"));
+
+        Assert.Equal(["statusLabel.Text = e.FullPath;"], result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_AssignmentToAnEventArgsMember_IsTranslated()
+    {
+        var result = Rewriter.RewriteForView(
+            "e.Cancel = true;",
+            FormWith(),
+            navigation: null,
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldName: null));
+
+        Assert.Equal(["e.Cancel = true;"], result.MigratedStatements);
+    }
+
+    /// <summary>A computed translation is a read; there is nothing to assign to.</summary>
+    [Fact]
+    public void RewriteForView_AssignmentToAComputedEventArgsMember_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "e.X = 5;",
+            FormWith(("canvas", "Panel")),
+            navigation: null,
+            new HandlerSignature("e", "PointerPressedEventArgs", "canvas"));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Avalonia reports a grid cell through an object rather than an index pair, so there is no
+    /// exact answer and the member is left for a human.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_EventArgsMemberWithNoExactEquivalent_IsNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("grid1", "DataGridView"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = e.RowIndex.ToString();",
+            form,
+            navigation: null,
+            new HandlerSignature("e", "DataGridCellPointerPressedEventArgs", "grid1"));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Plain <c>EventArgs</c> is the fallback the planner uses when an event has no Avalonia
+    /// equivalent, so it means "unknown type" - while the original body is reaching for members
+    /// of the richer WinForms args type it was written against. Treating it as pass-through
+    /// emitted `e.ProgressPercentage` on a parameter declared `EventArgs`, which does not compile.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_MemberOnPlainEventArgs_IsNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = e.ProgressPercentage.ToString();",
+            form,
+            navigation: null,
+            new HandlerSignature("e", "EventArgs", "worker1"));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>Without signature information nothing about `e` can be resolved.</summary>
+    [Fact]
+    public void RewriteForView_WithoutAHandlerSignature_EventArgsMembersAreNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView("this.statusLabel.Text = e.FullPath;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- Loops ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// The loop variable is a plain value for the same reason any other local is: the collection
+    /// expression had to translate, so it is a BCL value and so are its elements.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ForEach_TranslatesCollectionAndBody()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            foreach (var letter in this.nameTextBox.Text)
+            {
+                this.statusLabel.Text = letter.ToString();
+            }
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                """
+                foreach (var letter in (nameTextBox.Text ?? string.Empty))
+                {
+                    statusLabel.Text = letter.ToString();
+                }
+                """,
+            ],
+            result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_ForLoop_TranslatesHeaderAndBody()
+    {
+        var form = FormWith(("progressBar1", "ProgressBar"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            for (var i = 0; i <= 100; i += 10)
+            {
+                this.progressBar1.Value = i;
+            }
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                """
+                for (var i = 0; i <= 100; i += 10)
+                {
+                    progressBar1.Value = i;
+                }
+                """,
+            ],
+            result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_ForLoopWithPostfixIncrement_IsTranslated()
+    {
+        var form = FormWith(("progressBar1", "ProgressBar"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            for (int i = 0; i < 10; i++)
+            {
+                this.progressBar1.Value = i;
+            }
+            """,
+            form);
+
+        Assert.Contains("for (int i = 0; i < 10; i++)", Assert.Single(result.MigratedStatements));
+    }
+
+    [Fact]
+    public void RewriteForView_While_TranslatesConditionAndBody()
+    {
+        var form = FormWith(("progressBar1", "ProgressBar"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var i = 0;
+            while (i < 10)
+            {
+                this.progressBar1.Value = i;
+                i++;
+            }
+            """,
+            form);
+
+        Assert.Equal(2, result.MigratedStatements.Count);
+        Assert.Contains("while (i < 10)", result.MigratedStatements[1]);
+        Assert.Contains("i++;", result.MigratedStatements[1]);
+    }
+
+    /// <summary>All-or-nothing inside the body, exactly as in an `if` branch.</summary>
+    [Fact]
+    public void RewriteForView_LoopWhoseBodyIsOnlyPartlyTranslatable_IsNotMigratedAtAll()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            foreach (var letter in this.nameTextBox.Text)
+            {
+                this.statusLabel.Text = letter.ToString();
+                PersistEverything();
+            }
+            """,
+            form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_LoopVariable_DoesNotLeakPastTheLoop()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            foreach (var letter in this.nameTextBox.Text)
+            {
+                this.statusLabel.Text = letter.ToString();
+            }
+            this.statusLabel.Text = letter.ToString();
+            """,
+            form);
+
+        Assert.Single(result.MigratedStatements);
+        Assert.Contains("letter.ToString()", result.RemainingBody);
+    }
+
+    [Fact]
+    public void RewriteForView_ForEachOverAnUntranslatableCollection_IsNotMigrated()
+    {
+        var form = FormWith(("treeView1", "TreeView"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            foreach (var node in this.treeView1.Nodes)
+            {
+                this.statusLabel.Text = "x";
+            }
+            """,
+            form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- Local variables -----------------------------------------------------------------
+
+    [Fact]
+    public void RewriteForView_LocalDeclarationAndUse_AreBothTranslated()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var name = this.nameTextBox.Text;
+            this.statusLabel.Text = name;
+            """,
+            form);
+
+        Assert.Equal(
+            ["var name = (nameTextBox.Text ?? string.Empty);", "statusLabel.Text = name;"],
+            result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>
+    /// A translatable initializer can only produce a plain .NET value, so members of the local
+    /// are plain .NET too - the same argument that allows members of a control property.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_MemberOfALocal_IsTranslated()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var name = this.nameTextBox.Text;
+            this.statusLabel.Text = name.Trim().ToUpper();
+            """,
+            form);
+
+        Assert.Equal("statusLabel.Text = name.Trim().ToUpper();", result.MigratedStatements[1]);
+    }
+
+    [Fact]
+    public void RewriteForView_ExplicitKeywordType_IsKept()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView("string name = this.nameTextBox.Text;", form);
+
+        Assert.Equal(["string name = (nameTextBox.Text ?? string.Empty);"], result.MigratedStatements);
+    }
+
+    /// <summary>A named type could be a WinForms type whose translation is a different type entirely.</summary>
+    [Fact]
+    public void RewriteForView_ExplicitNamedType_IsNotMigrated()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView("StringBuilder name = this.nameTextBox.Text;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_LocalWithAnUntranslatableInitializer_IsNotMigrated()
+    {
+        var form = FormWith(("treeView1", "TreeView"));
+
+        var result = Rewriter.RewriteForView("var count = this.treeView1.Nodes.Count;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The statements that would have used it are exactly the ones that did not translate, so a
+    /// local stranded at the end of a partial prefix is dead - and a constant one would be CS0219.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_LocalStrandedAtTheEndOfAPartialPrefix_IsDropped()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.statusLabel.Text = "Working";
+            var attempts = 0;
+            PersistEverything();
+            """,
+            form);
+
+        Assert.Equal(["statusLabel.Text = \"Working\";"], result.MigratedStatements);
+        Assert.Contains("var attempts = 0;", result.RemainingBody);
+    }
+
+    [Fact]
+    public void RewriteForView_LocalDeclaredInsideABranch_DoesNotLeakPastIt()
+    {
+        var form = FormWith(("agreeCheckBox", "CheckBox"), ("statusLabel", "Label"), ("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.agreeCheckBox.Checked)
+            {
+                var name = this.nameTextBox.Text;
+                this.statusLabel.Text = name;
+            }
+            this.statusLabel.Text = name;
+            """,
+            form);
+
+        // The `if` translates; the trailing use of the now-out-of-scope local does not.
+        Assert.Single(result.MigratedStatements);
+        Assert.Contains("this.statusLabel.Text = name;", result.RemainingBody);
+    }
+
+    [Fact]
+    public void RewriteForView_ConstLocal_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView("const int limit = 5;", FormWith());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_LocalHoldingAConvertedForm_OpensItThroughTheView()
+    {
+        var result = Rewriter.RewriteForView(
+            """
+            var dialog = new SettingsForm();
+            dialog.ShowDialog(this);
+            """,
+            FormWith(),
+            Navigation());
+
+        Assert.Equal(
+            ["var dialog = new SettingsView();", "await dialog.ShowDialog(this);"],
+            result.MigratedStatements);
+        Assert.True(result.RequiresAsync);
+        Assert.Contains("Demo.Views.Dialogs", result.RequiredUsings);
+    }
+
+    /// <summary>An Avalonia Window is not IDisposable, so there is no disposal to preserve.</summary>
+    [Fact]
+    public void RewriteForView_UsingVarHoldingAConvertedForm_DropsTheUsing()
+    {
+        var result = Rewriter.RewriteForView(
+            """
+            using var dialog = new SettingsForm();
+            dialog.ShowDialog(this);
+            """,
+            FormWith(),
+            Navigation());
+
+        Assert.Equal("var dialog = new SettingsView();", result.MigratedStatements[0]);
+    }
+
+    /// <summary>On anything else a `using` would be discarding a real Dispose call.</summary>
+    [Fact]
+    public void RewriteForView_UsingVarOnANonFormInitializer_IsNotMigrated()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView("using var name = this.nameTextBox.Text;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A View is something you open, not a value to read members off - so the read stops the
+    /// prefix, and the declaration above it is then stranded and dropped with it.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_FormViewLocalUsedAsAValue_StopsThePrefixAtTheDeclaration()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.statusLabel.Text = "before";
+            var dialog = new SettingsForm();
+            this.statusLabel.Text = dialog.Text;
+            """,
+            form,
+            Navigation());
+
+        Assert.Equal(["statusLabel.Text = \"before\";"], result.MigratedStatements);
+        Assert.Contains("var dialog = new SettingsForm();", result.RemainingBody);
+        Assert.Contains("dialog.Text", result.RemainingBody);
     }
 
     [Fact]

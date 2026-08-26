@@ -218,9 +218,11 @@ to the generated `MigrationTodo.NotMigrated(...)` marker. What gets translated t
 reads of bindable control properties (`label1.Text`, `checkBox1.Checked`, `Enabled`, `Visible`, …),
 `Close()`/`Show()`/`Hide()`, `control.Focus()`, `MessageBox.Show(...)` (via a bundled fallback
 dialog, which makes the handler `async`), `Application.Exit()`, opening another converted Form
-(`new SettingsForm().ShowDialog()` → `await new SettingsView().ShowDialog(this)`), and any
-plain-.NET expression around them — interpolated strings included. Anything else — control APIs with no Avalonia counterpart, helper calls, locals, control flow
-— stops the translation, and **translation stops at the first statement it cannot handle** so the
+(`new SettingsForm().ShowDialog()` → `await new SettingsView().ShowDialog(this)`, including the
+`== DialogResult.OK` branch — the converted dialog is given the matching `Close(true/false)`), and
+any plain-.NET expression around them — interpolated strings included. Anything else — control APIs
+with no Avalonia counterpart, helper calls, non-visual components — stops the translation. `if`/`else` and `foreach`/`for`/`while` come across when their condition
+*and their whole body* translate, all-or-nothing, and local variables when their initializer does. **Translation stops at the first statement it cannot handle** so the
 emitted prefix is a faithful partial execution rather than a method that silently skips work.
 
 A promoted `[RelayCommand]` almost always translates *completely*: promotion already proved every

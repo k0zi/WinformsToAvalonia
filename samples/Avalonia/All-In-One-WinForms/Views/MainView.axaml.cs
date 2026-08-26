@@ -1,11 +1,11 @@
 using System;
-using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.Controls.Primitives;
+using All_In_One_WinForms.Views.Forms;
+using Avalonia.Platform.Storage;
 using All_In_One_WinForms.Generated;
 using All_In_One_WinForms.ViewModels;
 
@@ -62,24 +62,18 @@ public partial class MainView : Window
 
     private void newMenuItem_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'newMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.titleTextBox.Clear();
-        this.notesRichTextBox.Clear();
-        this.statusLabel.Text = "New document";
-        */
-        MigrationTodo.NotMigrated(nameof(newMenuItem_Click), "newMenuItem_Click");
+        titleTextBox.Clear();
+        notesRichTextBox.Clear();
+        statusLabel.Text = "New document";
     }
 
-    private void openMenuItem_Click(object? sender, RoutedEventArgs e)
+    private async void openMenuItem_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'openMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+        if (await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions()) is [var openFileDialog1File, ..])
         {
-            this.notesRichTextBox.Text = File.ReadAllText(this.openFileDialog1.FileName);
-            this.statusLabel.Text = this.openFileDialog1.FileName;
+            notesRichTextBox.Text = File.ReadAllText(openFileDialog1File.Path.LocalPath);
+            statusLabel.Text = openFileDialog1File.Path.LocalPath;
         }
-        */
-        MigrationTodo.NotMigrated(nameof(openMenuItem_Click), "openMenuItem_Click");
     }
 
     private void exitMenuItem_Click(object? sender, RoutedEventArgs e)
@@ -95,22 +89,10 @@ public partial class MainView : Window
         MigrationTodo.NotMigrated(nameof(wordWrapMenuItem_Click), "wordWrapMenuItem_Click");
     }
 
-    private void aboutMenuItem_Click(object? sender, RoutedEventArgs e)
+    private async void aboutMenuItem_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'aboutMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        using var dialog = new DialogForm();
-        dialog.ShowDialog(this);
-        */
-        MigrationTodo.NotMigrated(nameof(aboutMenuItem_Click), "aboutMenuItem_Click");
-    }
-
-    private void toolStripNewButton_Click(object? sender, RoutedEventArgs e)
-    {
-        /* ORIGINAL WINFORMS BODY of 'toolStripNewButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.toolStripProgressBar1.Value = Math.Min(100, this.toolStripProgressBar1.Value + 10);
-        this.statusLabel.Text = "Toolbar: new";
-        */
-        MigrationTodo.NotMigrated(nameof(toolStripNewButton_Click), "toolStripNewButton_Click");
+        var dialog = new DialogView();
+        await dialog.ShowDialog(this);
     }
 
     private void tabControl1_SelectedIndexChanged(object? sender, SelectionChangedEventArgs e)
@@ -164,10 +146,7 @@ public partial class MainView : Window
 
     private void itemsListBox_SelectedIndexChanged(object? sender, SelectionChangedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'itemsListBox_SelectedIndexChanged' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.statusLabel.Text = $"Selected: {this.itemsListBox.SelectedItem}";
-        */
-        MigrationTodo.NotMigrated(nameof(itemsListBox_SelectedIndexChanged), "itemsListBox_SelectedIndexChanged");
+        statusLabel.Text = $"Selected: {itemsListBox.SelectedItem}";
     }
 
     private void refreshButton_Click(object? sender, RoutedEventArgs e)
@@ -211,18 +190,12 @@ public partial class MainView : Window
 
     private void pictureBox1_Click(object? sender, PointerPressedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'pictureBox1_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.pictureBox1.Invalidate();
-        */
-        MigrationTodo.NotMigrated(nameof(pictureBox1_Click), "pictureBox1_Click");
+        pictureBox1.InvalidateVisual();
     }
 
     private void pictureBox1_MouseDown(object? sender, PointerPressedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'pictureBox1_MouseDown' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.statusLabel.Text = $"Mouse down at {e.X},{e.Y}";
-        */
-        MigrationTodo.NotMigrated(nameof(pictureBox1_MouseDown), "pictureBox1_MouseDown");
+        statusLabel.Text = $"Mouse down at {e.GetPosition(pictureBox1).X},{e.GetPosition(pictureBox1).Y}";
     }
 
     private void pictureBox1_Paint(object? sender, EventArgs e)
@@ -242,43 +215,31 @@ public partial class MainView : Window
 
     private void hScrollBar1_Scroll(object? sender, ScrollEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'hScrollBar1_Scroll' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.statusLabel.Text = $"Scrolled to {e.NewValue}";
-        */
-        MigrationTodo.NotMigrated(nameof(hScrollBar1_Scroll), "hScrollBar1_Scroll");
+        statusLabel.Text = $"Scrolled to {e.NewValue}";
     }
 
-    private void openFileButton_Click(object? sender, RoutedEventArgs e)
+    private async void openFileButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'openFileButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.openFileDialog1.ShowDialog(this) == DialogResult.OK)
+        if (await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions()) is [var openFileDialog1File, ..])
         {
-            this.selectedPathLabel.Text = this.openFileDialog1.FileName;
+            selectedPathLabel.Text = openFileDialog1File.Path.LocalPath;
         }
-        */
-        MigrationTodo.NotMigrated(nameof(openFileButton_Click), "openFileButton_Click");
     }
 
-    private void saveFileButton_Click(object? sender, RoutedEventArgs e)
+    private async void saveFileButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'saveFileButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.saveFileDialog1.ShowDialog(this) == DialogResult.OK)
+        if (await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions()) is { } saveFileDialog1File)
         {
-            this.selectedPathLabel.Text = this.saveFileDialog1.FileName;
+            selectedPathLabel.Text = saveFileDialog1File.Path.LocalPath;
         }
-        */
-        MigrationTodo.NotMigrated(nameof(saveFileButton_Click), "saveFileButton_Click");
     }
 
-    private void folderBrowserButton_Click(object? sender, RoutedEventArgs e)
+    private async void folderBrowserButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'folderBrowserButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.folderBrowserDialog1.ShowDialog(this) == DialogResult.OK)
+        if (await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions()) is [var folderBrowserDialog1Folder, ..])
         {
-            this.selectedPathLabel.Text = this.folderBrowserDialog1.SelectedPath;
+            selectedPathLabel.Text = folderBrowserDialog1Folder.Path.LocalPath;
         }
-        */
-        MigrationTodo.NotMigrated(nameof(folderBrowserButton_Click), "folderBrowserButton_Click");
     }
 
     private void colorButton_Click(object? sender, RoutedEventArgs e)
@@ -513,15 +474,6 @@ public partial class MainView : Window
         MigrationTodo.NotMigrated(nameof(notifyIcon1_DoubleClick), "notifyIcon1_DoubleClick");
     }
 
-    private void copyContextMenuItem_Click(object? sender, RoutedEventArgs e)
-    {
-        /* ORIGINAL WINFORMS BODY of 'copyContextMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        Clipboard.SetText(this.contextPanelLabel.Text);
-        this.statusLabel.Text = "Copied";
-        */
-        MigrationTodo.NotMigrated(nameof(copyContextMenuItem_Click), "copyContextMenuItem_Click");
-    }
-
     private void openDialogFormButton_Click(object? sender, RoutedEventArgs e)
     {
         /* ORIGINAL WINFORMS BODY of 'openDialogFormButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
@@ -550,27 +502,6 @@ public partial class MainView : Window
         this.advancedInfoLabel.Text = $"DemoComponent ticks: {this.demoComponent1.TickCount}";
         */
         MigrationTodo.NotMigrated(nameof(demoComponent1_Ticked), "demoComponent1_Ticked");
-    }
-
-    /// <summary>Avalonia replacement for the WinForms 'openFileDialog1.ShowDialog()' call. Call this from the handler that used to open it.</summary>
-    private async Task ShowOpenFileDialog1Async()
-    {
-        var result = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions());
-        throw new NotImplementedException("TODO(Winforms2Avalonia): migrate the logic that used to run after 'openFileDialog1.ShowDialog()' here, using 'result'.");
-    }
-
-    /// <summary>Avalonia replacement for the WinForms 'saveFileDialog1.ShowDialog()' call. Call this from the handler that used to open it.</summary>
-    private async Task ShowSaveFileDialog1Async()
-    {
-        var result = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions());
-        throw new NotImplementedException("TODO(Winforms2Avalonia): migrate the logic that used to run after 'saveFileDialog1.ShowDialog()' here, using 'result'.");
-    }
-
-    /// <summary>Avalonia replacement for the WinForms 'folderBrowserDialog1.ShowDialog()' call. Call this from the handler that used to open it.</summary>
-    private async Task ShowFolderBrowserDialog1Async()
-    {
-        var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions());
-        throw new NotImplementedException("TODO(Winforms2Avalonia): migrate the logic that used to run after 'folderBrowserDialog1.ShowDialog()' here, using 'result'.");
     }
 
     /* ORIGINAL WINFORMS MEMBERS - NOT COMPILED, PRESERVED FOR MANUAL MIGRATION

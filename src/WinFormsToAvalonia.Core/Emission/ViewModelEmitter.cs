@@ -94,7 +94,8 @@ public sealed class ViewModelEmitter
 
             foreach (var statement in rewrite?.MigratedStatements ?? [])
             {
-                Line($"        {statement}");
+                // Indent every line, not just the first: a translated `if` spans several.
+                Line(Indent(statement, "        "));
             }
 
             var remaining = rewrite?.RemainingBody ?? command.OriginalBody;

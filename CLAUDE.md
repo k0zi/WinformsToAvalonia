@@ -69,7 +69,16 @@ single orchestrator — read it first, every stage below is a field on it:
    `AvaloniaItemsSupport` which targets accept literal item children — both keyed on the Avalonia
    element, not the WinForms type. **Adding a mapper with a new target element means adding it to
    those tables too**, or that element silently gets no styling (and its designer-declared items
-   are reported as un-emitted).
+   are reported as un-emitted). `FallbackControlMemberSupport` is the third: which catalog
+   members each *bundled template* really exposes, which is what lets a fallback be written to or
+   called at all. Two more feed `HandlerBodyRewriter`: `ControlMethodCatalog` (zero-argument
+   control methods with an exact equivalent — the method-level counterpart of
+   `BindablePropertyCatalog`) and `EventArgsMemberCatalog` (what a handler's `e.X`/`e.Cancel` mean
+   on the Avalonia side — the member-level counterpart of `EventMappingRegistry`).
+   `FileDialogCatalog` rounds it out: the three WinForms file dialogs and their `StorageProvider`
+   replacements, used both to emit a picker method and to inline one into a handler. `BindablePropertyCatalog` and the mappers name the same Avalonia property from two
+   places — `BindablePropertyCatalogTests` asserts they agree, because a disagreement is a build
+   error in the **generated** project, which this repo's own build cannot catch.
 3. **Planning** — `FormMigrationPlanner.Plan(formModel, codeBehind)` produces one
    `FormMigrationPlan` per Form, and all three emitters consume that same plan so they cannot
    disagree about where a handler landed. This is where the strict "code-behind by default,

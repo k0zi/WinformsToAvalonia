@@ -25,12 +25,17 @@ namespace FormNavigationApp
             new SettingsForm().Show();
         }
 
-        // The shape that is deliberately left alone: the result drives a branch.
+        // The result drives a branch - which works because the converted dialog closes with a
+        // bool, synthesized from its designer-set DialogResult buttons.
         private void confirmButton_Click(object sender, EventArgs e)
         {
             if (new SettingsForm().ShowDialog(this) == DialogResult.OK)
             {
                 this.statusLabel.Text = "Confirmed";
+            }
+            else
+            {
+                this.statusLabel.Text = "Cancelled";
             }
         }
     }

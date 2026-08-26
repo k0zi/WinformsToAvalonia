@@ -80,12 +80,14 @@ contributors know what to expect and where to look before filing a duplicate iss
   TODO, because Avalonia resolves `TrayIcon.Icon` at run time: referencing an asset the
   conversion cannot produce builds fine and then throws `FileNotFoundException` out of
   `App.Initialize()`, before any window opens.
-- **File dialogs** (`OpenFileDialog`/`SaveFileDialog`/`FolderBrowserDialog`/`ColorDialog`/
-  `FontDialog`/print-related dialogs) have `Unsupported` (guidance-only) mapping entries, not
-  working ones. Avalonia's replacement (`TopLevel.StorageProvider`, for the file pickers) is
-  an async API called from code, not a control - wiring it up needs real ViewModel code
-  generation, not a XAML element mapping. The others (`ColorDialog`, `FontDialog`,
-  `PrintDialog`, ...) have no Avalonia built-in equivalent at all.
+- **File dialogs** have `Unsupported` (guidance-only) *mapping* entries, because Avalonia's
+  replacement is an async API called from code, not a control - but the feature works. The
+  `if (openFileDialog1.ShowDialog(this) == DialogResult.OK) { ... openFileDialog1.FileName ... }`
+  shape is translated **inline** into the picker call (see the handler-body notes below), and a
+  dialog opened that way gets no separate method, since nothing would call it. A dialog the
+  conversion could not inline still gets its `Show...Async()` helper to call by hand.
+  `ColorDialog`, `FontDialog` and the print dialogs have no Avalonia built-in equivalent at all
+  and stay guidance-only.
 - **Non-visual components** (`BackgroundWorker`, `BindingSource`, `Timer`, `ImageList`,
   dialogs, ...) are collected into `FormModel.Components` by `ControlGraphBuilder` (anything
   never `Controls.Add`-ed) and are run through `ControlMappingRegistry.Map` by
@@ -173,22 +175,78 @@ rule itself; what follows is what the rule does *not* cover yet.
   - anything else in the expression that is plain .NET (`int.Parse`, `string.Empty`,
     `Math`/`Convert`/`DateTime` statics, literals, operators), including **interpolated strings** -
     every hole is translated like any other expression, and one un-translatable hole rejects the
-    whole string rather than producing a half-converted message.
+    whole string rather than producing a half-converted message;
+  - **`if`/`else`** (and a bare `return;`), when the condition *and every branch* translate.
+    Braces are always emitted, even where the original had none, so a rewritten branch can never
+    change what an `else` binds to; `else if` keeps its shape rather than becoming a nested block;
+  - **`EventArgs` members**, through `Mapping/EventArgsMemberCatalog`. Three kinds show up and
+    only two are translated: a member Avalonia's own args type spells identically (`Cancel` on
+    `WindowClosingEventArgs`, `NewValue` on `ScrollEventArgs`), and a member of an args type that
+    is plain .NET and reached the generated project untouched (`FileSystemEventArgs`, the
+    BackgroundWorker ones). The pointer position is the one genuinely *translated* member -
+    WinForms' `e.X`/`e.Y` are relative to the control that raised the event, which is exactly
+    what `GetPosition(control)` takes, so it needs a handler wired to exactly one control.
+    Anything with no exact answer (`DataGridViewCellEventArgs.RowIndex`, whose Avalonia
+    counterpart reports a cell object rather than an index pair) is left for a human, and so is
+    `sender` - casting it correctly needs the Avalonia element type, not the WinForms one.
 
-  Everything outside that list stops the translation, including: local variable declarations,
-  `if`/`foreach`/`try` and any other non-expression statement, calls to code-behind helpers,
+    Plain `EventArgs` is deliberately **not** treated as pass-through: it is the fallback the
+    planner uses when an event has no Avalonia equivalent, so it means "unknown type", and the
+    body will be reaching for members of the richer WinForms type it was written against;
+  - **`foreach`/`for`/`while`**, when the collection/header *and the whole body* translate. The
+    loop variable is scoped to the loop, and `i++`/`i += n` on a local are translated (a local
+    holds a plain .NET value, so any operator on it is ordinary .NET). A `for` with a
+    comma-separated initializer list is refused;
+  - **local variables**, declared `var` or with a keyword type, when the initializer translates.
+    Members of a local are then allowed for the same reason members of a control property are: a
+    translatable initializer can only produce a plain .NET value. Locals are block-scoped, so one
+    declared inside an `if` branch cannot be used after it. `var dialog = new SomeForm();`
+    declares a *View* rather than a value - only the navigation calls accept it - and a
+    `using var` on that shape drops the `using`, since an Avalonia Window is not IDisposable and
+    there is no disposal to preserve. A `using` on anything else is refused rather than silently
+    dropped. `const` locals are not translated.
+
+  Everything outside that list stops the translation, including: `switch`, `try`/`catch`,
+  `do`/`while`, `lock`, `using` blocks, calls to code-behind helpers,
   control APIs with no bindable counterpart (`treeView1.Nodes.Add`), properties on
   *fallback*-mapped controls, `DialogResult`, and unrecognized static receivers
   (`Clipboard`, `Cursor`, ...). The `MessageBox.Show` overloads that take buttons or icons are
   deliberately excluded: they return a `DialogResult` the caller branches on.
 
-  Navigation has two further gaps, both for the same reason - the result would have to be
-  reasoned about, not just re-spelled:
-  - `if (new SettingsForm().ShowDialog() == DialogResult.OK) { ... }`, the shape most WinForms
-    code actually uses. Avalonia's `ShowDialog` returns a `Task<T>` whose result is whatever the
-    dialog passed to `Close(result)`, and the converted dialog does not pass one yet, so
-    translating the call without the branch would silently change the control flow.
-  - `var dialog = new SettingsForm(); dialog.ShowDialog();` - locals are not supported at all.
+  **The dialog-result contract.** `if (new SettingsForm().ShowDialog(this) == DialogResult.OK)`
+  translates to `if (await new SettingsView().ShowDialog<bool>(this))`, because both halves are
+  generated together:
+  - on the **dialog** side, a control the designer gave a `DialogResult` and no Click handler
+    gets one synthesized that calls `Close(true)` (OK/Yes) or `Close(false)`. That is WinForms'
+    one piece of designer-declared behaviour - such a button closes its form with no handler
+    existing - and Avalonia has nothing equivalent, so it has to become real code. Skipped when
+    the designer wired a Click handler of its own, since prepending a Close would change what
+    that handler does, and on a UserControl, which has no window to close;
+  - on the **caller** side, `== DialogResult.OK` and `!= DialogResult.Cancel` become the awaited
+    call, the other two its negation. Only OK and Cancel: a three-way Yes/No/Cancel dialog cannot
+    be expressed as a `bool`, and widening the result type would change what every converted
+    dialog returns. A dialog closed by its title bar yields `default(bool)` - false - which is
+    what WinForms reports for that case too.
+
+  Not covered: `this.DialogResult = ...;` assigned inside a handler - a Form member, so the
+  handler stays in code-behind with its body commented.
+
+  **Component file dialogs** look identical at the call site but are not Forms, and take a
+  different route: `if (openFileDialog1.ShowDialog(this) == DialogResult.OK)` becomes
+  `if (await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions()) is [var f, ..])`,
+  and `openFileDialog1.FileName` inside that branch becomes `f.Path.LocalPath`. This is the one
+  translation that changes an expression's *shape* rather than re-spelling it: Avalonia has no
+  dialog object to ask afterwards, so the picker's return value *is* the selection. A list
+  pattern keeps it inline, which also scopes the binding to exactly the branch that used to read
+  the dialog. `SaveFileDialog` returns a single nullable file and uses `is { } f` instead.
+  What is *not* covered there:
+  - the designer's `Filter`/`InitialDirectory`: the picker is opened with default options,
+    because parsing a WinForms filter string (`"Text|*.txt|All|*.*"`) into `FileTypeFilter`
+    entries and getting it subtly wrong is worse than leaving it out;
+  - `FileNames` (multi-select) - there is no single path to bind, so the whole branch is left;
+  - any use of the dialog's properties *after* the branch, since the selection is a pattern
+    variable now rather than an object that outlives the call;
+  - `ColorDialog`/`FontDialog`/print dialogs, which have no Avalonia equivalent at all.
 
   A Form constructed with arguments is never translated either (the generated View's constructor
   takes none), and a converted **UserControl** cannot translate `ShowDialog` at all, since
@@ -198,7 +256,16 @@ rule itself; what follows is what the rule does *not* cover yet.
   **Translation stops at the first statement it cannot handle**, and the rest of the body stays
   commented. Emitting statement 1 and 3 while dropping 2 would produce a method that looks
   migrated but silently skips work; a prefix is a faithful partial execution of the original.
-  The conversion report says how many statements came across in total.
+  The conversion report says how many statements came across in total. A local declaration left
+  at the very end of a partial prefix is dropped from it: the statements that would have used it
+  are exactly the ones that did not translate, so it is dead by construction.
+
+  That prefix rule applies at the **top level only**. Inside an `if` branch or a loop body it is
+  all-or-nothing,
+  because the un-migrated remainder is emitted *after* the whole statement - a partly translated
+  branch would silently drop its own tail with nothing at that spot to say so. The practical
+  consequence is that one un-translatable call in a branch rejects the entire `if`, which is why
+  control-flow support helps validation-shaped handlers far more than WinForms-API-shaped ones.
 
   Reads of string properties are emitted as `(control.Text ?? string.Empty)`: WinForms' string
   properties never return null while Avalonia's are `string?`, so this is both the faithful
@@ -218,9 +285,27 @@ rule itself; what follows is what the rule does *not* cover yet.
   Avalonia events have different signatures (a `Button`'s real `Click` vs. a `Label`'s
   `PointerPressed`), the method is split in two, each named after its Avalonia event.
 - **Bindable property coverage is deliberately small** (`BindablePropertyCatalog`):
-  `Text`/`Content`, `Checked`, `Value`, `SelectedItem`/`SelectedIndex`, `Enabled`, `Visible`.
-  A handler touching anything outside that vocabulary stays in code-behind, since the
-  property could not be expressed as a `{Binding}` anyway.
+  `Text`/`Content`/`Header`, `Checked`, `Value`, `SelectedItem`/`SelectedIndex`, `Enabled`,
+  `Visible` - across the ordinary controls, the ToolStrip items (which are Direct-mapped, so
+  their values are as reachable as any other control's) and `CheckedListBox`. A handler touching
+  anything outside that vocabulary stays in code-behind, since the property could not be
+  expressed as a `{Binding}` anyway. Real WinForms-only properties (`RichTextBox.WordWrap`,
+  `LinkLabel.LinkVisited`) are not in it and are not going to be - they have no Avalonia
+  counterpart to name.
+
+  The catalog and the control mappers name the same Avalonia property from two separate tables,
+  and a disagreement between them is a *generated-project* build error rather than a tool error -
+  `BindablePropertyCatalogTests` asserts they agree, one case per (control type, property). It
+  was written for this reason and immediately found one: `LinkLabel.Text` claimed `Text` while
+  the mapper emits a `HyperlinkButton`, whose text property is `Content`. Any promoted handler
+  touching a LinkLabel produced AVLN2000.
+- **Fallback controls expose only what their template demonstrably has**
+  (`FallbackControlMemberSupport`). Everything else about them stays conservative - no styling,
+  no event wiring, no item children - because a template need not have the member a mapping
+  names. Catalog members are the one safe exception, since these templates ship in this repo:
+  `RichTextBoxFallback` and `MaskedTextBoxFallback` derive from Avalonia's `TextBox`, so their
+  `Text`, `Clear()` and `SelectAll()` are known facts. A template absent from that table behaves as before, and a binding
+  dropped because of it is reported rather than emitted as a broken attribute.
 - **`CanExecute` is derived, but only from the one shape that provably means a guard.** A handler
   whose *entire body* is `someButton.Enabled = <condition>;`, that ignores sender/EventArgs, is
   wired to a single control, and whose button already became a `[RelayCommand]`, is folded into

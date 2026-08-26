@@ -22,6 +22,8 @@ namespace HandlerMigrationApp
             this.nameTextBox = new System.Windows.Forms.TextBox();
             this.statusLabel = new System.Windows.Forms.Label();
             this.counterLabel = new System.Windows.Forms.Label();
+            this.validateButton = new System.Windows.Forms.Button();
+            this.countButton = new System.Windows.Forms.Button();
             this.canvas = new System.Windows.Forms.Panel();
             this.SuspendLayout();
             //
@@ -61,6 +63,24 @@ namespace HandlerMigrationApp
             this.saveButton.Text = "Save";
             this.saveButton.Click += new System.EventHandler(this.saveButton_Click);
             //
+            // validateButton
+            //
+            this.validateButton.Location = new System.Drawing.Point(300, 50);
+            this.validateButton.Name = "validateButton";
+            this.validateButton.Size = new System.Drawing.Size(90, 28);
+            this.validateButton.TabIndex = 8;
+            this.validateButton.Text = "Validate";
+            this.validateButton.Click += new System.EventHandler(this.validateButton_Click);
+            //
+            // countButton
+            //
+            this.countButton.Location = new System.Drawing.Point(300, 84);
+            this.countButton.Name = "countButton";
+            this.countButton.Size = new System.Drawing.Size(90, 28);
+            this.countButton.TabIndex = 9;
+            this.countButton.Text = "Count";
+            this.countButton.Click += new System.EventHandler(this.countButton_Click);
+            //
             // nameTextBox
             //
             this.nameTextBox.Location = new System.Drawing.Point(12, 50);
@@ -91,6 +111,8 @@ namespace HandlerMigrationApp
             this.canvas.Size = new System.Drawing.Size(378, 80);
             this.canvas.TabIndex = 7;
             this.canvas.MouseDown += new System.Windows.Forms.MouseEventHandler(this.canvas_MouseDown);
+            this.okButton.MouseDown += new System.Windows.Forms.MouseEventHandler(this.sharedMouseDown);
+            this.saveButton.MouseDown += new System.Windows.Forms.MouseEventHandler(this.sharedMouseDown);
             //
             // MainForm
             //
@@ -102,6 +124,8 @@ namespace HandlerMigrationApp
             this.Controls.Add(this.nameTextBox);
             this.Controls.Add(this.statusLabel);
             this.Controls.Add(this.counterLabel);
+            this.Controls.Add(this.validateButton);
+            this.Controls.Add(this.countButton);
             this.Controls.Add(this.canvas);
             this.Name = "MainForm";
             this.Text = "Handler Migration Demo";
@@ -116,6 +140,8 @@ namespace HandlerMigrationApp
         private System.Windows.Forms.TextBox nameTextBox;
         private System.Windows.Forms.Label statusLabel;
         private System.Windows.Forms.Label counterLabel;
+        private System.Windows.Forms.Button validateButton;
+        private System.Windows.Forms.Button countButton;
         private System.Windows.Forms.Panel canvas;
     }
 }

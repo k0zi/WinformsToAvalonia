@@ -31,10 +31,21 @@ public class FormNavigationConversionTests
             Assert.Contains("statusLabel.Text = \"Opening help\";", codeBehind);
             Assert.Contains("new SettingsView().Show();", codeBehind);
 
-            // The result-drives-a-branch shape is deliberately left for a human: Avalonia's
-            // ShowDialog returns a Task whose result is whatever the dialog passed to Close().
-            Assert.Contains("ORIGINAL WINFORMS BODY of 'confirmButton_Click'", codeBehind);
-            Assert.Contains("MigrationTodo.NotMigrated(nameof(confirmButton_Click)", codeBehind);
+            // The result drives a branch, and both halves of the contract are generated: the
+            // caller awaits a bool...
+            Assert.Contains("private async void confirmButton_Click", codeBehind);
+            Assert.Contains("if (await new SettingsView().ShowDialog<bool>(this))", codeBehind);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(confirmButton_Click)", codeBehind);
+
+            // ...and the dialog closes with one, synthesized from its designer-set DialogResult
+            // buttons, which in WinForms needed no handler at all.
+            Assert.True(result.Vfs.TryGetText("Views/Dialogs/SettingsView.axaml.cs", out var dialogCodeBehind));
+            Assert.Contains("Close(true);", dialogCodeBehind);
+            Assert.Contains("Close(false);", dialogCodeBehind);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(acceptButton_Click)", dialogCodeBehind);
+
+            Assert.True(result.Vfs.TryGetText("Views/Dialogs/SettingsView.axaml", out var dialogAxaml));
+            Assert.Contains("Click=\"acceptButton_Click\"", dialogAxaml);
 
             // The dialog's own View is emitted in the nested folder the navigation call names.
             Assert.Contains("Views/Dialogs/SettingsView.axaml", result.Vfs.RelativePaths);

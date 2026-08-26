@@ -42,11 +42,50 @@ public class HandlerMigrationConversionTests
             Assert.Contains("REMAINING WINFORMS BODY of 'saveButton_Click'", codeBehind);
             Assert.Contains("PersistToDisk();", codeBehind);
 
-            // A body needing the pointer position cannot be translated at all.
-            Assert.Contains("ORIGINAL WINFORMS BODY of 'canvas_MouseDown'", codeBehind);
+            // The pointer position resolves against the control that raised the event.
+            Assert.Contains("statusLabel.Text = e.GetPosition(canvas).X + \",\" + e.GetPosition(canvas).Y;", codeBehind);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(canvas_MouseDown)", codeBehind);
 
-            Assert.Equal(7, result.Report.MigratedStatementCount);
-            Assert.Equal(10, result.Report.HandlerStatementCount);
+            // A handler shared by two controls has no single control to measure against, so the
+            // same expression is left for a human.
+            Assert.Contains("ORIGINAL WINFORMS BODY of 'sharedMouseDown'", codeBehind);
+
+            // Control flow: the condition and both branches translate, so the whole `if` does -
+            // and the emitted block is indented as real code, not a one-line blob.
+            Assert.Contains(
+                """
+                        if (string.IsNullOrWhiteSpace((nameTextBox.Text ?? string.Empty)))
+                        {
+                            statusLabel.Text = "Name is required";
+                            nameTextBox.Focus();
+                        }
+                        else
+                        {
+                            statusLabel.Text = "Looks good";
+                        }
+                """,
+                codeBehind.Replace("\r\n", "\n"));
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(validateButton_Click)", codeBehind);
+
+            // A loop, a local, a nested `if` and an increment, translated together - and because
+            // this handler only touches bindable properties it was promoted, so the whole thing
+            // lands as a working [RelayCommand] against the ViewModel's own properties.
+            Assert.True(result.Vfs.TryGetText("ViewModels/MainViewModel.cs", out var viewModel));
+            Assert.Contains(
+                """
+                        var vowels = 0;
+                        foreach (var letter in NameTextBoxText)
+                        {
+                            if (letter == 'a' || letter == 'e')
+                            {
+                                vowels++;
+                            }
+                        }
+                """,
+                viewModel.Replace("\r\n", "\n"));
+
+            Assert.Equal(12, result.Report.MigratedStatementCount);
+            Assert.Equal(15, result.Report.HandlerStatementCount);
 
             var buildResult = await RunDotnetAsync("build", outputDir);
             Assert.True(

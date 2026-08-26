@@ -193,7 +193,8 @@ public sealed class ViewCodeBehindEmitter
 
         foreach (var statement in rewrite?.MigratedStatements ?? [])
         {
-            line($"        {statement}");
+            // Indent every line, not just the first: a translated `if` spans several.
+            line(Indent(statement, "        "));
         }
 
         var remaining = rewrite?.RemainingBody ?? handler.OriginalBody;

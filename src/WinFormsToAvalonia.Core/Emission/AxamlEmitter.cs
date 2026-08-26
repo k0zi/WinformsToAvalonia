@@ -213,7 +213,7 @@ public sealed class AxamlEmitter
         // A bound property's designer literal moves to the ViewModel property's initializer, so
         // emitting it here as well would produce a duplicate XML attribute for the same name.
         var boundProperties = mapped.SupportsName
-            ? state.Plan.BoundPropertiesFor(control.FieldName).ToList()
+            ? FilterBindableForTarget(control, mapped, state).ToList()
             : [];
         var boundAttributeNames = boundProperties.Select(p => p.AvaloniaPropertyName).ToHashSet(StringComparer.Ordinal);
 
@@ -463,6 +463,36 @@ public sealed class AxamlEmitter
         if (parts.Count > 0)
         {
             builder.Comment("WinForms layout: " + string.Join(" ", parts));
+        }
+    }
+
+    /// <summary>
+    /// The plan's bindings for this control, minus any the *target element* cannot carry.
+    /// </summary>
+    /// <remarks>
+    /// Only fallback controls can lose anything here: a Direct-mapped element is the real Avalonia
+    /// control, so the catalog's answer holds. For a fallback the binding is only emitted when the
+    /// bundled template demonstrably exposes that property
+    /// (<see cref="FallbackControlMemberSupport"/>) - otherwise it would be an AVLN2000 in the
+    /// generated project. A dropped binding is reported, since the ViewModel property behind it
+    /// stays and would silently do nothing.
+    /// </remarks>
+    private static IEnumerable<BoundPropertyPlan> FilterBindableForTarget(
+        ControlModel control, MappedControl mapped, EmissionState state)
+    {
+        foreach (var bound in state.Plan.BoundPropertiesFor(control.FieldName))
+        {
+            if (mapped.Status != MappingStatus.Fallback
+                || FallbackControlMemberSupport.Exposes(mapped.FallbackTemplateKey, bound.AvaloniaPropertyName))
+            {
+                yield return bound;
+                continue;
+            }
+
+            state.Warnings.Add(
+                $"field '{control.FieldName}' ({control.ClrTypeName}) maps to the bundled " +
+                $"'{mapped.FallbackTemplateKey}', which has no '{bound.AvaloniaPropertyName}' - the ViewModel's " +
+                $"'{bound.ViewModelPropertyName}' is generated but not bound to anything. Wire it up by hand.");
         }
     }
 

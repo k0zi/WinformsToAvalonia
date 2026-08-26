@@ -11,8 +11,19 @@ public sealed record RewrittenBody(
     int TotalStatementCount,
     IReadOnlySet<string> RequiredUsings,
     IReadOnlySet<string> RequiredFallbackKeys,
-    bool RequiresAsync)
+    bool RequiresAsync,
+    IReadOnlySet<string>? InlinedDialogFields = null)
 {
+    /// <summary>File dialogs this body opens inline, so no separate method is generated for them.</summary>
+    public IReadOnlySet<string> InlinedDialogFields { get; } = InlinedDialogFields ?? EmptySet;
+
+    /// <summary>
+    /// A body this converter wrote itself rather than translated - there is no original to keep,
+    /// so it is complete by construction and needs no TODO marker.
+    /// </summary>
+    public static RewrittenBody Synthesized(params string[] statements) =>
+        new(statements, "", statements.Length, EmptySet, EmptySet, false);
+
     /// <summary>Nothing understood - the pre-Track-3 behaviour, and still the common case.</summary>
     public static RewrittenBody NothingMigrated(string body, int totalStatementCount = 0) =>
         new([], body, totalStatementCount, EmptySet, EmptySet, false);
