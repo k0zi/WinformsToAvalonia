@@ -26,13 +26,13 @@ public partial class MainView : Window
 {
     private readonly DispatcherTimer clockTimer;
     private readonly BackgroundWorker backgroundWorker1 = new();
-    private readonly EventLog eventLog1 = new();
     private readonly FileSystemWatcher fileSystemWatcher1 = new();
-    private readonly PerformanceCounter performanceCounter1 = new();
     private readonly Process process1 = new();
     private readonly SerialPort serialPort1 = new();
-    private readonly ServiceController serviceController1 = new();
-    private readonly SoundPlayer soundPlayer1 = new();
+    private EventLog? _eventLog1;
+    private PerformanceCounter? _performanceCounter1;
+    private ServiceController? _serviceController1;
+    private SoundPlayer? _soundPlayer1;
     private bool isBusy;
 
     public MainView()
@@ -46,24 +46,79 @@ public partial class MainView : Window
         backgroundWorker1.ProgressChanged += backgroundWorker1_ProgressChanged;
         backgroundWorker1.RunWorkerCompleted += backgroundWorker1_RunWorkerCompleted;
 
-        eventLog1.Log = "Application";
-        eventLog1.Source = "AllInOneWinForms";
-
         fileSystemWatcher1.EnableRaisingEvents = false;
         fileSystemWatcher1.Filter = "*.txt";
         fileSystemWatcher1.Changed += fileSystemWatcher1_Changed;
 
-        performanceCounter1.CategoryName = "Processor";
-        performanceCounter1.CounterName = "% Processor Time";
-        performanceCounter1.InstanceName = "_Total";
-
         serialPort1.BaudRate = 115200;
         serialPort1.PortName = "COM1";
 
-        serviceController1.ServiceName = "Spooler";
-
         clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         clockTimer.Tick += clockTimer_Tick;
+    }
+
+    private EventLog eventLog1
+    {
+        get
+        {
+            if (_eventLog1 is null)
+            {
+                _eventLog1 = new EventLog
+                {
+                    Log = "Application",
+                    Source = "AllInOneWinForms",
+                };
+            }
+
+            return _eventLog1;
+        }
+    }
+
+    private PerformanceCounter performanceCounter1
+    {
+        get
+        {
+            if (_performanceCounter1 is null)
+            {
+                _performanceCounter1 = new PerformanceCounter
+                {
+                    CategoryName = "Processor",
+                    CounterName = "% Processor Time",
+                    InstanceName = "_Total",
+                };
+            }
+
+            return _performanceCounter1;
+        }
+    }
+
+    private ServiceController serviceController1
+    {
+        get
+        {
+            if (_serviceController1 is null)
+            {
+                _serviceController1 = new ServiceController
+                {
+                    ServiceName = "Spooler",
+                };
+            }
+
+            return _serviceController1;
+        }
+    }
+
+    private SoundPlayer soundPlayer1
+    {
+        get
+        {
+            if (_soundPlayer1 is null)
+            {
+                _soundPlayer1 = new SoundPlayer();
+            }
+
+            return _soundPlayer1;
+        }
     }
 
     private void MainForm_Load(object? sender, RoutedEventArgs e)

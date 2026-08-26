@@ -113,6 +113,8 @@ public sealed class ViewCodeBehindEmitter
         // project, and the conversion report names every component this covers: the generated app
         // compiles everywhere and throws at these points off Windows.
         var windowsOnly = plan.Components.Where(c => c.WindowsOnly).Select(c => c.ClrTypeName).Distinct(StringComparer.Ordinal).ToList();
+        var eagerComponents = plan.Components.Where(c => !c.WindowsOnly).ToList();
+        var lazyComponents = plan.Components.Where(c => c.WindowsOnly).ToList();
         if (windowsOnly.Count > 0)
         {
             Line($"// This view uses {string.Join(", ", windowsOnly)}, which .NET marks as Windows-only.");
@@ -129,9 +131,18 @@ public sealed class ViewCodeBehindEmitter
             Line($"    private readonly DispatcherTimer {timer.FieldName};");
         }
 
-        foreach (var component in plan.Components)
+        foreach (var component in eagerComponents)
         {
             Line($"    private readonly {component.ClrTypeName} {component.FieldName} = new();");
+        }
+
+        // A Windows-only component gets a *backing* field here and is built on first use below.
+        // Constructing it eagerly would run in this constructor, which Avalonia calls before the
+        // first window appears - so `new EventLog()` on Linux took the whole app down at startup
+        // rather than at the point the original code used it.
+        foreach (var component in lazyComponents)
+        {
+            Line($"    private {component.ClrTypeName}? _{component.FieldName};");
         }
 
         // The Form's own backing fields, carried over so the helpers that maintain them can be
@@ -153,7 +164,7 @@ public sealed class ViewCodeBehindEmitter
         Line("        InitializeComponent();");
         Line($"        DataContext = new {viewModelClassName}();");
 
-        foreach (var component in plan.Components)
+        foreach (var component in eagerComponents)
         {
             if (component.Initializers.Count == 0 && component.Subscriptions.Count == 0)
             {
@@ -196,6 +207,12 @@ public sealed class ViewCodeBehindEmitter
         }
 
         Line("    }");
+
+        foreach (var component in lazyComponents)
+        {
+            Line();
+            EmitLazyComponent(Line, component);
+        }
 
         foreach (var handler in plan.CodeBehindHandlers)
         {
@@ -351,6 +368,57 @@ public sealed class ViewCodeBehindEmitter
             .Select(t => EventArgsNamespaces[t])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal);
+
+    /// <summary>
+    /// A Windows-only component, built the first time something asks for it.
+    /// </summary>
+    /// <remarks>
+    /// The laziness is the whole point, and it is a correctness fix rather than an optimisation.
+    /// These types throw <c>PlatformNotSupportedException</c> off Windows - <c>EventLog</c> from
+    /// its constructor - and the View's constructor runs during
+    /// <c>OnFrameworkInitializationCompleted</c>, before the first window exists. Built eagerly,
+    /// one Windows-only component made the whole converted app unlaunchable on Linux and macOS;
+    /// built here, it fails at the point the original code actually used it, which is what the
+    /// conversion report promises. Same reasoning as <c>MigrationTodo</c> not throwing.
+    /// </remarks>
+    private static void EmitLazyComponent(Action<string> line, ComponentFieldPlan component)
+    {
+        var field = $"_{component.FieldName}";
+
+        line($"    private {component.ClrTypeName} {component.FieldName}");
+        line("    {");
+        line("        get");
+        line("        {");
+        line($"            if ({field} is null)");
+        line("            {");
+
+        if (component.Initializers.Count == 0)
+        {
+            line($"                {field} = new {component.ClrTypeName}();");
+        }
+        else
+        {
+            line($"                {field} = new {component.ClrTypeName}");
+            line("                {");
+            foreach (var initializer in component.Initializers)
+            {
+                line($"                    {initializer},");
+            }
+
+            line("                };");
+        }
+
+        foreach (var (eventName, handlerMethodName) in component.Subscriptions)
+        {
+            line($"                {field}.{eventName} += {handlerMethodName};");
+        }
+
+        line("            }");
+        line("");
+        line($"            return {field};");
+        line("        }");
+        line("    }");
+    }
 
     /// <summary>
     /// A helper method whose whole body translated. Unlike a handler this carries no

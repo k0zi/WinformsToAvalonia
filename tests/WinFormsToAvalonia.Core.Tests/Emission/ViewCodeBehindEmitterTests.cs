@@ -236,6 +236,57 @@ public class ViewCodeBehindEmitterTests
         ParseAndAssertNoErrors(source);
     }
 
+    /// <summary>
+    /// A Windows-only component must never be constructed in the View's constructor. Avalonia
+    /// calls that constructor during <c>OnFrameworkInitializationCompleted</c>, before the first
+    /// window exists - and <c>new EventLog()</c> throws <c>PlatformNotSupportedException</c> off
+    /// Windows, so an eagerly-built one made the whole converted app unlaunchable on Linux rather
+    /// than failing where the original code used it.
+    /// </summary>
+    [Fact]
+    public void EmitViewCodeBehind_WindowsOnlyComponent_IsBuiltLazilyRatherThanInTheConstructor()
+    {
+        var formModel = FormWith(("logButton", "Button"), ("eventLog1", "EventLog"), ("worker1", "BackgroundWorker"));
+        formModel.Controls["eventLog1"].Properties["Source"] = new PropertyValue.Literal("Demo");
+        formModel.Controls["worker1"].Properties["WorkerReportsProgress"] = new PropertyValue.Literal(true);
+        Wire(formModel, "logButton", "Click", "logButton_Click");
+
+        var source = EmitFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void logButton_Click(object sender, EventArgs e)
+                    {
+                        this.eventLog1.WriteEntry("x");
+                        this.worker1.RunWorkerAsync();
+                    }
+                }
+            }
+            """);
+
+        var constructorBody = ConstructorBodyOf(source);
+        Assert.DoesNotContain("EventLog", constructorBody);
+        Assert.DoesNotContain("eventLog1", constructorBody);
+
+        // ...it is a lazy property over a backing field instead.
+        Assert.Contains("private EventLog? _eventLog1;", source);
+        Assert.Contains("private EventLog eventLog1", source);
+        Assert.Contains("_eventLog1 = new EventLog", source);
+        Assert.Contains("Source = \"Demo\",", source);
+
+        // A cross-platform component keeps the eager field and constructor initialisation, which
+        // is both correct and what preserves the original event-wiring order.
+        Assert.Contains("private readonly BackgroundWorker worker1 = new();", source);
+        Assert.Contains("worker1.WorkerReportsProgress = true;", constructorBody);
+    }
+
+    private static string ConstructorBodyOf(string source) =>
+        Assert.Single(SingleClass(source).Members.OfType<ConstructorDeclarationSyntax>()).Body!.ToString();
+
+    private static void Wire(FormModel formModel, string fieldName, string eventName, string handlerMethodName) =>
+        formModel.Controls[fieldName].Events.Add(new EventHandlerBinding(eventName, handlerMethodName, null));
+
     private static string EmitFor(FormModel formModel, string codeBehindSource)
     {
         var codeBehind = new CodeBehindAnalyzer().Analyze(codeBehindSource, "Form1.cs", formModel);

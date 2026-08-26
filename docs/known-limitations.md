@@ -110,13 +110,22 @@ contributors know what to expect and where to look before filing a duplicate iss
     and in `AvaloniaProjectScaffolder.ExtraPackageVersions` - the csproj writer emits only what
     the second one names, so a package in one and not the other is silently dropped;
   - **`EventLog`, `PerformanceCounter`, `ServiceController` and `SoundPlayer` are Windows-only**
-    (`[SupportedOSPlatform("windows")]`), and the generated project targets plain `net10.0`. The
-    emitted View carries `#pragma warning disable CA1416` for the whole file, because those uses
-    are spread across the field, the constructor and whichever handlers touch them rather than
-    confined to one line. Scoped to the one file that needs it, never the project, and the
-    conversion **reports each such component by name**: the generated app compiles everywhere and
-    throws at exactly those points on Linux and macOS. `SerialPort` is not in this group - it
-    looks Windows-shaped and is genuinely cross-platform;
+    (`[SupportedOSPlatform("windows")]`), and the generated project targets plain `net10.0`. Two
+    consequences, and the second one is a correctness rule rather than a cosmetic one:
+    - the emitted View carries `#pragma warning disable CA1416` for the whole file, because those
+      uses are spread across the field, the constructor and whichever handlers touch them rather
+      than confined to one line. Scoped to the one file that needs it, never the project, and the
+      conversion **reports each such component by name**;
+    - they are **built lazily**, behind a property over a nullable backing field, while
+      cross-platform components keep an ordinary eager field. The View's constructor runs inside
+      `OnFrameworkInitializationCompleted`, before the first window exists, and `new EventLog()`
+      throws `PlatformNotSupportedException` from its *constructor* off Windows - so an eagerly
+      built one made the whole converted app unlaunchable on Linux and macOS instead of failing
+      where the original code used it. Same reasoning as `MigrationTodo` reporting rather than
+      throwing. A designer-wired event on such a component is therefore subscribed on first use
+      rather than at construction.
+
+    `SerialPort` is not in this group - it looks Windows-shaped and is genuinely cross-platform;
   - **`Timer` is not in this table** - it is the one component whose target type is *different*
     (`DispatcherTimer`), with its own event wiring and start semantics, so it keeps its own plan.
 

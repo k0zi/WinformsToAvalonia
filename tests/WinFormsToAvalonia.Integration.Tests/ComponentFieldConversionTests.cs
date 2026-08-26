@@ -51,6 +51,15 @@ public class ComponentFieldConversionTests
             Assert.Contains("#pragma warning disable CA1416", codeBehind);
             Assert.Contains("#pragma warning restore CA1416", codeBehind);
             Assert.Contains("eventLog1.WriteEntry(\"Component field demo\");", codeBehind);
+
+            // ...and built lazily. The View's constructor runs before the first window exists, so
+            // a `new EventLog()` there takes the whole app down at startup on Linux instead of
+            // failing where the original code used it.
+            Assert.Contains("private EventLog? _eventLog1;", codeBehind);
+            var constructorBody = codeBehind
+                .Split("public MainView()")[1]
+                .Split("\n    private ")[0];
+            Assert.DoesNotContain("EventLog", constructorBody);
             Assert.Contains(result.Report.Warnings, w => w.Contains("eventLog1") && w.Contains("Windows-only"));
 
             // The package has to be allowlisted in both places or the csproj silently drops it.
