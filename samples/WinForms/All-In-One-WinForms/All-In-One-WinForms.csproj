@@ -9,6 +9,7 @@
     <!-- The directory name is hyphenated; a namespace cannot be. -->
     <RootNamespace>AllInOneWinForms</RootNamespace>
     <AssemblyName>AllInOneWinForms</AssemblyName>
+    <EnableWindowsTargeting>True</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup>

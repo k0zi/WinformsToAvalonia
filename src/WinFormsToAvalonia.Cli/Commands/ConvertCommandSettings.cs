@@ -15,8 +15,12 @@ public sealed class ConvertCommandSettings : CommandSettings
     public required string Output { get; init; }
 
     [CommandOption("--force")]
-    [Description("Overwrite the contents of the output directory if it already exists.")]
+    [Description("Allow writing into an output directory that already exists and is not empty.")]
     public bool Force { get; init; }
+
+    [CommandOption("--overwrite-all")]
+    [Description("Replace existing output files instead of preserving them and writing the regenerated version as *.w2a-new.")]
+    public bool OverwriteAll { get; init; }
 
     [CommandOption("--dry-run")]
     [Description("Run the full pipeline and render the report UI, but write nothing to disk.")]
@@ -54,7 +58,8 @@ public sealed class ConvertCommandSettings : CommandSettings
         if (!DryRun && Directory.Exists(Output) && Directory.EnumerateFileSystemEntries(Output).Any() && !Force)
         {
             return ValidationResult.Error(
-                $"Output directory '{Output}' already exists and is not empty. Pass --force to overwrite it.");
+                $"Output directory '{Output}' already exists and is not empty. Pass --force to write into it " +
+                "(files you have already edited are preserved; the regenerated version lands beside them as *.w2a-new).");
         }
 
         return ValidationResult.Success();

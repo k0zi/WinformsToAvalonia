@@ -57,9 +57,26 @@ public class CodeBehindMigrationTests
             // Form.Load becomes the Window's Loaded event.
             Assert.Contains("Loaded=\"MainForm_Load\"", axaml);
 
-            // Every original body survives, as a comment inside the method that replaced it.
-            Assert.Contains("greetingLabel.Text = \"Hello, \" + nameTextBox.Text;", viewModel);
+            // A promoted body is translated against the ViewModel's own properties: promotion
+            // already proved every member it touches is bindable, so nothing is left to comment.
+            Assert.Contains("GreetingLabelText = \"Hello, \" + NameTextBoxText;", viewModel);
+            Assert.DoesNotContain("ORIGINAL WINFORMS BODY", viewModel);
+
+            // The same happens in code-behind wherever the statements are provably equivalent -
+            // here a bindable property write plus the Window's own Close().
+            Assert.Contains("nameTextBox.Text = string.Empty;", codeBehind);
+            Assert.Contains("Close();", codeBehind);
+
+            // A body that needs 'sender'/EventArgs still cannot be translated, and survives
+            // verbatim as the comment inside the method that replaced it.
             Assert.Contains("panel.Text = e.X + \",\" + e.Y;", codeBehind);
+            Assert.Contains("MigrationTodo.NotMigrated(nameof(canvasPanel_MouseDown)", codeBehind);
+
+            // The report quantifies exactly how much of the hand-written code came across.
+            Assert.True(
+                result.Report.MigratedStatementCount > 0
+                && result.Report.MigratedStatementCount < result.Report.HandlerStatementCount,
+                $"expected a partial migration, got {result.Report.MigratedStatementCount}/{result.Report.HandlerStatementCount}");
 
             var buildResult = await RunDotnetAsync("build", outputDir);
             Assert.True(

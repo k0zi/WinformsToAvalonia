@@ -14,9 +14,6 @@ public sealed partial class DemoUserControlViewModel : ViewModelBase
     [RelayCommand]
     private void IncrementButton()
     {
-        /* ORIGINAL WINFORMS BODY of 'incrementButton_Click' - TODO(Winforms2Avalonia): rewrite it against this ViewModel's properties.
-        this.counterLabel.Text = (int.Parse(this.counterLabel.Text) + 1).ToString();
-        */
-        MigrationTodo.NotMigrated(nameof(IncrementButton), "incrementButton_Click");
+        CounterLabelText = (int.Parse(CounterLabelText) + 1).ToString();
     }
 }

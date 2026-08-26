@@ -181,7 +181,7 @@ public class AvaloniaProjectScaffolderTests
                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                          x:Class="Demo.App"
                          xmlns:local="using:Demo"
-                         RequestedThemeVariant="Default">
+                         RequestedThemeVariant="Light">
 
                 <Application.DataTemplates>
                     <local:ViewLocator />

@@ -88,6 +88,21 @@ public static class SummaryRenderer
             lines.Add($"Extra NuGet packages added: [bold]{string.Join(", ", report.RequiredNuGetPackages)}[/]");
         }
 
+        if (report.HandlerStatementCount > 0)
+        {
+            var percent = 100.0 * report.MigratedStatementCount / report.HandlerStatementCount;
+            lines.Add(
+                $"Handler statements migrated: [bold]{report.MigratedStatementCount}/{report.HandlerStatementCount}[/] " +
+                $"({percent:F0}%) - the rest stay as commented TODOs.");
+        }
+
+        if (report.PreservedFiles.Count > 0)
+        {
+            lines.Add(
+                $"[yellow]{report.PreservedFiles.Count} existing file(s) preserved[/] - your version was kept and the " +
+                "regenerated one written alongside as [grey]*.w2a-new[/]. Pass [grey]--overwrite-all[/] to replace them instead.");
+        }
+
         lines.Add($"Elapsed: [bold]{report.Elapsed.TotalMilliseconds:F0} ms[/]");
 
         return string.Join("\n", lines);

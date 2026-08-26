@@ -18,7 +18,8 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
             Verbose: settings.Verbose,
             NoFallbackControls: settings.NoFallbackControls,
             SkipCodeBehindComments: settings.SkipCodeBehindComments,
-            LogFile: settings.LogFile);
+            LogFile: settings.LogFile,
+            OverwriteAll: settings.OverwriteAll);
 
         ConversionRunResult result;
         try

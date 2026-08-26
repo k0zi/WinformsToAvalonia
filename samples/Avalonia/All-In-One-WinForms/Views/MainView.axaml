@@ -16,7 +16,7 @@
                         <RadioButton x:Name="radioOption1" Canvas.Left="12" Canvas.Top="22" Width="170" Height="22" Content="First option" IsChecked="True" />
                         <RadioButton x:Name="radioOption2" Canvas.Left="12" Canvas.Top="48" Width="170" Height="22" Content="Second option" />
                     </controls:GroupBoxFallback>
-                    <Button x:Name="demoButton" Canvas.Left="250" Canvas.Top="144" Width="100" Height="28" Content="Say hello" Command="{Binding DemoButtonCommand}" ToolTip.Tip="Shows a message box" />
+                    <Button x:Name="demoButton" Canvas.Left="250" Canvas.Top="144" Width="100" Height="28" Content="Say hello" Click="demoButton_Click" ToolTip.Tip="Shows a message box" />
                     <Button x:Name="applyButton" Canvas.Left="356" Canvas.Top="144" Width="100" Height="28" Content="Apply" Command="{Binding ApplyButtonCommand}" />
                     <Button x:Name="resetButton" Canvas.Left="250" Canvas.Top="178" Width="100" Height="28" Content="Reset" Command="{Binding ResetButtonCommand}" />
                     <Button x:Name="sharedButtonA" Canvas.Left="356" Canvas.Top="178" Width="100" Height="28" Content="Shared A" Click="sharedButton_Click" />
@@ -26,9 +26,21 @@
             </TabItem>
             <TabItem x:Name="listsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Lists">
                 <Canvas>
-                    <ListBox x:Name="itemsListBox" Canvas.Left="12" Canvas.Top="12" Width="180" Height="124" SelectionChanged="itemsListBox_SelectedIndexChanged" />
-                    <ListBox x:Name="checkedListBox1" Canvas.Left="204" Canvas.Top="12" Width="180" Height="124" />
-                    <ComboBox x:Name="itemsComboBox" Canvas.Left="396" Canvas.Top="12" Width="180" Height="23" SelectedIndex="{Binding ItemsComboBoxSelectedIndex, Mode=TwoWay}" />
+                    <ListBox x:Name="itemsListBox" Canvas.Left="12" Canvas.Top="12" Width="180" Height="124" SelectionChanged="itemsListBox_SelectedIndexChanged">
+                        <ListBoxItem Content="Alpha" />
+                        <ListBoxItem Content="Beta" />
+                        <ListBoxItem Content="Gamma" />
+                    </ListBox>
+                    <ListBox x:Name="checkedListBox1" Canvas.Left="204" Canvas.Top="12" Width="180" Height="124">
+                        <ListBoxItem Content="Logging" />
+                        <ListBoxItem Content="Telemetry" />
+                        <ListBoxItem Content="Auto-update" />
+                    </ListBox>
+                    <ComboBox x:Name="itemsComboBox" Canvas.Left="396" Canvas.Top="12" Width="180" Height="23" SelectedIndex="{Binding ItemsComboBoxSelectedIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="Small" />
+                        <ComboBoxItem Content="Medium" />
+                        <ComboBoxItem Content="Large" />
+                    </ComboBox>
                     <controls:DomainUpDownFallback x:Name="domainUpDown1" Canvas.Left="396" Canvas.Top="41" Width="180" Height="23" />
                     <NumericUpDown x:Name="amountUpDown" Canvas.Left="396" Canvas.Top="70" Width="180" Height="23" Value="{Binding AmountUpDownValue, Mode=TwoWay}" />
                     <Button x:Name="refreshButton" Canvas.Left="396" Canvas.Top="99" Width="180" Height="28" Content="Reload tree" Click="refreshButton_Click" />

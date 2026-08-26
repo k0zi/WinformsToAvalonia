@@ -73,5 +73,14 @@ public abstract record PropertyValue
     /// `this.someControl.ContextMenuStrip = this.contextMenuStrip1;`'s RHS.</summary>
     public sealed record ControlReference(string FieldName) : PropertyValue;
 
+    /// <summary>
+    /// A value the designer stored in the .resx rather than in code - either
+    /// `resources.GetObject("pictureBox1.Image")` on the right of an assignment, or a base64
+    /// entry pulled in by `resources.ApplyResources(...)`. <see cref="ResourceKey"/> is the
+    /// full resx entry name. ConversionPipeline resolves these into copied Assets/ files;
+    /// one that survives to emission means the payload could not be decoded.
+    /// </summary>
+    public sealed record ResourceReference(string ResourceKey) : PropertyValue;
+
     public sealed record Unresolved(string RawExpression) : PropertyValue;
 }

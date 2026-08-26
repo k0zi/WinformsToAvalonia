@@ -65,6 +65,14 @@ public sealed class ViewModelEmitter
             isFirstMember = false;
             Line($"    /// <summary>Bound to {property.ControlFieldName}.{property.AvaloniaPropertyName} in the view.</summary>");
             Line("    [ObservableProperty]");
+
+            // Without this a derived CanExecute guard would only ever be evaluated once, and the
+            // button would keep whatever enabled state it started with.
+            foreach (var commandPropertyName in property.NotifiesCommands)
+            {
+                Line($"    [NotifyCanExecuteChangedFor(nameof({commandPropertyName}))]");
+            }
+
             Line($"    public partial {property.ClrTypeName} {property.ViewModelPropertyName} {{ get; set; }}{property.DefaultValueSuffix}");
         }
 
@@ -76,20 +84,47 @@ public sealed class ViewModelEmitter
             }
 
             isFirstMember = false;
-            Line("    [RelayCommand]");
+            var rewrite = command.Rewrite;
+
+            Line(command.CanExecuteExpression is null
+                ? "    [RelayCommand]"
+                : $"    [RelayCommand(CanExecute = nameof({command.CanExecuteMethodName}))]");
             Line($"    private void {command.CommandMethodName}()");
             Line("    {");
 
-            if (command.OriginalBody.Length > 0)
+            foreach (var statement in rewrite?.MigratedStatements ?? [])
             {
-                var originalSignature = command.IsAsync ? $"async '{command.OriginalMethodName}'" : $"'{command.OriginalMethodName}'";
-                Line($"        /* ORIGINAL WINFORMS BODY of {originalSignature} - TODO(Winforms2Avalonia): rewrite it against this ViewModel's properties.");
-                Line(Indent(EscapeForBlockComment(command.OriginalBody), "        "));
-                Line("        */");
+                Line($"        {statement}");
             }
 
-            Line($"        MigrationTodo.NotMigrated(nameof({command.CommandMethodName}), \"{command.OriginalMethodName}\");");
+            var remaining = rewrite?.RemainingBody ?? command.OriginalBody;
+            if (remaining.Length > 0)
+            {
+                if (rewrite?.MigratedStatementCount > 0)
+                {
+                    Line();
+                }
+
+                var originalSignature = command.IsAsync ? $"async '{command.OriginalMethodName}'" : $"'{command.OriginalMethodName}'";
+                var what = rewrite?.MigratedStatementCount > 0 ? "REMAINING WINFORMS BODY" : "ORIGINAL WINFORMS BODY";
+                Line($"        /* {what} of {originalSignature} - TODO(Winforms2Avalonia): rewrite it against this ViewModel's properties.");
+                Line(Indent(EscapeForBlockComment(remaining), "        "));
+                Line("        */");
+                Line($"        MigrationTodo.NotMigrated(nameof({command.CommandMethodName}), \"{command.OriginalMethodName}\");");
+            }
+            else if (rewrite?.MigratedStatementCount is null or 0)
+            {
+                Line($"        MigrationTodo.NotMigrated(nameof({command.CommandMethodName}), \"{command.OriginalMethodName}\");");
+            }
+
             Line("    }");
+
+            if (command.CanExecuteExpression is { } guard)
+            {
+                Line();
+                Line($"    /// <summary>Derived from the WinForms handler that kept '{command.ControlFieldName}.Enabled' in sync.</summary>");
+                Line($"    private bool {command.CanExecuteMethodName}() => {guard};");
+            }
         }
 
         Line("}");

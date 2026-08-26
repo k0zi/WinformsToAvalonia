@@ -46,8 +46,11 @@ public class ViewModelEmitterTests
         var method = Assert.Single(classDecl.Members.OfType<MethodDeclarationSyntax>());
         Assert.Equal("OkButton", method.Identifier.ValueText);
         Assert.Contains(method.AttributeLists.SelectMany(a => a.Attributes), a => a.Name.ToString() == "RelayCommand");
-        Assert.Contains("nameTextBox.Text = \"done\";", source);
-        Assert.Contains("MigrationTodo.NotMigrated(nameof(OkButton), \"okButton_Click\");", source);
+        // The body is rewritten against the ViewModel's own property, not left as a comment:
+        // promotion already proved every member it touches is bindable, so it always translates.
+        Assert.Contains("NameTextBoxText = \"done\";", source);
+        Assert.DoesNotContain("ORIGINAL WINFORMS BODY", source);
+        Assert.DoesNotContain("MigrationTodo.NotMigrated", source);
         Assert.DoesNotContain("throw new NotImplementedException", source);
     }
 

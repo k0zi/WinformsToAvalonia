@@ -64,7 +64,12 @@ public static class DefaultControlMappers
             ("Maximum", "Maximum", PropertyValueFormatters.AsNumber),
             ("Value", "Value", PropertyValueFormatters.AsNumber),
         ]),
-        new SimplePropertyMapper("PictureBox", "Image", []),
+        // Image is only set when ConversionPipeline managed to recover the picture from the
+        // form's .resx and copy it into Assets/ - by then the property holds the asset path.
+        new SimplePropertyMapper("PictureBox", "Image",
+        [
+            ("Image", "Source", PropertyValueFormatters.AsText),
+        ]),
         new SimplePropertyMapper("MonthCalendar", "Calendar", []),
         // HyperlinkButton (core Avalonia, no extra package) rather than TextBlock: it is the
         // one built-in control that both *looks* like a link and has the real Click/Command

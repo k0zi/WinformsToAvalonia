@@ -19,6 +19,14 @@ public sealed class ControlModel
     public List<ControlModel> Children { get; } = [];
 
     /// <summary>
+    /// Literal entries the designer added to this control's <c>Items</c> collection
+    /// (`comboBox1.Items.AddRange(new object[] { "A", "B" })`). Only plain literals - anything
+    /// else in an Items call is either a real child control (which becomes a
+    /// <see cref="Children"/> entry) or something this converter cannot resolve statically.
+    /// </summary>
+    public List<string> LiteralItems { get; } = [];
+
+    /// <summary>
     /// SplitContainer-specific: children added via `this.splitContainer1.Panel1.Controls.Add(...)`.
     /// Populated by ControlGraphBuilder only when <see cref="ClrTypeName"/> is "SplitContainer" -
     /// empty (unused) for every other control type.

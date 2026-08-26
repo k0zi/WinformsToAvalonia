@@ -33,6 +33,18 @@ public static class ExpressionEvaluator
             return color;
         }
 
+        // `((System.Drawing.Image)(resources.GetObject("pictureBox1.Image")))` - how a
+        // *non*-localizable form pulls an image, icon or other blob out of its .resx. Unwrap()
+        // has already stripped the cast and parentheses by this point.
+        if (expression is InvocationExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "GetObject" or "GetString" },
+                ArgumentList.Arguments: [{ Expression: LiteralExpressionSyntax { Token.Value: string resourceKey } }],
+            })
+        {
+            return new PropertyValue.ResourceReference(resourceKey);
+        }
+
         if (expression is ObjectCreationExpressionSyntax creation)
         {
             var typeName = RoslynTypeNameHelper.GetSimpleTypeName(creation.Type);

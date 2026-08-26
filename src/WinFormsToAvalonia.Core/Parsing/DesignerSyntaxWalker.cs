@@ -26,13 +26,24 @@ public sealed class DesignerSyntaxWalker
         "Size", "Point", "Padding", "Font",
     };
 
-    public DesignerWalkResult Walk(string designerFileContent, string designerFilePath, string className, string? @namespace)
+    /// <param name="resx">
+    /// The form's paired .resx, when it has one. Only consulted for
+    /// <c>resources.ApplyResources(...)</c> calls; passing null (or an empty document) keeps the
+    /// walker's behaviour exactly as it was before resources were understood at all.
+    /// </param>
+    public DesignerWalkResult Walk(
+        string designerFileContent,
+        string designerFilePath,
+        string className,
+        string? @namespace,
+        ResxDocument? resx = null)
     {
         var tree = CSharpSyntaxTree.ParseText(designerFileContent, path: designerFilePath);
         var root = tree.GetRoot();
 
         var formModel = new FormModel { ClassName = className, Namespace = @namespace };
         var edges = new List<ParentChildEdge>();
+        var warnings = new List<string>();
 
         var initializeComponent = root.DescendantNodes()
             .OfType<MethodDeclarationSyntax>()
@@ -58,13 +69,89 @@ public sealed class DesignerSyntaxWalker
                     HandleAssignment(formModel, assignment);
                     break;
                 case InvocationExpressionSyntax invocation:
-                    HandleInvocation(invocation, edges);
+                    HandleInvocation(formModel, invocation, edges);
                     HandleSetToolTipInvocation(formModel, invocation);
+                    HandleApplyResourcesInvocation(formModel, invocation, resx, className, warnings);
                     break;
             }
         }
 
-        return new DesignerWalkResult(formModel, edges);
+        return new DesignerWalkResult(formModel, edges, warnings);
+    }
+
+    /// <summary>
+    /// `resources.ApplyResources(this.button1, "button1")` - the shape a Localizable form uses
+    /// for *every* property, including Location/Size/Text. Resolves the matching .resx entries
+    /// onto the target's own <see cref="ControlModel.Properties"/>, exactly as the equivalent
+    /// `this.button1.Text = ...;` assignment would, so nothing downstream needs to know the
+    /// value came from a resource file.
+    /// </summary>
+    /// <remarks>
+    /// Applied at the call site rather than before or after the whole walk, which preserves the
+    /// "statements processed once, in source order" rule: the designer emits ApplyResources
+    /// first in a control's block, so a later explicit assignment still wins - as it does at
+    /// run time.
+    /// </remarks>
+    private static void HandleApplyResourcesInvocation(
+        FormModel formModel,
+        InvocationExpressionSyntax invocation,
+        ResxDocument? resx,
+        string className,
+        List<string> warnings)
+    {
+        if (invocation.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ApplyResources" }
+            || invocation.ArgumentList.Arguments.Count != 2
+            || invocation.ArgumentList.Arguments[1].Expression is not LiteralExpressionSyntax { Token.Value: string resourceKey })
+        {
+            return;
+        }
+
+        var target = invocation.ArgumentList.Arguments[0].Expression;
+
+        // `resources.ApplyResources(this, "$this")` configures the form itself.
+        var properties = target is ThisExpressionSyntax
+            ? formModel.FormProperties
+            : TryGetControlFieldReference(target, out var fieldName) && formModel.Controls.TryGetValue(fieldName, out var control)
+                ? control.Properties
+                : null;
+
+        if (properties is null)
+        {
+            return;
+        }
+
+        if (resx is null || ReferenceEquals(resx, ResxDocument.Empty))
+        {
+            // Once per form, not once per ApplyResources call: a localizable form makes one per
+            // control, and the fact is the same every time.
+            var message =
+                $"'{className}' configures its controls through resources.ApplyResources(...) but no .resx file was " +
+                "found next to it - every property that form sets through resources (Text, Location, Size, ...) is " +
+                "missing from the generated view.";
+
+            if (!warnings.Contains(message, StringComparer.Ordinal))
+            {
+                warnings.Add(message);
+            }
+
+            return;
+        }
+
+        foreach (var entry in resx.EntriesFor(resourceKey))
+        {
+            // A base64 payload has no XAML-attribute form; it becomes a copied asset instead,
+            // resolved by ConversionPipeline once it knows the output project's layout.
+            var value = entry.IsBinary
+                ? new PropertyValue.ResourceReference(entry.Name)
+                : ResxPropertyProvider.Convert(entry);
+
+            // An entry this converter cannot express is left out entirely rather than written
+            // as a guess - the same rule the rest of the pipeline follows.
+            if (value is not null)
+            {
+                properties[entry.PropertyName] = value;
+            }
+        }
     }
 
     private static void HandleAssignment(FormModel formModel, AssignmentExpressionSyntax assignment)
@@ -182,7 +269,7 @@ public sealed class DesignerSyntaxWalker
         return false;
     }
 
-    private static void HandleInvocation(InvocationExpressionSyntax invocation, List<ParentChildEdge> edges)
+    private static void HandleInvocation(FormModel formModel, InvocationExpressionSyntax invocation, List<ParentChildEdge> edges)
     {
         if (invocation.Expression is not MemberAccessExpressionSyntax
             {
@@ -239,11 +326,26 @@ public sealed class DesignerSyntaxWalker
             ? GetArrayElements(invocation.ArgumentList.Arguments[0].Expression)
             : [invocation.ArgumentList.Arguments[0].Expression];
 
+        // Only a real `Items` collection can hold literal entries; `Controls`/`DropDownItems`/
+        // `Columns` always take objects, and a literal there would be a designer bug.
+        var isItemsCollection = controlsAccess.Name.Identifier.ValueText == "Items";
+
         foreach (var childExpression in childExpressions)
         {
             if (TryGetControlFieldReference(childExpression, out var childField))
             {
                 edges.Add(new ParentChildEdge(parent, childField));
+                continue;
+            }
+
+            // `comboBox1.Items.AddRange(new object[] { "A", "B" })` - plain entries that are not
+            // controls at all. Stored on the owner so AxamlEmitter can emit them as real items
+            // instead of dropping the list.
+            if (isItemsCollection
+                && childExpression is LiteralExpressionSyntax { Token.Value: string literalItem }
+                && formModel.Controls.TryGetValue(parent, out var owner))
+            {
+                owner.LiteralItems.Add(literalItem);
             }
         }
     }

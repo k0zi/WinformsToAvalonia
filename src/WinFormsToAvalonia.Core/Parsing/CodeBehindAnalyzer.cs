@@ -202,6 +202,7 @@ public sealed class CodeBehindAnalyzer
         var usesSender = false;
         var usesEventArgs = false;
         var createsOtherForms = false;
+        var callsDialogApis = false;
         var referencedControlFields = new List<string>();
         var seenControlFields = new HashSet<string>(StringComparer.Ordinal);
         var controlMemberAccesses = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -293,6 +294,20 @@ public sealed class CodeBehindAnalyzer
                         when IsFormOrDialogTypeName(RoslynTypeNameHelper.GetSimpleTypeName(creation.Type)):
                         createsOtherForms = true;
                         break;
+
+                    // `MessageBox.Show(...)`. Recorded separately from CreatesOtherForms because
+                    // it is not a Form construction, but it has the same consequence: showing a
+                    // dialog needs a TopLevel to own it, which is a View, never a ViewModel.
+                    case InvocationExpressionSyntax
+                    {
+                        Expression: MemberAccessExpressionSyntax
+                        {
+                            Expression: IdentifierNameSyntax { Identifier.ValueText: "MessageBox" },
+                            Name.Identifier.ValueText: "Show",
+                        },
+                    }:
+                        callsDialogApis = true;
+                        break;
                 }
             }
         }
@@ -322,6 +337,7 @@ public sealed class CodeBehindAnalyzer
             UsesSender = usesSender,
             UsesEventArgs = usesEventArgs,
             CreatesOtherForms = createsOtherForms,
+            CallsDialogApis = callsDialogApis,
             ReferencedControlFields = referencedControlFields,
             ControlMemberAccesses = controlMemberAccesses.ToDictionary(
                 kvp => kvp.Key,

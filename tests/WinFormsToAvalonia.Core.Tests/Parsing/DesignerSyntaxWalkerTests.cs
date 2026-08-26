@@ -116,6 +116,170 @@ public class DesignerSyntaxWalkerTests
         Assert.Contains(refreshTimer.Events, e => e.EventName == "Tick" && e.HandlerMethodName == "refreshTimer_Tick");
     }
 
+    private const string LocalizableFormSource = """
+        namespace Demo
+        {
+            partial class TestForm
+            {
+                private void InitializeComponent()
+                {
+                    System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(TestForm));
+                    this.button1 = new System.Windows.Forms.Button();
+                    resources.ApplyResources(this.button1, "button1");
+                    this.button1.Name = "button1";
+                    resources.ApplyResources(this, "$this");
+                    this.Controls.Add(this.button1);
+                }
+
+                private System.Windows.Forms.Button button1;
+            }
+        }
+        """;
+
+    [Fact]
+    public void Walk_ApplyResources_ResolvesResxEntriesOntoTheTargetControl()
+    {
+        var resx = new ResxDocument("MainForm.resx", [
+            new ResxEntry("button1.Text", null, null, "OK"),
+            new ResxEntry("button1.Location", "System.Drawing.Point, System.Drawing", null, "12, 34"),
+        ]);
+
+        var formModel = new DesignerSyntaxWalker()
+            .Walk(LocalizableFormSource, "test.designer.cs", "TestForm", "Demo", resx).Form;
+
+        var button = formModel.Controls["button1"];
+        Assert.Equal(new PropertyValue.Literal("OK"), button.Properties["Text"]);
+        Assert.Equal(new PropertyValue.PointValue(12, 34), button.Properties["Location"]);
+    }
+
+    [Fact]
+    public void Walk_ApplyResourcesForDollarThis_ResolvesOntoTheFormItself()
+    {
+        var resx = new ResxDocument("MainForm.resx", [
+            new ResxEntry("$this.Text", null, null, "My Form"),
+            new ResxEntry("$this.ClientSize", "System.Drawing.Size, System.Drawing", null, "284, 136"),
+        ]);
+
+        var formModel = new DesignerSyntaxWalker()
+            .Walk(LocalizableFormSource, "test.designer.cs", "TestForm", "Demo", resx).Form;
+
+        Assert.Equal(new PropertyValue.Literal("My Form"), formModel.FormProperties["Text"]);
+        Assert.Equal(new PropertyValue.SizeValue(284, 136), formModel.FormProperties["ClientSize"]);
+    }
+
+    /// <summary>
+    /// The designer emits ApplyResources first in a control's block, so a later explicit
+    /// assignment must still win - exactly as it does at run time.
+    /// </summary>
+    [Fact]
+    public void Walk_ExplicitAssignmentAfterApplyResources_OverridesTheResourceValue()
+    {
+        var source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(TestForm));
+                        this.button1 = new System.Windows.Forms.Button();
+                        resources.ApplyResources(this.button1, "button1");
+                        this.button1.Text = "Explicit";
+                    }
+
+                    private System.Windows.Forms.Button button1;
+                }
+            }
+            """;
+
+        var resx = new ResxDocument("MainForm.resx", [new ResxEntry("button1.Text", null, null, "FromResx")]);
+
+        var formModel = new DesignerSyntaxWalker().Walk(source, "test.designer.cs", "TestForm", "Demo", resx).Form;
+
+        Assert.Equal(new PropertyValue.Literal("Explicit"), formModel.Controls["button1"].Properties["Text"]);
+    }
+
+    [Fact]
+    public void Walk_ApplyResourcesWithNoResxFile_WarnsOncePerFormInsteadOfPerControl()
+    {
+        var result = new DesignerSyntaxWalker().Walk(LocalizableFormSource, "test.designer.cs", "TestForm", "Demo");
+
+        // Two ApplyResources calls in the source, one warning out.
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains("TestForm", warning, StringComparison.Ordinal);
+        Assert.Contains("no .resx file was found", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Walk_NoResources_ProducesNoWarnings()
+    {
+        var path = Path.Combine(FixturesRoot, "FlatControls.designer.cs");
+        var content = File.ReadAllText(path);
+
+        var result = new DesignerSyntaxWalker().Walk(content, path, "FlatControlsForm", "Demo");
+
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Walk_ItemsAddRangeWithLiterals_CapturesThemOnTheOwningControl()
+    {
+        var source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.comboBox1 = new System.Windows.Forms.ComboBox();
+                        this.listBox1 = new System.Windows.Forms.ListBox();
+                        this.comboBox1.Items.AddRange(new object[] { "Alpha", "Beta" });
+                        this.listBox1.Items.Add("Only");
+                    }
+
+                    private System.Windows.Forms.ComboBox comboBox1;
+                    private System.Windows.Forms.ListBox listBox1;
+                }
+            }
+            """;
+
+        var formModel = new DesignerSyntaxWalker().Walk(source, "test.designer.cs", "TestForm", "Demo").Form;
+
+        Assert.Equal(["Alpha", "Beta"], formModel.Controls["comboBox1"].LiteralItems);
+        Assert.Equal(["Only"], formModel.Controls["listBox1"].LiteralItems);
+    }
+
+    /// <summary>
+    /// A ToolStrip's Items hold real controls, not literals - those must keep becoming
+    /// parent/child edges, never item strings.
+    /// </summary>
+    [Fact]
+    public void Walk_ItemsAddWithControlReferences_StaysAParentChildEdge()
+    {
+        var source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.menuStrip1 = new System.Windows.Forms.MenuStrip();
+                        this.fileMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+                        this.menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { this.fileMenuItem });
+                    }
+
+                    private System.Windows.Forms.MenuStrip menuStrip1;
+                    private System.Windows.Forms.ToolStripMenuItem fileMenuItem;
+                }
+            }
+            """;
+
+        var result = new DesignerSyntaxWalker().Walk(source, "test.designer.cs", "TestForm", "Demo");
+
+        Assert.Empty(result.Form.Controls["menuStrip1"].LiteralItems);
+        Assert.Contains(result.Edges, e => e.ParentFieldName == "menuStrip1" && e.ChildFieldName == "fileMenuItem");
+    }
+
     [Fact]
     public void Walk_UnknownClassName_ReturnsEmptyModel()
     {

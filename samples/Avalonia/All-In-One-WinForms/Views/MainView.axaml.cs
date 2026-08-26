@@ -84,10 +84,7 @@ public partial class MainView : Window
 
     private void exitMenuItem_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'exitMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         Close();
-        */
-        MigrationTodo.NotMigrated(nameof(exitMenuItem_Click), "exitMenuItem_Click");
     }
 
     private void wordWrapMenuItem_Click(object? sender, RoutedEventArgs e)
@@ -131,6 +128,14 @@ public partial class MainView : Window
         this.statusLabel.Text = "Link clicked";
         */
         MigrationTodo.NotMigrated(nameof(linkLabel1_LinkClicked), "linkLabel1_LinkClicked");
+    }
+
+    private void demoButton_Click(object? sender, RoutedEventArgs e)
+    {
+        /* ORIGINAL WINFORMS BODY of 'demoButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
+        MessageBox.Show(this, $"Hello, {this.titleTextBox.Text}!", "All-In-One");
+        */
+        MigrationTodo.NotMigrated(nameof(demoButton_Click), "demoButton_Click");
     }
 
     private void sharedButton_Click(object? sender, RoutedEventArgs e)
@@ -196,8 +201,9 @@ public partial class MainView : Window
 
     private void clockTimer_Tick(object? sender, EventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'clockTimer_Tick' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.clockLabel.Text = DateTime.Now.ToLongTimeString();
+        clockLabel.Text = DateTime.Now.ToLongTimeString();
+
+        /* REMAINING WINFORMS BODY of 'clockTimer_Tick' - TODO(Winforms2Avalonia): migrate it into this method.
         this.demoComponent1.Tick();
         */
         MigrationTodo.NotMigrated(nameof(clockTimer_Tick), "clockTimer_Tick");
@@ -230,11 +236,8 @@ public partial class MainView : Window
 
     private void trackBar1_Scroll(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'trackBar1_Scroll' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.progressBar1.Value = this.trackBar1.Value;
-        this.graphicsInfoLabel.Text = $"TrackBar value: {this.trackBar1.Value}";
-        */
-        MigrationTodo.NotMigrated(nameof(trackBar1_Scroll), "trackBar1_Scroll");
+        progressBar1.Value = trackBar1.Value;
+        graphicsInfoLabel.Text = $"TrackBar value: {trackBar1.Value}";
     }
 
     private void hScrollBar1_Scroll(object? sender, ScrollEventArgs e)

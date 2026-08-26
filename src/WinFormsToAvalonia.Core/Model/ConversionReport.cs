@@ -18,4 +18,15 @@ public sealed record ConversionReport(
     IReadOnlyList<string> UsedFallbackKeys,
     IReadOnlyList<string> RequiredNuGetPackages,
     IReadOnlyList<string> Warnings,
-    TimeSpan Elapsed);
+    TimeSpan Elapsed,
+    IReadOnlyList<string>? PreservedFiles = null,
+    int MigratedStatementCount = 0,
+    int HandlerStatementCount = 0)
+{
+    /// <summary>
+    /// Output files that already existed with different content and were therefore left alone;
+    /// the generated version sits beside each one as `*.w2a-new`. Empty on a first conversion,
+    /// and whenever --overwrite-all was passed.
+    /// </summary>
+    public IReadOnlyList<string> PreservedFiles { get; } = PreservedFiles ?? [];
+}

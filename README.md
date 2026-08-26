@@ -28,19 +28,21 @@ source project is never modified.
 - Every WinForms control is mapped to its closest Avalonia equivalent, to one of the tool's own
   **bundled fallback controls** where Avalonia has no built-in match, or reported with tailored
   migration guidance.
-- The original code-behind is **preserved** — as commented-out bodies inside correctly-signed,
-  already-subscribed Avalonia handlers — so the generated project **builds and runs on day one**
-  and migration proceeds one method at a time.
+- Handler bodies are **translated where that is provable** and **preserved as comments where it
+  is not**, inside correctly-signed, already-subscribed Avalonia handlers — so the generated
+  project **builds and runs on day one** and migration proceeds one method at a time.
 
 ## Features
 
 | | |
 |---|---|
-| 🔍 **Roslyn-based** | Parses `InitializeComponent` with the C# compiler API — no regex, no `.resx` guesswork. |
+| 🔍 **Roslyn-based** | Parses `InitializeComponent` with the C# compiler API — no regex. |
+| 🌐 **Reads resources** | `Localizable=true` forms, which set every property through `resources.ApplyResources(...)`, convert with their text, geometry and fonts intact; images are recovered from the `.resx` into `Assets/`. |
 | 🧩 **89 control types recognized** | 59 mapped (45 Direct + 14 via bundled fallback controls), 30 more registered with guidance-only migration notes instead of a silent failure. See [`docs/Controls.md`](docs/Controls.md). |
 | 📐 **Pixel-accurate layout** | Absolute `Canvas` positioning preserves the original design exactly; `Anchor`/`Dock` are recorded, never guessed at. |
-| ⚡ **Always-compiling output** | `dotnet build && dotnet run` works on the generated project immediately. |
-| 🎯 **Conservative MVVM** | Handlers are promoted to `[RelayCommand]` only when a Roslyn analysis *proves* it is safe — everything else stays event-driven. |
+| ⚡ **Always-compiling output** | `dotnet build && dotnet run` works on the generated project immediately — warning-free. |
+| ✍️ **Handler bodies translated** | Bindable property access, `Close()`/`Focus()`, `MessageBox.Show`, `Application.Exit()`, opening another Form, and plain-.NET expressions become real Avalonia code; the report says how much came across. |
+| 🎯 **Conservative MVVM** | Handlers are promoted to `[RelayCommand]` only when a Roslyn analysis *proves* it is safe — everything else stays event-driven. A handler that only kept a button's `Enabled` in sync becomes that command's `CanExecute` guard. |
 | 📦 **Zero extra dependencies** | Fallback controls are copied into the generated project as source; only the ones actually used. |
 | 🧪 **Verified end-to-end** | Integration tests convert real WinForms fixture projects and `dotnet build` the result. |
 
@@ -85,7 +87,8 @@ dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source path/to/Your
 
 | Option | Effect |
 |---|---|
-| `--force` | Overwrite a non-empty output directory. |
+| `--force` | Allow writing into a non-empty output directory. Files you have already edited are preserved — the regenerated version lands beside them as `*.w2a-new`. |
+| `--overwrite-all` | Replace existing output files instead of preserving them. |
 | `--dry-run` | Run the full pipeline and print the report, write nothing. |
 | `--verbose` | Show every warning, not just the first few. |
 | `--no-fallback-controls` | Strict mode: skip fallback controls instead of emitting them. |
@@ -133,8 +136,8 @@ this.incrementButton.Click +=
 </table>
 
 `incrementButton_Click` only touched a bindable property on a directly-mapped control, so it was
-promoted to a command on the generated ViewModel — with its original body kept alongside for you
-to rewrite:
+promoted to a command on the generated ViewModel — and because that same proof makes the body
+translatable, it comes across as working code rather than a comment:
 
 ```csharp
 public sealed partial class DemoUserControlViewModel : ViewModelBase
@@ -146,13 +149,14 @@ public sealed partial class DemoUserControlViewModel : ViewModelBase
     [RelayCommand]
     private void IncrementButton()
     {
-        /* ORIGINAL WINFORMS BODY of 'incrementButton_Click' - TODO: rewrite it against this ViewModel's properties.
-        this.counterLabel.Text = (int.Parse(this.counterLabel.Text) + 1).ToString();
-        */
-        MigrationTodo.NotMigrated(nameof(IncrementButton), "incrementButton_Click");
+        CounterLabelText = (int.Parse(CounterLabelText) + 1).ToString();
     }
 }
 ```
+
+Bodies the tool cannot prove equivalent are still preserved as a comment inside the method that
+replaced them, with a `MigrationTodo.NotMigrated(...)` marker below — see
+[Code-behind migration](#code-behind-migration).
 
 ## How it works
 
@@ -170,7 +174,9 @@ WinForms controls with no built-in Avalonia equivalent (`GroupBox`, `StatusStrip
 `MaskedTextBox`, `RichTextBox`, `ErrorProvider`, `PropertyGrid`, `BindingNavigator`, `WebBrowser`,
 `PrintPreviewControl`, …) are backed by a fixed set of controls the tool ships itself. Only the ones
 actually used are copied into the generated project's `Controls/` folder — as source, with no extra
-NuGet dependency.
+NuGet dependency. One template is not a control at all: `MessageBoxFallback` is a small modal dialog
+that a *translated handler body* pulls in when it calls `MessageBox.Show(...)`, since Avalonia ships
+no message box.
 
 ### Code-behind migration
 
@@ -205,11 +211,24 @@ reported in the conversion output.
 
 </details>
 
-Handler *bodies* are never re-emitted as compiling code (WinForms APIs do not exist in Avalonia).
-Each generated method has the correct Avalonia signature and subscription, with the original body
-preserved inside it as a comment, followed by a call to the generated `MigrationTodo.NotMigrated(...)`
-marker. The generated project therefore always builds **and runs**, and the unit of manual migration
-is one method rather than one file-sized comment block.
+Handler *bodies* are translated a statement at a time, under the same evidence rule as everything
+else: a statement is emitted as real Avalonia code only when it is provably equivalent, and
+everything else stays preserved as a comment inside the method that replaced it, followed by a call
+to the generated `MigrationTodo.NotMigrated(...)` marker. What gets translated today: writes and
+reads of bindable control properties (`label1.Text`, `checkBox1.Checked`, `Enabled`, `Visible`, …),
+`Close()`/`Show()`/`Hide()`, `control.Focus()`, `MessageBox.Show(...)` (via a bundled fallback
+dialog, which makes the handler `async`), `Application.Exit()`, opening another converted Form
+(`new SettingsForm().ShowDialog()` → `await new SettingsView().ShowDialog(this)`), and any
+plain-.NET expression around them — interpolated strings included. Anything else — control APIs with no Avalonia counterpart, helper calls, locals, control flow
+— stops the translation, and **translation stops at the first statement it cannot handle** so the
+emitted prefix is a faithful partial execution rather than a method that silently skips work.
+
+A promoted `[RelayCommand]` almost always translates *completely*: promotion already proved every
+member its body touches is bindable, so the same body rewrites cleanly against the ViewModel's own
+generated properties. The conversion report prints how many statements came across in total.
+
+The generated project therefore always builds **and runs**, and the unit of manual migration is one
+method rather than one file-sized comment block.
 
 The marker reports (to stderr and to the debugger, once per member) rather than throwing, because
 Avalonia invokes these handlers from the framework — a `TabControl` selects its first tab, a `Window`

@@ -28,6 +28,9 @@ public static class FallbackControlCatalog
         new Dictionary<string, FallbackTemplateDefinition>(StringComparer.Ordinal)
         {
             ["GroupBoxFallback"] = new("GroupBoxFallback", "GroupBoxFallback.cs", "GroupBoxFallback.cs"),
+            // The only entry pulled in by a converted handler body rather than by the AXAML -
+            // see HandlerBodyRewriter's MessageBox.Show translation.
+            ["MessageBoxFallback"] = new("MessageBoxFallback", "MessageBoxFallback.cs", "MessageBoxFallback.cs"),
             ["StatusStripFallback"] = new("StatusStripFallback", "StatusStripFallback.cs", "StatusStripFallback.cs"),
             ["ToolStripFallback"] = new("ToolStripFallback", "ToolStripFallback.cs", "ToolStripFallback.cs"),
             ["MaskedTextBoxFallback"] = new("MaskedTextBoxFallback", "MaskedTextBoxFallback.cs", "MaskedTextBoxFallback.cs"),

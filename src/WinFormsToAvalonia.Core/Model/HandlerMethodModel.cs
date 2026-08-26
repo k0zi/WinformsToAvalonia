@@ -34,6 +34,13 @@ public sealed record HandlerMethodModel
     /// <summary>True when the body constructs another Form/Dialog type (modal navigation) - stays in code-behind.</summary>
     public bool CreatesOtherForms { get; init; }
 
+    /// <summary>
+    /// True when the body calls <c>MessageBox.Show(...)</c>. Like <see cref="CreatesOtherForms"/>
+    /// this keeps the handler in code-behind: Avalonia's replacement is a dialog that needs a
+    /// TopLevel to own it, and a ViewModel has none.
+    /// </summary>
+    public bool CallsDialogApis { get; init; }
+
     /// <summary>Designer field names (keys of <see cref="FormModel.Controls"/>) the body touches.</summary>
     public IReadOnlyList<string> ReferencedControlFields { get; init; } = [];
 

@@ -1,4 +1,7 @@
+using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using WinFormsToAvalonia.Core.Emission;
 using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
@@ -47,7 +50,19 @@ public sealed class FormMigrationPlanner
         _eventMappings = eventMappings;
     }
 
-    public FormMigrationPlan Plan(FormModel formModel, CodeBehindModel codeBehind)
+    /// <param name="formViews">
+    /// Every Form in the project resolved to its generated View, so a handler that opens another
+    /// Form can be translated. Empty means navigation stays un-migrated, which is the safe default.
+    /// </param>
+    /// <param name="artifactKind">
+    /// Decides whether the host View is a Window. Only a Window can own a modal dialog, so a
+    /// converted UserControl's handlers cannot translate `ShowDialog`.
+    /// </param>
+    public FormMigrationPlan Plan(
+        FormModel formModel,
+        CodeBehindModel codeBehind,
+        IReadOnlyDictionary<string, FormViewInfo>? formViews = null,
+        WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form)
     {
         var warnings = new List<string>();
         var subscriptionsByHandler = CollectSubscriptions(formModel, codeBehind, warnings);
@@ -82,9 +97,23 @@ public sealed class FormMigrationPlanner
             codeBehindHandlers.AddRange(PlanCodeBehindHandler(handlerMethodName, subscriptions, source, warnings));
         }
 
+        // A handler that exists only to keep a promoted button's Enabled state in sync is a
+        // CanExecute guard written imperatively - fold it into the command and drop it.
+        DeriveCanExecuteGuards(formModel, codeBehind, codeBehindHandlers, viewModelCommands, boundProperties, seenBoundProperties, warnings);
+
+        // Body translation runs last, over the finished decisions: which control properties are
+        // bound - and therefore what a ViewModel body is even allowed to name - is only settled
+        // once every handler has been classified.
+        var rewriter = new HandlerBodyRewriter(_controlMappings);
+        var navigation = new ViewNavigationContext(
+            formViews ?? new Dictionary<string, FormViewInfo>(StringComparer.Ordinal),
+            HostIsWindow: artifactKind != WinFormsArtifactKind.UserControl);
+
         return new FormMigrationPlan(
-            ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings),
-            viewModelCommands,
+            [.. ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings)
+                .Select(h => h with { Rewrite = rewriter.RewriteForView(h.OriginalBody, formModel, navigation) })],
+            [.. viewModelCommands
+                .Select(c => c with { Rewrite = rewriter.RewriteForViewModel(c.OriginalBody, formModel, boundProperties) })],
             boundProperties,
             PlanTimers(formModel),
             PlanFileDialogs(formModel),
@@ -318,6 +347,13 @@ public sealed class FormMigrationPlanner
             return false;
         }
 
+        if (source.CallsDialogApis)
+        {
+            reason = "it shows a message box, and the Avalonia replacement needs a window to own the dialog - "
+                + "which the View has and a ViewModel does not.";
+            return false;
+        }
+
         if (source.TouchedFormMembers.Count > 0)
         {
             reason = $"it drives the Form itself ({string.Join(", ", source.TouchedFormMembers)}).";
@@ -362,6 +398,148 @@ public sealed class FormMigrationPlanner
             source.IsAsync);
 
         return true;
+    }
+
+    /// <summary>
+    /// Folds `okButton.Enabled = &lt;condition&gt;;` handlers into the promoted command's
+    /// <c>CanExecute</c>, which is what that WinForms idiom means in MVVM.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately narrow: the handler's <em>whole body</em> must be that one assignment, it must
+    /// ignore sender/EventArgs, and the condition must translate completely against ViewModel
+    /// properties. Under those conditions the handler is fully redundant - the two-way bindings
+    /// already push the values, and [NotifyCanExecuteChangedFor] re-evaluates the guard - so it is
+    /// removed along with its subscription rather than left to fight the Command for control of
+    /// the button's IsEnabled.
+    /// </para>
+    /// <para>
+    /// A handler that does anything <em>else</em> as well keeps its imperative
+    /// `IsEnabled = ...` write and no guard is derived: silently splitting such a body in two
+    /// would be the kind of unprovable rewrite this converter avoids everywhere else.
+    /// </para>
+    /// </remarks>
+    private static void DeriveCanExecuteGuards(
+        FormModel formModel,
+        CodeBehindModel codeBehind,
+        List<CodeBehindHandlerPlan> codeBehindHandlers,
+        List<ViewModelCommandPlan> viewModelCommands,
+        List<BoundPropertyPlan> boundProperties,
+        HashSet<(string Control, string Property)> seenBoundProperties,
+        List<string> warnings)
+    {
+        foreach (var handler in codeBehindHandlers.ToList())
+        {
+            var source = codeBehind.FindHandler(handler.OriginalMethodName);
+            if (source is null || !TryParseEnabledAssignment(handler, source, out var buttonField, out var conditionText))
+            {
+                continue;
+            }
+
+            var commandIndex = viewModelCommands.FindIndex(c => c.ControlFieldName == buttonField);
+            if (commandIndex < 0)
+            {
+                continue;
+            }
+
+            // If something already binds this button's IsEnabled, a derived guard would be a
+            // second, competing owner of the same property - leave the handler alone instead.
+            if (boundProperties.Any(p => p.ControlFieldName == buttonField && p.AvaloniaPropertyName == "IsEnabled"))
+            {
+                continue;
+            }
+
+            // Bind what the condition reads, on a copy: if the rewrite then fails, the plan is
+            // left exactly as it was rather than carrying orphaned properties.
+            var candidateBound = new List<BoundPropertyPlan>(boundProperties);
+            var candidateSeen = new HashSet<(string, string)>(seenBoundProperties);
+
+            AddBoundProperties(formModel, source, candidateBound, candidateSeen);
+
+            // The `Enabled` write itself must not become a binding: CanExecute is what drives the
+            // button's IsEnabled now, and a second binding would fight it - permanently, since
+            // the handler that used to set the value is about to be removed.
+            candidateBound.RemoveAll(p => p.ControlFieldName == buttonField && p.AvaloniaPropertyName == "IsEnabled");
+            candidateSeen.Remove((buttonField, "IsEnabled"));
+
+            if (!HandlerBodyRewriter.TryRewriteConditionForViewModel(
+                    conditionText, formModel, candidateBound, out var condition))
+            {
+                continue;
+            }
+
+            var command = viewModelCommands[commandIndex];
+
+            // Exactly the properties the *translated condition* names, so no unrelated property
+            // ends up raising this command's CanExecuteChanged.
+            var readProperties = candidateBound
+                .Where(p => Regex.IsMatch(condition, $@"\b{Regex.Escape(p.ViewModelPropertyName)}\b"))
+                .Select(p => p.ViewModelPropertyName)
+                .ToHashSet(StringComparer.Ordinal);
+
+            boundProperties.Clear();
+            boundProperties.AddRange(candidateBound.Select(p =>
+                readProperties.Contains(p.ViewModelPropertyName)
+                    ? new BoundPropertyPlan(
+                        p.ControlFieldName,
+                        p.AvaloniaPropertyName,
+                        p.ViewModelPropertyName,
+                        p.ClrTypeName,
+                        p.DefaultValueSuffix,
+                        [.. p.NotifiesCommands.Append(command.CommandPropertyName)])
+                    : p));
+
+            seenBoundProperties.UnionWith(candidateSeen);
+            viewModelCommands[commandIndex] = command with { CanExecuteExpression = condition };
+            codeBehindHandlers.Remove(handler);
+
+            warnings.Add(
+                $"handler '{handler.OriginalMethodName}' only kept '{buttonField}.Enabled' in sync, so it became " +
+                $"'{command.CommandPropertyName}'s CanExecute guard - the handler and its subscription are gone.");
+        }
+    }
+
+    /// <summary>
+    /// Matches a handler whose entire body is `someButton.Enabled = &lt;condition&gt;;`, ignoring
+    /// both parameters - the exact shape that is a guard rather than an action.
+    /// </summary>
+    private static bool TryParseEnabledAssignment(
+        CodeBehindHandlerPlan handler, HandlerMethodModel source, out string buttonField, out string conditionText)
+    {
+        buttonField = "";
+        conditionText = "";
+
+        if (source is not { UsesSender: false, UsesEventArgs: false } || handler.Subscriptions.Count != 1)
+        {
+            return false;
+        }
+
+        if (SyntaxFactory.ParseStatement("{\n" + source.BodyText + "\n}") is not BlockSyntax block
+            || block.ContainsDiagnostics)
+        {
+            return false;
+        }
+
+        if (block.Statements is not [ExpressionStatementSyntax { Expression: AssignmentExpressionSyntax assignment }])
+        {
+            return false;
+        }
+
+        if (!assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+            || assignment.Left is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Enabled" } target)
+        {
+            return false;
+        }
+
+        buttonField = target.Expression switch
+        {
+            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var name } => name,
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+            _ => "",
+        };
+
+        conditionText = assignment.Right.ToString();
+        return buttonField.Length > 0;
     }
 
     private static void AddBoundProperties(

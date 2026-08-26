@@ -57,7 +57,12 @@ while IFS= read -r proj_file; do
     echo "Output:     $output_dir"
     echo "------------------------------------------------------------"
 
-    if dotnet "$CLI_DLL" convert --source "$proj_file" --output "$output_dir" --force; then
+    # --overwrite-all because this script's whole job is regenerating the checked-in sample
+    # output. Without it `convert` defaults to preserving existing files and writing the new
+    # version alongside as *.w2a-new - right for a user's half-migrated project, exactly wrong
+    # here. Hand-written files the converter does not produce (samples/Avalonia's Dialogs/,
+    # Models/, Components/) survive either way: it only ever writes what it generates.
+    if dotnet "$CLI_DLL" convert --source "$proj_file" --output "$output_dir" --force --overwrite-all; then
         gen_csproj="$(find "$output_dir" -maxdepth 1 -name "*.csproj" | head -n 1 || true)"
         if [ -n "$gen_csproj" ]; then
             echo "Adding $gen_csproj to solution $SLN_FILE..."

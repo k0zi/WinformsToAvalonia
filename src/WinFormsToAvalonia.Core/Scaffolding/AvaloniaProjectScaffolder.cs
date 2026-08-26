@@ -171,6 +171,18 @@ public sealed class AvaloniaProjectScaffolder
         }
         """;
 
+    /// <summary>
+    /// The theme variant is pinned to <c>Light</c> rather than following the OS.
+    /// </summary>
+    /// <remarks>
+    /// A WinForms design is a light-mode design, and AxamlEmitter now carries its literal
+    /// BackColor/ForeColor values through to the AXAML. Those two only agree under a light
+    /// shell: a control that set only its ForeColor (black text, background left to the
+    /// framework) would render black-on-dark if the host happened to be in dark mode - a
+    /// regression the conversion itself introduced. Pinning is also the honest signal that a
+    /// converted app has not been themed yet; delete this attribute (or set "Default") once
+    /// the generated views have been reworked to use theme resources instead of fixed colors.
+    /// </remarks>
     private static string BuildAppAxaml(string projectName, IReadOnlyList<NotifyIconInfo> notifyIcons)
     {
         var trayIconsSection = notifyIcons.Count == 0 ? "" : BuildTrayIconsSection(notifyIcons);
@@ -180,7 +192,7 @@ public sealed class AvaloniaProjectScaffolder
                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                          x:Class="{projectName}.App"
                          xmlns:local="using:{projectName}"
-                         RequestedThemeVariant="Default">
+                         RequestedThemeVariant="Light">
             {trayIconsSection}
                 <Application.DataTemplates>
                     <local:ViewLocator />

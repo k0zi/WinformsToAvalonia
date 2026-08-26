@@ -269,6 +269,107 @@ public class FormMigrationPlannerTests
         return Planner.Plan(formModel, codeBehind);
     }
 
+    /// <summary>
+    /// The canonical "enable the button when the input is valid" WinForms idiom. In MVVM that is
+    /// a CanExecute guard, and the handler that maintained it imperatively is redundant.
+    /// </summary>
+    [Fact]
+    public void Plan_HandlerThatOnlyKeepsEnabledInSync_BecomesTheCommandsCanExecuteGuard()
+    {
+        var formModel = FormWith(("okButton", "Button"), ("nameTextBox", "TextBox"));
+        Wire(formModel, "okButton", "Click", "okButton_Click");
+        Wire(formModel, "nameTextBox", "TextChanged", "nameTextBox_TextChanged");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void okButton_Click(object sender, EventArgs e)
+                    {
+                        nameTextBox.Text = "sent";
+                    }
+
+                    private void nameTextBox_TextChanged(object sender, EventArgs e)
+                    {
+                        okButton.Enabled = nameTextBox.Text.Length > 0;
+                    }
+                }
+            }
+            """);
+
+        var command = Assert.Single(plan.ViewModelCommands);
+        Assert.Equal("NameTextBoxText.Length > 0", command.CanExecuteExpression);
+        Assert.Equal("CanOkButton", command.CanExecuteMethodName);
+
+        // The handler is gone, and so is its subscription - the bindings and
+        // NotifyCanExecuteChangedFor now do its job declaratively.
+        Assert.DoesNotContain(plan.CodeBehindHandlers, h => h.OriginalMethodName == "nameTextBox_TextChanged");
+        Assert.Empty(plan.XamlEventAttributesFor("nameTextBox"));
+
+        var bound = Assert.Single(plan.BoundProperties, p => p.ViewModelPropertyName == "NameTextBoxText");
+        Assert.Equal(["OkButtonCommand"], bound.NotifiesCommands);
+
+        Assert.Contains(plan.Warnings, w => w.Contains("CanExecute guard", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A handler that also does something else keeps its imperative write and gets no guard:
+    /// splitting such a body in two would be exactly the unprovable rewrite this converter avoids.
+    /// </summary>
+    [Fact]
+    public void Plan_HandlerThatDoesMoreThanKeepEnabledInSync_KeepsItsHandlerAndGetsNoGuard()
+    {
+        var formModel = FormWith(("okButton", "Button"), ("nameTextBox", "TextBox"), ("statusLabel", "Label"));
+        Wire(formModel, "okButton", "Click", "okButton_Click");
+        Wire(formModel, "nameTextBox", "TextChanged", "nameTextBox_TextChanged");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void okButton_Click(object sender, EventArgs e)
+                    {
+                        nameTextBox.Text = "sent";
+                    }
+
+                    private void nameTextBox_TextChanged(object sender, EventArgs e)
+                    {
+                        okButton.Enabled = nameTextBox.Text.Length > 0;
+                        statusLabel.Text = "typing";
+                    }
+                }
+            }
+            """);
+
+        Assert.Null(Assert.Single(plan.ViewModelCommands).CanExecuteExpression);
+        Assert.Contains(plan.CodeBehindHandlers, h => h.OriginalMethodName == "nameTextBox_TextChanged");
+    }
+
+    [Fact]
+    public void Plan_EnabledSyncForAControlWithNoPromotedCommand_IsLeftAlone()
+    {
+        var formModel = FormWith(("plainButton", "Button"), ("nameTextBox", "TextBox"));
+        Wire(formModel, "nameTextBox", "TextChanged", "nameTextBox_TextChanged");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void nameTextBox_TextChanged(object sender, EventArgs e)
+                    {
+                        plainButton.Enabled = nameTextBox.Text.Length > 0;
+                    }
+                }
+            }
+            """);
+
+        Assert.Empty(plan.ViewModelCommands);
+        Assert.Contains(plan.CodeBehindHandlers, h => h.OriginalMethodName == "nameTextBox_TextChanged");
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

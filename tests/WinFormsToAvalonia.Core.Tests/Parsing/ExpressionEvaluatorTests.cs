@@ -128,10 +128,28 @@ public class ExpressionEvaluatorTests
     [Fact]
     public void Evaluate_IconFromHandle_StaysUnresolved()
     {
-        // The common real-world shapes (dynamic computation, resx lookup) aren't literal
-        // paths - only `new Icon("literal.ico")` is recognized.
+        // A dynamically computed icon has nothing static to resolve to.
         Assert.IsType<PropertyValue.Unresolved>(Evaluate("System.Drawing.Icon.FromHandle(someHandle)"));
-        Assert.IsType<PropertyValue.Unresolved>(Evaluate("((System.Drawing.Icon)(resources.GetObject(\"notifyIcon.Icon\")))"));
+    }
+
+    /// <summary>
+    /// The shape a non-localizable form uses for images and icons. The cast and parentheses are
+    /// stripped by Unwrap, leaving the resource key for ConversionPipeline to resolve against
+    /// the form's .resx.
+    /// </summary>
+    [Theory]
+    [InlineData("((System.Drawing.Icon)(resources.GetObject(\"notifyIcon.Icon\")))", "notifyIcon.Icon")]
+    [InlineData("((System.Drawing.Image)(resources.GetObject(\"pictureBox1.Image\")))", "pictureBox1.Image")]
+    [InlineData("resources.GetString(\"label1.Text\")", "label1.Text")]
+    public void Evaluate_ResourceLookup_BecomesAResourceReference(string expression, string expectedKey)
+    {
+        Assert.Equal(new PropertyValue.ResourceReference(expectedKey), Evaluate(expression));
+    }
+
+    [Fact]
+    public void Evaluate_ResourceLookupWithoutALiteralKey_StaysUnresolved()
+    {
+        Assert.IsType<PropertyValue.Unresolved>(Evaluate("resources.GetObject(keyVariable)"));
     }
 
     private static PropertyValue Evaluate(string expressionText)

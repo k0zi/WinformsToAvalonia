@@ -24,6 +24,9 @@ namespace WinFormsToAvalonia.Core.Emission;
 /// </remarks>
 public sealed class AxamlEmitter
 {
+    /// <summary>The root element has no ViewModel bindings competing for its attribute names.</summary>
+    private static readonly IReadOnlySet<string> NoBoundAttributes = new HashSet<string>(StringComparer.Ordinal);
+
     private readonly ControlMappingRegistry _registry;
 
     public AxamlEmitter(ControlMappingRegistry registry)
@@ -88,6 +91,13 @@ public sealed class AxamlEmitter
         {
             builder.Attribute("Title", GetFormTitle(formModel, viewClassName));
         }
+
+        // The Form's own BackColor/ForeColor/Font. Worth emitting on the root even though most
+        // controls carry their own: a WinForms Form's Font is *inherited* by every child that
+        // never overrode it, and Avalonia's font properties inherit the same way - so one
+        // attribute here restores the typeface for a whole form's worth of controls.
+        EmitVisualStyleAttributes(
+            builder, formModel.FormProperties, isUserControl ? "UserControl" : "Window", NoBoundAttributes);
 
         // Form-level events (Load/FormClosing/...) subscribe on the Window element itself.
         foreach (var (attributeName, handlerMethodName) in state.Plan.XamlEventAttributesFor(null))
@@ -228,10 +238,18 @@ public sealed class AxamlEmitter
             builder.Attribute("ToolTip.Tip", toolTipText);
         }
 
+        // Also universal, and for the same reason: BackColor/ForeColor/Font/Padding exist on
+        // every WinForms Control, so they belong here rather than in each mapper's property
+        // list. Which of them actually reach the AXAML is decided by the *target* element
+        // (AvaloniaStylePropertySupport), not by the WinForms type.
+        EmitVisualStyleAttributes(builder, control.Properties, elementName, boundAttributeNames);
+
         foreach (var nested in mapped.NestedElements)
         {
             EmitElementSpec(builder, nested);
         }
+
+        EmitLiteralItems(builder, control, elementName, state);
 
         if (control.ClrTypeName == "SplitContainer")
         {
@@ -445,6 +463,101 @@ public sealed class AxamlEmitter
         if (parts.Count > 0)
         {
             builder.Comment("WinForms layout: " + string.Join(" ", parts));
+        }
+    }
+
+    /// <summary>
+    /// The literal entries the designer put in a control's <c>Items</c> collection, emitted as
+    /// real item elements so a converted ComboBox/ListBox opens with its list already filled.
+    /// </summary>
+    /// <remarks>
+    /// Gated on the target element (<see cref="AvaloniaItemsSupport"/>), not the WinForms type:
+    /// an item element the target does not accept is an AVLN error in the generated project.
+    /// When a control has entries the target cannot take, they are reported rather than dropped
+    /// silently - that list is usually visible content the user would notice missing.
+    /// </remarks>
+    private static void EmitLiteralItems(
+        AxamlDocumentBuilder builder, ControlModel control, string elementName, EmissionState state)
+    {
+        if (control.LiteralItems.Count == 0)
+        {
+            return;
+        }
+
+        if (AvaloniaItemsSupport.ItemElementFor(elementName) is not { } itemElementName)
+        {
+            state.Warnings.Add(
+                $"field '{control.FieldName}' ({control.ClrTypeName}) has {control.LiteralItems.Count} designer-declared " +
+                $"item(s), but '{elementName}' does not take item elements - add them by hand, or bind ItemsSource.");
+            return;
+        }
+
+        foreach (var item in control.LiteralItems)
+        {
+            builder.OpenElement(itemElementName);
+            builder.Attribute("Content", item);
+            builder.CloseElement();
+        }
+    }
+
+    /// <summary>
+    /// The WinForms styling properties every <c>Control</c> has, emitted as whichever Avalonia
+    /// attributes the *target* element is able to carry (see
+    /// <see cref="AvaloniaStylePropertySupport"/>). Values the formatters cannot resolve to a
+    /// literal - and every attribute already claimed by a two-way {Binding} - are skipped
+    /// rather than guessed at, since a duplicate or unparseable attribute would break the
+    /// generated project's build.
+    /// </summary>
+    private static void EmitVisualStyleAttributes(
+        AxamlDocumentBuilder builder,
+        IReadOnlyDictionary<string, PropertyValue> properties,
+        string? avaloniaElementName,
+        IReadOnlySet<string> boundAttributeNames)
+    {
+        var supported = AvaloniaStylePropertySupport.For(avaloniaElementName);
+        if (supported == AvaloniaStyleProperties.None)
+        {
+            return;
+        }
+
+        void Emit(string attributeName, string? value)
+        {
+            if (value is not null && !boundAttributeNames.Contains(attributeName))
+            {
+                builder.Attribute(attributeName, value);
+            }
+        }
+
+        if (supported.HasFlag(AvaloniaStyleProperties.Background)
+            && properties.TryGetValue("BackColor", out var backColor))
+        {
+            Emit("Background", PropertyValueFormatters.AsBrush(backColor));
+        }
+
+        if (supported.HasFlag(AvaloniaStyleProperties.Foreground)
+            && properties.TryGetValue("ForeColor", out var foreColor))
+        {
+            Emit("Foreground", PropertyValueFormatters.AsBrush(foreColor));
+        }
+
+        if (supported.HasFlag(AvaloniaStyleProperties.Font)
+            && properties.TryGetValue("Font", out var font))
+        {
+            Emit("FontFamily", PropertyValueFormatters.AsFontFamily(font));
+            Emit("FontSize", PropertyValueFormatters.AsFontSize(font));
+            Emit("FontWeight", PropertyValueFormatters.AsFontWeight(font));
+            Emit("FontStyle", PropertyValueFormatters.AsFontStyle(font));
+
+            if (supported.HasFlag(AvaloniaStyleProperties.TextDecorations))
+            {
+                Emit("TextDecorations", PropertyValueFormatters.AsTextDecorations(font));
+            }
+        }
+
+        if (supported.HasFlag(AvaloniaStyleProperties.Padding)
+            && properties.TryGetValue("Padding", out var padding))
+        {
+            Emit("Padding", PropertyValueFormatters.AsThickness(padding));
         }
     }
 

@@ -30,6 +30,30 @@ public class ProjectDiscoveryTests
         Assert.DoesNotContain(pairings, p => p.ClassName is "Program" or "Helpers" && p.Kind != WinFormsArtifactKind.Other);
     }
 
+    /// <summary>
+    /// The form declares `: AppFormBase`, not `: Form`. Classifying on the immediate base list
+    /// alone used to drop it from the conversion without a word; the base list is now followed
+    /// through the project's own classes until it reaches a WinForms root.
+    /// </summary>
+    [Fact]
+    public void BaseFormApp_ResolvesTheProjectsOwnBaseFormAndConvertsTheDerivedForm()
+    {
+        var csproj = Path.Combine(SampleAppsRoot, "BaseFormApp", "BaseFormApp.csproj");
+        var project = new WinFormsProjectLoader().Load(csproj);
+
+        var pairings = new DesignerFileLocator().Locate(project);
+
+        var mainForm = Assert.Single(pairings, p => p.ClassName == "MainForm");
+        Assert.Equal(WinFormsArtifactKind.Form, mainForm.Kind);
+        Assert.Empty(mainForm.UnresolvedBaseTypes);
+
+        // The base class itself is a Form too, but has no Designer.cs - so it is discovered
+        // and then correctly left unconverted, rather than emitted as an empty second Window.
+        var baseForm = Assert.Single(pairings, p => p.ClassName == "AppFormBase");
+        Assert.Equal(WinFormsArtifactKind.Form, baseForm.Kind);
+        Assert.Null(baseForm.DesignerFilePath);
+    }
+
     [Fact]
     public void ModernNetApp_DiscoversMainFormAndNestedUserControl()
     {

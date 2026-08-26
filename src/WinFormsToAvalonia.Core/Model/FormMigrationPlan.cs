@@ -23,25 +23,46 @@ public sealed record EventSubscriptionPlan(
 /// A handler that stays event-driven: emitted as a real method on the generated View, with the
 /// mapped Avalonia signature, and subscribed from AXAML (or from code, for a DispatcherTimer).
 /// </summary>
+/// <param name="Rewrite">
+/// What <c>HandlerBodyRewriter</c> made of the body: the statements it could translate into real
+/// Avalonia code, and the un-migrated remainder that still goes into the comment block. Null when
+/// nothing was attempted.
+/// </param>
 public sealed record CodeBehindHandlerPlan(
     string MethodName,
     string EventArgsTypeName,
     bool IsAsync,
     string OriginalMethodName,
     string OriginalBody,
-    IReadOnlyList<EventSubscriptionPlan> Subscriptions);
+    IReadOnlyList<EventSubscriptionPlan> Subscriptions,
+    RewrittenBody? Rewrite = null);
 
 /// <summary>
 /// A handler promoted to a CommunityToolkit [RelayCommand] on the ViewModel, together with the
 /// control whose Command property binds to it.
 /// </summary>
+/// <param name="Rewrite">
+/// The command body translated against the ViewModel's own [ObservableProperty] names - see
+/// <c>HandlerBodyRewriter</c>. A promoted handler's vocabulary was already proved bindable, so
+/// this is usually a complete rewrite rather than a prefix.
+/// </param>
+/// <param name="CanExecuteExpression">
+/// The command's guard, translated against this ViewModel's own properties - derived from a
+/// handler whose whole job was keeping the control's <c>Enabled</c> state in sync. Null when no
+/// such handler was found, which is the common case.
+/// </param>
 public sealed record ViewModelCommandPlan(
     string CommandMethodName,
     string ControlFieldName,
     string OriginalMethodName,
     string OriginalBody,
-    bool IsAsync)
+    bool IsAsync,
+    RewrittenBody? Rewrite = null,
+    string? CanExecuteExpression = null)
 {
+    /// <summary>The generated guard method CommunityToolkit binds through CanExecute, e.g. "CanOk".</summary>
+    public string CanExecuteMethodName => $"Can{CommandMethodName}";
+
     /// <summary>The generated ICommand property name CommunityToolkit derives from the method, e.g. "Ok" -> "OkCommand".</summary>
     public string CommandPropertyName => $"{CommandMethodName}Command";
 }
@@ -51,12 +72,21 @@ public sealed record ViewModelCommandPlan(
 /// exist as an [ObservableProperty] on the ViewModel *and* as a {Binding} on the element. The
 /// two are always planned together - a ViewModel property with no binding behind it is dead code.
 /// </summary>
+/// <param name="NotifiesCommands">
+/// ICommand property names whose CanExecute depends on this property, so the generated
+/// [ObservableProperty] can raise their CanExecuteChanged. Without it a derived guard would only
+/// ever be evaluated once.
+/// </param>
 public sealed record BoundPropertyPlan(
     string ControlFieldName,
     string AvaloniaPropertyName,
     string ViewModelPropertyName,
     string ClrTypeName,
-    string DefaultValueSuffix);
+    string DefaultValueSuffix,
+    IReadOnlyList<string>? NotifiesCommands = null)
+{
+    public IReadOnlyList<string> NotifiesCommands { get; } = NotifiesCommands ?? [];
+}
 
 /// <summary>
 /// A WinForms <c>Timer</c> component with a Tick handler. Avalonia's replacement,
@@ -97,6 +127,28 @@ public sealed record FormMigrationPlan(
     IReadOnlyList<string> Warnings)
 {
     public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], []);
+
+    /// <summary>Every body rewrite in this plan - both the code-behind and the ViewModel side.</summary>
+    private IEnumerable<RewrittenBody> Rewrites =>
+        CodeBehindHandlers.Select(h => h.Rewrite)
+            .Concat(ViewModelCommands.Select(c => c.Rewrite))
+            .OfType<RewrittenBody>();
+
+    /// <summary>Extra `using`s the translated statements need, beyond a generated View's usual set.</summary>
+    public IReadOnlyList<string> RequiredUsings =>
+        [.. Rewrites.SelectMany(r => r.RequiredUsings).Distinct(StringComparer.Ordinal).OrderBy(u => u, StringComparer.Ordinal)];
+
+    /// <summary>
+    /// Bundled templates a translated statement depends on (today: MessageBoxFallback). Unlike
+    /// every other fallback key these come from a *handler body* rather than the AXAML, so
+    /// ConversionPipeline has to union them in separately.
+    /// </summary>
+    public IReadOnlyList<string> RequiredFallbackKeys =>
+        [.. Rewrites.SelectMany(r => r.RequiredFallbackKeys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal)];
+
+    /// <summary>Statements translated into real Avalonia code, out of every statement seen.</summary>
+    public (int Migrated, int Total) StatementMigration =>
+        (Rewrites.Sum(r => r.MigratedStatementCount), Rewrites.Sum(r => r.TotalStatementCount));
 
     /// <summary>AXAML event attributes to emit on the given control, e.g. ("Click", "button1_Click").</summary>
     public IEnumerable<(string AttributeName, string HandlerMethodName)> XamlEventAttributesFor(string? controlFieldName) =>

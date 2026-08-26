@@ -62,7 +62,8 @@ public class ViewCodeBehindEmitterTests
                 {
                     private async void loginButton_Click(object? sender, EventArgs e)
                     {
-                        Close();
+                        await AuthenticateAsync();
+                        this.Close();
                     }
                 }
             }
@@ -71,6 +72,92 @@ public class ViewCodeBehindEmitterTests
         var method = Assert.Single(SingleClass(source).Members.OfType<MethodDeclarationSyntax>());
         Assert.DoesNotContain(method.Modifiers, m => m.ValueText == "async");
         Assert.Contains("ORIGINAL WINFORMS BODY of async 'loginButton_Click'", source);
+    }
+
+    /// <summary>
+    /// A body HandlerBodyRewriter fully translates leaves no TODO behind: the method is the
+    /// migration, so there is nothing left to report at run time.
+    /// </summary>
+    [Fact]
+    public void EmitViewCodeBehind_FullyMigratedBody_EmitsRealCodeAndNoMigrationMarker()
+    {
+        var formModel = FormWith(("closeButton", "Button"), ("statusLabel", "Label"));
+        formModel.Controls["closeButton"].Events.Add(new EventHandlerBinding("Click", "closeButton_Click", null));
+
+        var source = EmitFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void closeButton_Click(object sender, EventArgs e)
+                    {
+                        this.statusLabel.Text = "Bye";
+                        this.Close();
+                    }
+                }
+            }
+            """);
+
+        Assert.Contains("statusLabel.Text = \"Bye\";", source);
+        Assert.Contains("Close();", source);
+        Assert.DoesNotContain("ORIGINAL WINFORMS BODY", source);
+        Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(closeButton_Click)", source);
+    }
+
+    /// <summary>
+    /// A partly translated body keeps both halves: the migrated prefix as code, the rest as the
+    /// same TODO comment as before - plus the marker, because the handler is still unfinished.
+    /// </summary>
+    [Fact]
+    public void EmitViewCodeBehind_PartiallyMigratedBody_EmitsCodeThenTheRemainingTodo()
+    {
+        var formModel = FormWith(("saveButton", "Button"), ("statusLabel", "Label"));
+        formModel.Controls["saveButton"].Events.Add(new EventHandlerBinding("Click", "saveButton_Click", null));
+
+        var source = EmitFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void saveButton_Click(object sender, EventArgs e)
+                    {
+                        this.statusLabel.Text = "Saving";
+                        PersistEverything();
+                        this.Close();
+                    }
+                }
+            }
+            """);
+
+        Assert.Contains("statusLabel.Text = \"Saving\";", source);
+        Assert.Contains("REMAINING WINFORMS BODY", source);
+        Assert.Contains("PersistEverything();", source);
+        Assert.Contains("MigrationTodo.NotMigrated(nameof(saveButton_Click)", source);
+    }
+
+    [Fact]
+    public void EmitViewCodeBehind_MessageBoxCall_MakesTheHandlerAsyncAndImportsTheFallback()
+    {
+        var formModel = FormWith(("infoButton", "Button"));
+        formModel.Controls["infoButton"].Events.Add(new EventHandlerBinding("Click", "infoButton_Click", null));
+
+        var source = EmitFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void infoButton_Click(object sender, EventArgs e)
+                    {
+                        MessageBox.Show("Saved", "Info");
+                    }
+                }
+            }
+            """);
+
+        var method = Assert.Single(SingleClass(source).Members.OfType<MethodDeclarationSyntax>());
+        Assert.Contains(method.Modifiers, m => m.ValueText == "async");
+        Assert.Contains("await MessageBoxFallback.ShowAsync(this, \"Saved\", \"Info\");", source);
+        Assert.Contains("using Demo.Controls;", source);
     }
 
     [Fact]

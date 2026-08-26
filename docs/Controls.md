@@ -18,6 +18,10 @@ registry entry at all.
 10 base classes (not applicable) · `Form` and `UserControl` are both conversion roots (a Form
 becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in this table.
 
+> `MessageBoxFallback` is a bundled template too, but deliberately not part of these counts: it
+> is not a control mapping at all. Nothing in the AXAML ever references it — it is pulled in by
+> `HandlerBodyRewriter` when a translated handler body calls `MessageBox.Show(...)`.
+
 > The registry also has three `Unsupported` entries not present in the source list above:
 > `PrintDocument` (same guidance as `PrintDialog`/`PrintPreviewDialog` — no Avalonia printing
 > API), `SerialPort` and `SoundPlayer`. Omitted from the tables since they weren't part of the
@@ -69,14 +73,14 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 | WinForms type | Status | Avalonia target | Notes |
 |---|---|---|---|
 | `ListControl` | — | | Base class. |
-| `ListBox` | ✅ Direct | `ListBox` | |
-| `CheckedListBox` | ✅ Direct | `ListBox` | Checkbox-per-item semantics not translated. |
-| `ComboBox` | ✅ Direct | `ComboBox` | |
+| `ListBox` | ✅ Direct | `ListBox` | Designer-declared literal `Items` entries are emitted as `ListBoxItem` children. |
+| `CheckedListBox` | ✅ Direct | `ListBox` | Checkbox-per-item semantics not translated; literal `Items` entries are. |
+| `ComboBox` | ✅ Direct | `ComboBox` | Designer-declared literal `Items` entries are emitted as `ComboBoxItem` children. |
 | `ListView` | ✅ Direct | `DataGrid` / `ListBox` | Per-instance (`ListViewMapper`): `View=Details`, or any parsed `ColumnHeader` children, → `DataGrid` with its columns; otherwise `ListBox`. Items are not translated either way — the control is emitted without rows. |
 | `TreeView` | ✅ Direct | `TreeView` | |
 | `PropertyGrid` | ✅ Fallback | `PropertyGridFallback` | Reflection-based name/value editor. No categories, nested objects or custom editors. See [Implementation plan](#propertygrid). |
 | `DataGridView` | ✅ Direct | `DataGrid` | Requires the `Avalonia.Controls.DataGrid` NuGet package; all six column types nest under `<DataGrid.Columns>`. |
-| `DomainUpDown` | ✅ Fallback | `DomainUpDownFallback` | `Items` not populated automatically (same `.Items.Add` limitation as ToolStripItem/DataGridView columns) — populate by hand or bind from the ViewModel. |
+| `DomainUpDown` | ✅ Fallback | `DomainUpDownFallback` | The fallback takes no item elements, so its designer-declared `Items` are **reported** rather than emitted — populate by hand or bind from the ViewModel. |
 | `NumericUpDown` | ✅ Direct | `NumericUpDown` | |
 
 ### Date / Time Controls
@@ -90,7 +94,7 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 
 | WinForms type | Status | Avalonia target | Notes |
 |---|---|---|---|
-| `PictureBox` | ✅ Direct | `Image` | |
+| `PictureBox` | ✅ Direct | `Image` | Its `Image` is recovered from the form's `.resx` and copied into `Assets/`, then bound via `Source`. A payload `ResxImageExtractor` can't decode is reported instead of emitted. |
 | `ProgressBar` | ✅ Direct | `ProgressBar` | |
 | `TrackBar` | ✅ Direct | `Slider` | Its `Scroll` maps to `ValueChanged` (which also fires on programmatic changes). |
 | `HScrollBar` | ✅ Direct | `ScrollBar` | Fixed `Orientation="Horizontal"`; its `Scroll` maps to Avalonia's `ScrollBar.Scroll`. |
@@ -181,7 +185,7 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 | `ToolTip` | ❌ Unsupported | | The component itself has no element, but `SetToolTip(...)` calls are now translated automatically into a `ToolTip.Tip` attribute on the target control. See [Implementation plan](#tooltip). |
 | `HelpProvider` | ❌ Unsupported | | No Avalonia analog — permanently guidance-only. |
 | `ErrorProvider` | ✅ Fallback | `ErrorProviderFallback` | |
-| `NotifyIcon` | ❌ Unsupported | | Aggregated across all forms into App.axaml's `TrayIcon.Icons`. A literal icon path that resolves to a real file is copied into `Assets/`; otherwise — the common case, since real Designer.cs rarely assigns one — the block is emitted **commented out** with a TODO, because Avalonia resolves `TrayIcon.Icon` at run time and a dangling asset reference throws out of `App.Initialize()`. See [Implementation plan](#notifyicon). |
+| `NotifyIcon` | ❌ Unsupported | | Aggregated across all forms into App.axaml's `TrayIcon.Icons`. The icon is copied into `Assets/` from either a literal path or the form's `.resx`; only when it is neither — a computed `Icon`, or an undecodable payload — is the block emitted **commented out** with a TODO, because Avalonia resolves `TrayIcon.Icon` at run time and a dangling asset reference throws out of `App.Initialize()`. See [Implementation plan](#notifyicon). |
 | `ImageList` | ❌ Unsupported | | See [Implementation plan](#imagelist). |
 
 ## DataGridView Related Types
@@ -254,8 +258,8 @@ inert `Border` to a `StackPanel` so they can host their item children for real.
 `MappedControl.ChildWrapperElementNames`, generalized from a single wrapper name for exactly
 this case) - their already-`MenuItem`-mapped `DropDownItems` nest straight into it.
 `ToolStripControlHost`/`ToolStripDropDown` stay `Unsupported` - an embedded-arbitrary-control
-problem, not a parsing or wrapper one. `ContextMenuStrip`'s own items are parsed too, but it's still not
-wired up (see its own subsection below).
+problem, not a parsing or wrapper one. `ContextMenuStrip`'s own items are parsed too, and are
+emitted as a nested `<Control.ContextMenu>` on the owning control (see its own subsection below).
 
 ### DataGridView columns
 

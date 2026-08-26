@@ -65,6 +65,19 @@ public sealed class ViewCodeBehindEmitter
             Line($"using {namespaceName};");
         }
 
+        // Namespaces the translated handler statements need - the desktop lifetime behind
+        // Application.Exit(), or another Form's View for a navigation call. Only what this plan
+        // actually emitted, and never this View's own namespace, so no View gets a stray using.
+        foreach (var namespaceName in plan.RequiredUsings.Where(n => !string.Equals(n, ns, StringComparison.Ordinal)))
+        {
+            Line($"using {namespaceName};");
+        }
+
+        if (plan.RequiredFallbackKeys.Count > 0)
+        {
+            Line($"using {rootNamespace}.Controls;");
+        }
+
         Line($"using {rootNamespace}.Generated;");
         Line($"using {viewModelNamespace};");
         Line();
@@ -172,18 +185,38 @@ public sealed class ViewCodeBehindEmitter
     /// </remarks>
     private static void EmitHandler(Action<string> line, CodeBehindHandlerPlan handler)
     {
-        line($"    private void {handler.MethodName}(object? sender, {handler.EventArgsTypeName} e)");
+        var rewrite = handler.Rewrite;
+        var asyncModifier = rewrite?.RequiresAsync == true ? "async " : "";
+
+        line($"    private {asyncModifier}void {handler.MethodName}(object? sender, {handler.EventArgsTypeName} e)");
         line("    {");
 
-        if (handler.OriginalBody.Length > 0)
+        foreach (var statement in rewrite?.MigratedStatements ?? [])
         {
-            var originalSignature = handler.IsAsync ? $"async '{handler.OriginalMethodName}'" : $"'{handler.OriginalMethodName}'";
-            line($"        /* ORIGINAL WINFORMS BODY of {originalSignature} - TODO(Winforms2Avalonia): migrate it into this method.");
-            line(Indent(EscapeForBlockComment(handler.OriginalBody), "        "));
-            line("        */");
+            line($"        {statement}");
         }
 
-        line($"        MigrationTodo.NotMigrated(nameof({handler.MethodName}), \"{handler.OriginalMethodName}\");");
+        var remaining = rewrite?.RemainingBody ?? handler.OriginalBody;
+        if (remaining.Length > 0)
+        {
+            if (rewrite?.MigratedStatementCount > 0)
+            {
+                line("");
+            }
+
+            var originalSignature = handler.IsAsync ? $"async '{handler.OriginalMethodName}'" : $"'{handler.OriginalMethodName}'";
+            var what = rewrite?.MigratedStatementCount > 0 ? "REMAINING WINFORMS BODY" : "ORIGINAL WINFORMS BODY";
+            line($"        /* {what} of {originalSignature} - TODO(Winforms2Avalonia): migrate it into this method.");
+            line(Indent(EscapeForBlockComment(remaining), "        "));
+            line("        */");
+            line($"        MigrationTodo.NotMigrated(nameof({handler.MethodName}), \"{handler.OriginalMethodName}\");");
+        }
+        else if (rewrite?.MigratedStatementCount is null or 0)
+        {
+            // An empty original body: nothing to migrate, but the subscription still needs a method.
+            line($"        MigrationTodo.NotMigrated(nameof({handler.MethodName}), \"{handler.OriginalMethodName}\");");
+        }
+
         line("    }");
     }
 

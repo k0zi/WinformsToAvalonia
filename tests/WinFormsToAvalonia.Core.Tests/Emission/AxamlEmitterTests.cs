@@ -390,6 +390,158 @@ public class AxamlEmitterTests
         Assert.Empty(result.Warnings);
     }
 
+    [Fact]
+    public void EmitView_TemplatedControlWithColorsAndFont_EmitsEveryStyleAttribute()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var button = new ControlModel { FieldName = "button1", ClrTypeName = "Button" };
+        button.Properties["BackColor"] = new PropertyValue.ColorValue(null, 255, 0x1E, 0x90, 0xFF);
+        button.Properties["ForeColor"] = new PropertyValue.ColorValue("White", null, null, null, null);
+        button.Properties["Font"] = new PropertyValue.FontValue("Segoe UI", 12f, ["Bold"]);
+        button.Properties["Padding"] = new PropertyValue.PaddingValue(2, 4, 2, 4);
+        formModel.RootControls.Add(button);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("Background=\"#FF1E90FF\"", result.Axaml);
+        Assert.Contains("Foreground=\"#FFFFFFFF\"", result.Axaml);
+        Assert.Contains("FontFamily=\"Segoe UI\"", result.Axaml);
+        Assert.Contains("FontSize=\"16\"", result.Axaml);
+        Assert.Contains("FontWeight=\"Bold\"", result.Axaml);
+        Assert.Contains("Padding=\"2,4,2,4\"", result.Axaml);
+    }
+
+    /// <summary>
+    /// A Panel has a Background and nothing else. Emitting Foreground/FontSize on one would be
+    /// an AVLN2000 in the generated project, so the target element - not the WinForms type -
+    /// decides what survives.
+    /// </summary>
+    [Fact]
+    public void EmitView_PanelWithForeColorAndFont_EmitsOnlyBackground()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var panel = new ControlModel { FieldName = "panel1", ClrTypeName = "Panel" };
+        panel.Properties["BackColor"] = new PropertyValue.ColorValue("Red", null, null, null, null);
+        panel.Properties["ForeColor"] = new PropertyValue.ColorValue("White", null, null, null, null);
+        panel.Properties["Font"] = new PropertyValue.FontValue("Segoe UI", 12f, []);
+        formModel.RootControls.Add(panel);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("Background=\"#FFFF0000\"", result.Axaml);
+        Assert.DoesNotContain("Foreground=", result.Axaml);
+        Assert.DoesNotContain("FontSize=", result.Axaml);
+    }
+
+    /// <summary>Avalonia's Image derives straight from Control - it has no styling surface at all.</summary>
+    [Fact]
+    public void EmitView_PictureBoxWithBackColor_EmitsNoStyleAttributes()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var pictureBox = new ControlModel { FieldName = "pictureBox1", ClrTypeName = "PictureBox" };
+        pictureBox.Properties["BackColor"] = new PropertyValue.ColorValue("Red", null, null, null, null);
+        formModel.RootControls.Add(pictureBox);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<Image x:Name=\"pictureBox1\"", result.Axaml);
+        Assert.DoesNotContain("Background=", result.Axaml);
+    }
+
+    [Fact]
+    public void EmitView_LabelWithUnderlineFont_EmitsTextDecorations()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var label = new ControlModel { FieldName = "label1", ClrTypeName = "Label" };
+        label.Properties["Font"] = new PropertyValue.FontValue("Segoe UI", 9f, ["Underline"]);
+        formModel.RootControls.Add(label);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("TextDecorations=\"Underline\"", result.Axaml);
+    }
+
+    /// <summary>
+    /// A WinForms Form's Font is inherited by every child that never overrode it, and Avalonia's
+    /// font properties inherit the same way - so the root element carries it for the whole view.
+    /// </summary>
+    [Fact]
+    public void EmitView_FormLevelBackColorAndFont_LandOnTheRootElement()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        formModel.FormProperties["BackColor"] = new PropertyValue.ColorValue("Control", null, null, null, null);
+        formModel.FormProperties["Font"] = new PropertyValue.FontValue("Tahoma", 9f, []);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("Background=\"#FFF0F0F0\"", result.Axaml);
+        Assert.Contains("FontFamily=\"Tahoma\"", result.Axaml);
+        Assert.Contains("FontSize=\"12\"", result.Axaml);
+    }
+
+    /// <summary>
+    /// An unresolvable color must produce no attribute at all rather than a guess: an
+    /// unparseable value would fail the generated project's XAML compile.
+    /// </summary>
+    [Fact]
+    public void EmitView_UnresolvedBackColor_EmitsNoBackgroundAttribute()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var button = new ControlModel { FieldName = "button1", ClrTypeName = "Button" };
+        button.Properties["BackColor"] = new PropertyValue.Unresolved("Theme.AccentColor");
+        formModel.RootControls.Add(button);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.DoesNotContain("Background=", result.Axaml);
+    }
+
+    [Fact]
+    public void EmitView_ComboBoxWithDesignerItems_EmitsThemAsComboBoxItems()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var comboBox = new ControlModel { FieldName = "comboBox1", ClrTypeName = "ComboBox" };
+        comboBox.LiteralItems.AddRange(["Alpha", "Beta"]);
+        formModel.RootControls.Add(comboBox);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<ComboBoxItem Content=\"Alpha\" />", result.Axaml);
+        Assert.Contains("<ComboBoxItem Content=\"Beta\" />", result.Axaml);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void EmitView_ListBoxWithDesignerItems_EmitsListBoxItems()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var listBox = new ControlModel { FieldName = "listBox1", ClrTypeName = "ListBox" };
+        listBox.LiteralItems.Add("Only");
+        formModel.RootControls.Add(listBox);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<ListBoxItem Content=\"Only\" />", result.Axaml);
+    }
+
+    /// <summary>
+    /// A fallback control does not accept item elements, and emitting them anyway would be an
+    /// AVLN error - so the entries are reported rather than dropped silently.
+    /// </summary>
+    [Fact]
+    public void EmitView_ItemsOnATargetThatTakesNone_WarnsInsteadOfEmitting()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var upDown = new ControlModel { FieldName = "domainUpDown1", ClrTypeName = "DomainUpDown" };
+        upDown.LiteralItems.AddRange(["One", "Two"]);
+        formModel.RootControls.Add(upDown);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.DoesNotContain("Content=\"One\"", result.Axaml);
+        Assert.Contains(result.Warnings, w => w.Contains("domainUpDown1", StringComparison.Ordinal) && w.Contains("item(s)", StringComparison.Ordinal));
+    }
+
     private static FormModel BuildGroupBoxFormModel()
     {
         var formModel = new FormModel { ClassName = "MainForm" };

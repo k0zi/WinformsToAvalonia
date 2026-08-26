@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <metadata name="greetingLabel.TrayLocation" type="System.Drawing.Point, System.Drawing">
+    <value>17, 17</value>
+  </metadata>
+  <data name="greetingLabel.AutoSize" type="System.Boolean, mscorlib">
+    <value>True</value>
+  </data>
+  <data name="greetingLabel.Font" type="System.Drawing.Font, System.Drawing">
+    <value>Segoe UI, 12pt, style=Bold</value>
+  </data>
+  <data name="greetingLabel.ForeColor" type="System.Drawing.Color, System.Drawing">
+    <value>0, 90, 158</value>
+  </data>
+  <data name="greetingLabel.Location" type="System.Drawing.Point, System.Drawing">
+    <value>12, 9</value>
+  </data>
+  <data name="greetingLabel.Size" type="System.Drawing.Size, System.Drawing">
+    <value>260, 28</value>
+  </data>
+  <data name="greetingLabel.Text" xml:space="preserve">
+    <value>Üdvözöljük!</value>
+  </data>
+  <data name="&gt;&gt;greetingLabel.Name" xml:space="preserve">
+    <value>greetingLabel</value>
+  </data>
+  <data name="&gt;&gt;greetingLabel.Type" xml:space="preserve">
+    <value>System.Windows.Forms.Label, System.Windows.Forms</value>
+  </data>
+  <data name="nameTextBox.Location" type="System.Drawing.Point, System.Drawing">
+    <value>12, 50</value>
+  </data>
+  <data name="nameTextBox.Size" type="System.Drawing.Size, System.Drawing">
+    <value>260, 27</value>
+  </data>
+  <data name="nameTextBox.Text" xml:space="preserve">
+    <value>Név</value>
+  </data>
+  <data name="submitButton.Anchor" type="System.Windows.Forms.AnchorStyles, System.Windows.Forms">
+    <value>Bottom, Right</value>
+  </data>
+  <data name="submitButton.Location" type="System.Drawing.Point, System.Drawing">
+    <value>176, 90</value>
+  </data>
+  <data name="submitButton.Padding" type="System.Windows.Forms.Padding, System.Windows.Forms">
+    <value>4, 2, 4, 2</value>
+  </data>
+  <data name="submitButton.Size" type="System.Drawing.Size, System.Drawing">
+    <value>96, 30</value>
+  </data>
+  <data name="submitButton.Text" xml:space="preserve">
+    <value>Küldés</value>
+  </data>
+  <data name="logoPictureBox.Location" type="System.Drawing.Point, System.Drawing">
+    <value>236, 9</value>
+  </data>
+  <data name="logoPictureBox.Size" type="System.Drawing.Size, System.Drawing">
+    <value>36, 36</value>
+  </data>
+  <data name="logoPictureBox.Image" type="System.Drawing.Bitmap, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+    <value>
+        AAEAAAD/////AQAAAAAAAAAHAQAAAAIAAAAJAgAAAA8CAAAARgAAAAKJUE5HDQoaCgAAAA1JSERSAAAAAQAAAAEIBgAA
+        AB8VxIkAAAANSURBVHjaY2Rg+F8PAAKHAYDrR7qSAAAAAElFTkSuQmCCCw==
+</value>
+  </data>
+  <data name="$this.ClientSize" type="System.Drawing.Size, System.Drawing">
+    <value>284, 136</value>
+  </data>
+  <data name="$this.Font" type="System.Drawing.Font, System.Drawing">
+    <value>Segoe UI, 9pt</value>
+  </data>
+  <data name="$this.Text" xml:space="preserve">
+    <value>Bejelentkezés</value>
+  </data>
+</root>
