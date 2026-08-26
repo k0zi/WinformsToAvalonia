@@ -38,13 +38,13 @@ source project is never modified.
 |---|---|
 | 🔍 **Roslyn-based** | Parses `InitializeComponent` with the C# compiler API — no regex. |
 | 🌐 **Reads resources** | `Localizable=true` forms, which set every property through `resources.ApplyResources(...)`, convert with their text, geometry and fonts intact; images are recovered from the `.resx` into `Assets/`. |
-| 🧩 **89 control types recognized** | 59 mapped (45 Direct + 14 via bundled fallback controls), 30 more registered with guidance-only migration notes instead of a silent failure. See [`docs/Controls.md`](docs/Controls.md). |
+| 🧩 **92 control types recognized** | 59 mapped (45 Direct + 14 via bundled fallback controls), 33 more registered with guidance-only migration notes instead of a silent failure — run `list-mappings` for the live count. See [`docs/Controls.md`](docs/Controls.md). |
 | 📐 **Pixel-accurate layout** | Absolute `Canvas` positioning preserves the original design exactly; `Anchor`/`Dock` are recorded, never guessed at. |
 | ⚡ **Always-compiling output** | `dotnet build && dotnet run` works on the generated project immediately — warning-free. |
-| ✍️ **Handler bodies translated** | Bindable property access, `Close()`/`Focus()`, `MessageBox.Show`, `Application.Exit()`, opening another Form, and plain-.NET expressions become real Avalonia code; the report says how much came across. |
+| ✍️ **Handler bodies translated** | Bindable property access, control flow and loops, `Close()`/`Focus()`, window properties, `MessageBox.Show`, opening another Form (with its `DialogResult` contract), file dialogs, the clipboard, `sender`, non-visual .NET components and your own helper methods become real Avalonia code; the report says how much came across. |
 | 🎯 **Conservative MVVM** | Handlers are promoted to `[RelayCommand]` only when a Roslyn analysis *proves* it is safe — everything else stays event-driven. A handler that only kept a button's `Enabled` in sync becomes that command's `CanExecute` guard. |
 | 📦 **Zero extra dependencies** | Fallback controls are copied into the generated project as source; only the ones actually used. |
-| 🧪 **Verified end-to-end** | Integration tests convert real WinForms fixture projects and `dotnet build` the result. |
+| 🧪 **Verified end-to-end** | Integration tests convert real WinForms fixture projects, `dotnet build` the result, and **start** it on Avalonia's headless platform — because building alone never catches a converted app that throws before its first window. |
 
 ## Requirements
 
@@ -214,16 +214,48 @@ reported in the conversion output.
 Handler *bodies* are translated a statement at a time, under the same evidence rule as everything
 else: a statement is emitted as real Avalonia code only when it is provably equivalent, and
 everything else stays preserved as a comment inside the method that replaced it, followed by a call
-to the generated `MigrationTodo.NotMigrated(...)` marker. What gets translated today: writes and
-reads of bindable control properties (`label1.Text`, `checkBox1.Checked`, `Enabled`, `Visible`, …),
-`Close()`/`Show()`/`Hide()`, `control.Focus()`, `MessageBox.Show(...)` (via a bundled fallback
-dialog, which makes the handler `async`), `Application.Exit()`, opening another converted Form
-(`new SettingsForm().ShowDialog()` → `await new SettingsView().ShowDialog(this)`, including the
-`== DialogResult.OK` branch — the converted dialog is given the matching `Close(true/false)`), and
-any plain-.NET expression around them — interpolated strings included. Anything else — control APIs
-with no Avalonia counterpart, helper calls, non-visual components — stops the translation. `if`/`else` and `foreach`/`for`/`while` come across when their condition
-*and their whole body* translate, all-or-nothing, and local variables when their initializer does. **Translation stops at the first statement it cannot handle** so the
-emitted prefix is a faithful partial execution rather than a method that silently skips work.
+to the generated `MigrationTodo.NotMigrated(...)` marker.
+
+<details>
+<summary><b>What gets translated today</b></summary>
+
+<br>
+
+**Controls and values** — writes and reads of bindable control properties (`label1.Text`,
+`checkBox1.Checked`, `Enabled`, `Visible`, …); the zero- and one-argument control methods with an
+exact counterpart (`Focus()`, `Clear()`, `SelectAll()`, `AppendText(x)`); any plain-.NET expression
+around them, interpolated strings included.
+
+**Control flow** — `if`/`else` and `foreach`/`for`/`while` when the condition *and the whole body*
+translate, all-or-nothing; local variables when their initializer does; `return`.
+
+**The window** — `Close()`/`Show()`/`Hide()`, and the `Form` properties a `Window` spells
+differently (`Text` → `Title`, `WindowState`, `TopMost`, …), on this form or on a local holding
+another converted one.
+
+**Dialogs** — `MessageBox.Show(...)` via a bundled fallback (which makes the handler `async`);
+opening another converted Form (`new SettingsForm().ShowDialog()` →
+`await new SettingsView().ShowDialog(this)`), including the `== DialogResult.OK` branch — both
+halves are generated, so the converted dialog closes with the matching `Close(true/false)`, whether
+its designer declared the result or its handler assigns it; the file dialogs, translated **inline**
+into a `StorageProvider` picker call.
+
+**Events and input** — the `EventArgs` members with an exact answer (`e.Cancel`, `e.NewValue`, the
+pointer position, the drag effect and payload query); and `sender` on a handler wired to exactly one
+control, where the cast disappears because that local provably *is* that control.
+
+**Beyond the UI** — non-visual .NET components (`BackgroundWorker`, `FileSystemWatcher`, `Process`,
+…) emitted as real fields with their designer values and events wired; the `DispatcherTimer` this
+conversion creates for a WinForms `Timer`; `Application.Exit()`; `Clipboard.SetText`; and **your own
+private helper methods and backing fields**, when the helper's *whole* body translates.
+
+</details>
+
+Anything outside that list — control APIs with no Avalonia counterpart (`treeView1.Nodes.Add`),
+drawing, `switch`/`try`, an un-promotable helper — stops the translation. **Translation stops at the
+first statement it cannot handle**, so the emitted prefix is a faithful partial execution rather
+than a method that silently skips work. The full boundary, including why each exclusion is where it
+is, lives in [`docs/known-limitations.md`](docs/known-limitations.md).
 
 A promoted `[RelayCommand]` almost always translates *completely*: promotion already proved every
 member its body touches is bindable, so the same body rewrites cleanly against the ViewModel's own
