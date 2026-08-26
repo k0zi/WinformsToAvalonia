@@ -82,8 +82,12 @@ namespace HandlerMigrationApp
             this.statusLabel.Text = e.X.ToString();
         }
 
+        // Deliberately un-translatable: a helper is emitted as code only when its whole body
+        // is, and CharacterCasing is a WinForms-only property with no Avalonia counterpart at all
+        // - which is what keeps this a comment, and keeps its caller's prefix stopping here.
         private void PersistToDisk()
         {
+            this.nameTextBox.CharacterCasing = CharacterCasing.Upper;
         }
     }
 }

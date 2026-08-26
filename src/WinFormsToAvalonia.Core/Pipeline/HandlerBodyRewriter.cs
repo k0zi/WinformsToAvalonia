@@ -93,7 +93,9 @@ public sealed class HandlerBodyRewriter
         ViewNavigationContext? navigation = null,
         HandlerSignature? signature = null,
         IReadOnlySet<string>? dispatcherTimerFields = null,
-        IReadOnlySet<string>? componentFields = null) =>
+        IReadOnlySet<string>? componentFields = null,
+        IReadOnlyDictionary<string, HelperCallInfo>? promotedHelpers = null,
+        IReadOnlySet<string>? promotedFields = null) =>
         Rewrite(
             body,
             new ViewTarget(
@@ -102,7 +104,41 @@ public sealed class HandlerBodyRewriter
                 navigation ?? ViewNavigationContext.None,
                 signature ?? HandlerSignature.None,
                 dispatcherTimerFields ?? new HashSet<string>(StringComparer.Ordinal),
-                componentFields ?? new HashSet<string>(StringComparer.Ordinal)));
+                componentFields ?? new HashSet<string>(StringComparer.Ordinal),
+                promotedHelpers ?? new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal),
+                promotedFields ?? new HashSet<string>(StringComparer.Ordinal)));
+
+    /// <summary>
+    /// Rewrites the body of a code-behind <em>helper</em> method, against the same View the
+    /// handlers see - its parameters seeded as ordinary locals, and no sender/EventArgs, which a
+    /// helper does not have.
+    /// </summary>
+    /// <remarks>
+    /// The caller decides what to do with a partial result, and the answer is always "nothing":
+    /// see <c>FormMigrationPlanner.PlanHelpers</c>. The prefix rule that makes a partly-migrated
+    /// *handler* honest does not carry over to a helper, because the un-migrated remainder would
+    /// end up nowhere near the call site.
+    /// </remarks>
+    public RewrittenBody RewriteForHelper(
+        HelperMethodSignature signature,
+        FormModel formModel,
+        ViewNavigationContext navigation,
+        IReadOnlySet<string> dispatcherTimerFields,
+        IReadOnlySet<string> componentFields,
+        IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers,
+        IReadOnlySet<string> promotedFields)
+    {
+        var target = new ViewTarget(
+            formModel, _controlMappings, navigation, HandlerSignature.None,
+            dispatcherTimerFields, componentFields, promotedHelpers, promotedFields);
+
+        foreach (var parameterName in signature.ParameterNames)
+        {
+            target.Locals.Declare(parameterName, LocalKind.Value);
+        }
+
+        return Rewrite(signature.BodyText, target);
+    }
 
     /// <summary>
     /// Rewrites for a promoted [RelayCommand], where every control property the body may touch
@@ -361,6 +397,13 @@ public sealed class HandlerBodyRewriter
             // `return;` in a void handler - an early exit with nothing to translate.
             case ReturnStatementSyntax { Expression: null }:
                 rewritten = new RewrittenStatement("return;");
+                return true;
+
+            // `return count + " items";` - never seen in a handler, which is void, but it is how
+            // a value-returning code-behind helper ends.
+            case ReturnStatementSyntax { Expression: { } returned }
+                when TryRewriteExpression(returned, target, out var returnedText):
+                rewritten = new RewrittenStatement($"return {returnedText};");
                 return true;
 
             default:
@@ -820,6 +863,14 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `this.isBusy = busy;` / `isBusy = busy;` - a Form field this run carries over. Any
+        // operator: it holds a plain .NET value, the same argument that allows one on a local.
+        if (FormFieldNameOf(assignment.Left) is { } assignedField && target.IsPromotedField(assignedField))
+        {
+            rewritten = new RewrittenStatement($"{assignedField} {assignment.OperatorToken} {right};");
+            return true;
+        }
+
         if (!assignment.OperatorToken.IsKind(SyntaxKind.EqualsToken))
         {
             return false;
@@ -1035,14 +1086,29 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
-        // `control.Clear();` / `control.Focus();` - a zero-argument method with an exact Avalonia
-        // equivalent, per ControlMethodCatalog.
-        if (invocation.ArgumentList.Arguments.Count == 0
-            && receiver is not null
+        // `control.Clear();` / `control.AppendText(x);` - a method with an exact Avalonia
+        // equivalent, per ControlMethodCatalog. The arguments go through the ordinary expression
+        // path first, so one reaching for a WinForms API refuses the whole call.
+        if (receiver is not null
             && target.TryResolveControlField(receiver, out var controlField)
-            && target.TryResolveControlMethod(controlField, methodName, out var call))
+            && TryRewriteArguments(invocation, target, out var methodArguments)
+            && target.TryResolveControlMethod(controlField, methodName, methodArguments, out var call))
         {
             rewritten = new RewrittenStatement(call);
+            return true;
+        }
+
+        // `SetBusy(false);` / `this.SetBusy(false);` - a code-behind helper this run emitted as
+        // real code. An async one is only callable here, as a statement: awaiting it inside a
+        // larger expression would need parenthesizing rules this rewriter does not model.
+        if ((receiver is null || receiver is ThisExpressionSyntax)
+            && target.TryResolveHelperCall(methodName, invocation.ArgumentList.Arguments.Count, out var helper)
+            && TryRewriteArguments(invocation, target, out var helperArguments))
+        {
+            var await_ = helper.IsAsync ? "await " : "";
+            rewritten = new RewrittenStatement(
+                $"{await_}{methodName}({string.Join(", ", helperArguments)});",
+                RequiresAsync: helper.IsAsync);
             return true;
         }
 
@@ -1297,6 +1363,12 @@ public sealed class HandlerBodyRewriter
                 text = identifier.Identifier.ValueText;
                 return true;
 
+            // `isBusy` - a private field of the original Form that this run carries over. After
+            // the local case above, so a local of that name shadows it, exactly as in C#.
+            case IdentifierNameSyntax { Identifier.ValueText: var fieldName } when target.IsPromotedField(fieldName):
+                text = fieldName;
+                return true;
+
             // The bare `Text` a Form's own code uses for its title. After the local case above,
             // so a local of that name shadows it.
             case IdentifierNameSyntax when TryRewriteWindowPropertyRead(expression, target, out text):
@@ -1455,6 +1527,14 @@ public sealed class HandlerBodyRewriter
 
     private static bool TryRewriteMemberAccess(MemberAccessExpressionSyntax memberAccess, IRewriteTarget target, out string text)
     {
+        // `this.isBusy` on a carried-over Form field.
+        if (memberAccess is { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var ownFieldName }
+            && target.IsPromotedField(ownFieldName))
+        {
+            text = ownFieldName;
+            return true;
+        }
+
         // `this.Text` / `dialog.Title` - checked first, so a local holding a View shadows a
         // same-named control field exactly as it would in the original.
         if (TryRewriteWindowPropertyRead(memberAccess, target, out text))
@@ -1572,6 +1652,19 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `Format(x)` used as a value. A *synchronous* helper only: an awaited call inside a
+        // larger expression would need precedence handling this rewriter deliberately avoids, so
+        // an async helper is callable as a statement and nowhere else.
+        if (TrySplitInvocation(invocation, out var helperReceiver, out var helperName)
+            && (helperReceiver is null || helperReceiver is ThisExpressionSyntax)
+            && target.TryResolveHelperCall(helperName, invocation.ArgumentList.Arguments.Count, out var helper)
+            && !helper.IsAsync
+            && TryRewriteArguments(invocation, target, out var helperArguments))
+        {
+            text = $"{helperName}({string.Join(", ", helperArguments)})";
+            return true;
+        }
+
         if (invocation.Expression is not MemberAccessExpressionSyntax { Name: var name } call)
         {
             return false;
@@ -1648,6 +1741,14 @@ public sealed class HandlerBodyRewriter
         return true;
     }
 
+    /// <summary>`isBusy` or `this.isBusy` - the Form's own field, written either way.</summary>
+    private static string? FormFieldNameOf(ExpressionSyntax expression) => expression switch
+    {
+        IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+        MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var name } => name,
+        _ => null,
+    };
+
     /// <summary>
     /// A member path rooted at a non-visual component field - <c>process1.StartInfo.FileName</c>
     /// as readily as <c>worker1.IsBusy</c>. The path survives verbatim; only the `this.` and the
@@ -1702,6 +1803,30 @@ public sealed class HandlerBodyRewriter
         expression is PostfixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.SuppressNullableWarningExpression } suppression
             ? StripSuppression(suppression.Operand)
             : expression;
+
+    /// <summary>
+    /// Translates every argument of a call, refusing the whole thing if one does not translate or
+    /// carries a modifier this rewriter is not reasoning about.
+    /// </summary>
+    private static bool TryRewriteArguments(
+        InvocationExpressionSyntax invocation, IRewriteTarget target, out List<string> arguments)
+    {
+        arguments = [];
+
+        foreach (var argument in invocation.ArgumentList.Arguments)
+        {
+            if (argument.NameColon is not null
+                || !argument.RefKindKeyword.IsKind(SyntaxKind.None)
+                || !TryRewriteExpression(argument.Expression, target, out var text))
+            {
+                return false;
+            }
+
+            arguments.Add(text);
+        }
+
+        return true;
+    }
 
     /// <summary>Splits `a.B(...)` into receiver `a` and name `B`; `B(...)` yields a null receiver.</summary>
     private static bool TrySplitInvocation(
@@ -1869,8 +1994,12 @@ public sealed class HandlerBodyRewriter
         /// <param name="forWrite">True for an assignment target, where the expression must stay assignable.</param>
         bool TryResolveProperty(string fieldName, string winFormsPropertyName, bool forWrite, out string text);
 
-        /// <summary>A zero-argument control method with an exact Avalonia equivalent.</summary>
-        bool TryResolveControlMethod(string fieldName, string methodName, out string statement);
+        /// <summary>
+        /// A control method with an exact Avalonia equivalent, given the call's already-translated
+        /// arguments. The arity has to match: a different overload is a different method.
+        /// </summary>
+        bool TryResolveControlMethod(
+            string fieldName, string methodName, IReadOnlyList<string> arguments, out string statement);
 
         /// <summary>The field's file-dialog kind, when it is one this converter can open inline.</summary>
         bool TryResolveFileDialog(string fieldName, out FileDialogKind kind);
@@ -1892,6 +2021,17 @@ public sealed class HandlerBodyRewriter
         /// </summary>
         bool IsComponentField(string fieldName);
 
+        /// <summary>
+        /// A code-behind helper method this run emits as real, compiling code - and therefore one
+        /// a translated body may call.
+        /// </summary>
+        bool TryResolveHelperCall(string methodName, int argumentCount, out HelperCallInfo helper);
+
+        /// <summary>
+        /// A private field of the original Form this run carries over as real code, and therefore
+        /// one a translated body may read and write.
+        /// </summary>
+        bool IsPromotedField(string name);
     }
 
     private sealed class ViewTarget(
@@ -1900,7 +2040,9 @@ public sealed class HandlerBodyRewriter
         ViewNavigationContext navigation,
         HandlerSignature signature,
         IReadOnlySet<string> dispatcherTimerFields,
-        IReadOnlySet<string> componentFields) : IRewriteTarget
+        IReadOnlySet<string> componentFields,
+        IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers,
+        IReadOnlySet<string> promotedFields) : IRewriteTarget
     {
         public LocalScope Locals { get; } = new();
 
@@ -2023,6 +2165,11 @@ public sealed class HandlerBodyRewriter
 
         public bool IsComponentField(string fieldName) => componentFields.Contains(fieldName);
 
+        public bool TryResolveHelperCall(string methodName, int argumentCount, out HelperCallInfo helper) =>
+            promotedHelpers.TryGetValue(methodName, out helper!) && helper.ParameterCount == argumentCount;
+
+        public bool IsPromotedField(string name) => promotedFields.Contains(name);
+
         /// <summary>
         /// The cast has to name the control's own WinForms type. A base type (`(Control)sender`)
         /// is refused rather than widened: what the body then does with the local is checked
@@ -2044,18 +2191,23 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
-        public bool TryResolveControlMethod(string fieldName, string methodName, out string statement)
+        public bool TryResolveControlMethod(
+            string fieldName, string methodName, IReadOnlyList<string> arguments, out string statement)
         {
             statement = "";
 
             if (!formModel.Controls.TryGetValue(fieldName, out var control)
                 || !ControlMethodCatalog.TryGet(control.ClrTypeName, methodName, out var method)
-                || !IsReachable(control, methodName))
+                || method.ArgumentCount != arguments.Count
+                // The member the *translation* touches, not the WinForms method it came from:
+                // AppendText reaches Text, which a fallback template may well expose even though
+                // it has no AppendText of its own.
+                || !IsReachable(control, method.AvaloniaMemberName))
             {
                 return false;
             }
 
-            statement = string.Format(method.StatementFormat, fieldName);
+            statement = string.Format(method.StatementFormat, [fieldName, .. arguments]);
             return true;
         }
 
@@ -2095,7 +2247,8 @@ public sealed class HandlerBodyRewriter
         }
 
         /// <summary>There is no control here to call anything on.</summary>
-        public bool TryResolveControlMethod(string fieldName, string methodName, out string statement)
+        public bool TryResolveControlMethod(
+            string fieldName, string methodName, IReadOnlyList<string> arguments, out string statement)
         {
             statement = "";
             return false;
@@ -2114,6 +2267,18 @@ public sealed class HandlerBodyRewriter
         /// <summary>Component fields live on the View too.</summary>
         public bool IsComponentField(string fieldName) => false;
 
+        /// <summary>
+        /// Helpers stay on the View. A handler that calls one is not promoted in the first place,
+        /// so this is unreachable rather than merely unsupported.
+        /// </summary>
+        public bool TryResolveHelperCall(string methodName, int argumentCount, out HelperCallInfo helper)
+        {
+            helper = null!;
+            return false;
+        }
+
+        /// <summary>The Form's own fields stay on the View.</summary>
+        public bool IsPromotedField(string name) => false;
 
         /// <summary>A promoted handler has no sender - that is one of the promotion conditions.</summary>
         public bool TryResolveSenderCast(TypeSyntax castType, out string fieldName)

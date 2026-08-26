@@ -97,9 +97,13 @@ single orchestrator — read it first, every stage below is a field on it:
    promoted body may name is only settled once every handler is classified. It has two targets
    (a View still has control fields; a ViewModel has only `[ObservableProperty]`s) and stops at
    the first statement it cannot prove equivalent, so the emitted code is always a faithful
-   *prefix* of the original. The `DispatcherTimer`/component fields are planned **before** that
-   rewrite rather than after, because a body may *name* them; `PlanFileDialogs` stays after, since
-   what it emits depends on what the rewrite did.
+   *prefix* of the original. Two things are planned **before** that rewrite rather than after,
+   because a body may *name* them: the `DispatcherTimer`/component fields, and the code-behind
+   helpers — `PlanHelpers` translates helper bodies to a fixed point (a call to a not-yet-promoted
+   helper simply refuses, which is also what makes recursion and `async` propagation settle by
+   themselves) and, unlike a handler, promotes one only when its **whole** body translates: at a
+   call site there is nowhere to put the remainder. `PlanFileDialogs` is the one that stays after,
+   since what it emits depends on what the rewrite did.
 4. **Emission** (`Core/Emission`) — `AxamlEmitter` (+ `AxamlDocumentBuilder`),
    `ViewCodeBehindEmitter`, `ViewModelEmitter`. All naming (`Form1` → `Form1View`/`Form1ViewModel`,
    nested-folder namespaces, command names) goes through `NamingConventions` — never hand-roll it.

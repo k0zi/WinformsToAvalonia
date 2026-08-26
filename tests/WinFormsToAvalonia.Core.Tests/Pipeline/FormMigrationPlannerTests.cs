@@ -233,9 +233,126 @@ public class FormMigrationPlannerTests
             }
             """);
 
+        // The helper's whole body translates, so it is emitted as real code and disappears from
+        // the preserved comment block - the handler that calls it translates too.
+        Assert.Equal(["SetBusy"], plan.PromotedHelpers.Select(h => h.Name));
+        Assert.Equal(["loginButton.IsEnabled = !busy;"], plan.PromotedHelpers[0].Rewrite.MigratedStatements);
+        Assert.Empty(plan.PreservedMembers);
+
+        var handler = Assert.Single(plan.CodeBehindHandlers);
+        Assert.Equal(["SetBusy(true);"], handler.Rewrite!.MigratedStatements);
+
+        // Promotion to a ViewModel is still refused: the helper lives on the View, and moving it
+        // as well is a separate decision this planner does not make.
         Assert.Empty(plan.ViewModelCommands);
         Assert.Contains(plan.Warnings, w => w.Contains("SetBusy"));
+    }
+
+    /// <summary>
+    /// The canonical WinForms pair: a helper maintaining a private flag. Without the field the
+    /// helper cannot translate, so neither can any handler that calls it - which is why the field
+    /// is carried over too.
+    /// </summary>
+    [Fact]
+    public void Plan_HelperMaintainingAPrivateField_CarriesTheFieldOverToo()
+    {
+        var formModel = FormWith(("loginButton", "Button"));
+        Wire(formModel, "loginButton", "Click", "loginButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private bool isBusy;
+
+                    private void loginButton_Click(object sender, EventArgs e)
+                    {
+                        SetBusy(true);
+                    }
+
+                    private void SetBusy(bool busy)
+                    {
+                        this.isBusy = busy;
+                        loginButton.Enabled = !busy;
+                    }
+                }
+            }
+            """);
+
+        Assert.Equal(["isBusy"], plan.PromotedFields.Select(f => f.Name));
+        Assert.Equal(["SetBusy"], plan.PromotedHelpers.Select(h => h.Name));
+        Assert.Equal(
+            ["isBusy = busy;", "loginButton.IsEnabled = !busy;"],
+            plan.PromotedHelpers[0].Rewrite.MigratedStatements);
+        Assert.Empty(plan.PreservedMembers);
+    }
+
+    /// <summary>
+    /// A field whose type is not a keyword type could be a WinForms type whose Avalonia
+    /// counterpart is something else entirely, and nothing here can tell without a semantic model.
+    /// </summary>
+    [Fact]
+    public void Plan_PrivateFieldOfANamedType_IsNotCarriedOver()
+    {
+        var formModel = FormWith(("loginButton", "Button"));
+        Wire(formModel, "loginButton", "Click", "loginButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private Font busyFont;
+
+                    private void loginButton_Click(object sender, EventArgs e)
+                    {
+                        loginButton.Enabled = false;
+                    }
+                }
+            }
+            """);
+
+        Assert.Empty(plan.PromotedFields);
+        Assert.Equal(["busyFont"], plan.PreservedMembers.Select(m => m.Name));
+    }
+
+    /// <summary>
+    /// A helper is emitted as code only when its <b>whole</b> body translates. A prefix would be
+    /// dishonest in a way a handler's prefix is not: at the call site there would be nothing at
+    /// all to say that half the work was dropped.
+    /// </summary>
+    [Fact]
+    public void Plan_HelperThatOnlyPartlyTranslates_StaysAComment()
+    {
+        var formModel = FormWith(("loginButton", "Button"), ("treeView1", "TreeView"));
+        Wire(formModel, "loginButton", "Click", "loginButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void loginButton_Click(object sender, EventArgs e)
+                    {
+                        SetBusy(true);
+                    }
+
+                    private void SetBusy(bool busy)
+                    {
+                        loginButton.Enabled = !busy;
+                        treeView1.Nodes.Clear();
+                    }
+                }
+            }
+            """);
+
+        Assert.Empty(plan.PromotedHelpers);
         Assert.Equal(["SetBusy"], plan.PreservedMembers.Select(m => m.Name));
+
+        // And the call to it therefore does not translate either.
+        var handler = Assert.Single(plan.CodeBehindHandlers);
+        Assert.Empty(handler.Rewrite!.MigratedStatements);
     }
 
     [Fact]

@@ -194,8 +194,16 @@ rule itself; what follows is what the rule does *not* cover yet.
   - a write to a control property in `BindablePropertyCatalog`, on a `Direct`-mapped control
     (`this.label1.Text = ...` → `label1.Text = ...`, `Checked` → `IsChecked`, and so on), plus
     reads of those same properties anywhere in the expression;
-  - `Close()` / `Show()` / `Hide()` on the form (the View *is* the Window), and
-    `control.Focus()`;
+  - `Close()` / `Show()` / `Hide()` on the form (the View *is* the Window), and the control
+    methods in `Mapping/ControlMethodCatalog`: `Focus()`/`Select()`, `Invalidate()`/`Refresh()`,
+    `Hide()`, and on the TextBox family `Clear()`, `SelectAll()` and `AppendText(x)`. The last is
+    the only entry whose equivalence is of *content* rather than of everything the method did:
+    Avalonia has no `AppendText`, and `Text += x` appends exactly the same characters but does not
+    reproduce WinForms' side effect of moving the caret to the end (so a converted log box does
+    not auto-scroll). It is also why the table names the Avalonia member each entry *touches*
+    rather than the WinForms method it came from - `AppendText` reaches `Text`, which a fallback
+    template exposes even though it has no `AppendText` of its own, so a `RichTextBox` can carry
+    the call too. An overload with a different arity is a different method and is not translated;
   - the Form's own properties that a `Window` spells differently or not at all
     (`Mapping/WindowPropertyCatalog`): `Text` → `Title`, `TopMost` → `Topmost`, `WindowState`
     (with `FormWindowState.Maximized` → `WindowState.Maximized`), `ShowInTaskbar`, `Opacity` -
@@ -361,9 +369,39 @@ rule itself; what follows is what the rule does *not* cover yet.
   back. It is emitted only when something is actually left to migrate. The one exception is the
   generated file-dialog helper methods, which still throw: nothing calls them until a human
   wires them up, so they can never fire on their own.
-- **Non-handler members** (helper methods like `SetBusy`, fields, properties) are preserved
-  as a comment block, not as compiling code, because they reference WinForms APIs too. A
-  handler that calls one is therefore never promoted to the ViewModel.
+- **Helper methods are translated too, but only whole.** A private helper (`SetBusy`, `Log`,
+  `Describe`) whose **entire** body translates is emitted as real code on the View, and the
+  handlers that call it translate with it. Everything else about it stays as today's comment
+  block.
+
+  Whole, never a prefix - and that is the one rule worth understanding here. The prefix rule that
+  makes a partly-migrated *handler* honest works because the un-migrated remainder sits in a
+  comment directly below the code that did translate; a helper has no such place. At its call
+  site there would be nothing at all, so a half-translated `SetBusy` would look migrated
+  everywhere while silently skipping half its work.
+
+  The **private fields** a helper maintains come across with it - the canonical WinForms pair is
+  a `SetBusy(bool)` keeping an `isBusy` flag, and without the field neither the helper nor its
+  callers can translate. Keyword types with a literal initializer only, the same bar a helper's
+  parameters and a translated local have to clear.
+
+  Translation runs to a **fixed point**, because a helper may call another: a call to one that is
+  not promoted *yet* simply fails, so that helper waits for the next round, and when nothing new
+  promotes the remainder never will. Recursion needs no special guard - a helper is never in the
+  promoted set while its own body is being translated, so a self-call, or a mutually recursive
+  pair, refuses on its own. `async` settles the same way: a helper that awaits a message box
+  becomes `async Task` (never `async void`, which its callers could not await) and makes every
+  caller await it in turn.
+
+  Not covered: a helper with a **named type** anywhere in its signature (it could be a WinForms
+  type whose Avalonia counterpart is a different type entirely); a generic one, an
+  expression-bodied one, or one with a `ref`/`out`/`params` parameter; a **value-returning helper
+  that turns async**, whose `Task<T>` would only be usable inside an expression, which is exactly
+  where this converter refuses to await; and properties, nested types and everything else
+  non-handler, which stay a comment as before.
+
+  A handler that calls a helper is still **never promoted to a ViewModel**, translated helper or
+  not: the helper lives on the View, and moving it as well is a separate decision.
 - **Promotion is single-control only.** A handler wired to more than one control needs
   `sender` to tell them apart, so it always stays in code-behind - and when the controls'
   Avalonia events have different signatures (a `Button`'s real `Click` vs. a `Label`'s

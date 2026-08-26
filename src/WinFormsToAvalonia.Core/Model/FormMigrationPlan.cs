@@ -131,6 +131,24 @@ public sealed record ComponentFieldPlan(
     IReadOnlyList<(string EventName, string HandlerMethodName)> Subscriptions);
 
 /// <summary>
+/// A private backing field of the original Form, carried over as real code - which is what lets
+/// the helper that maintains it (the classic <c>SetBusy</c> / <c>isBusy</c> pair) translate at all.
+/// </summary>
+public sealed record PromotedFieldPlan(string Name, string ModifiersText, string TypeText, string? InitializerText);
+
+/// <summary>
+/// A code-behind helper method whose <em>entire</em> body translated, so the generated View can
+/// carry it as real, compiling code rather than as a comment - which is also what lets the
+/// handlers that call it translate.
+/// </summary>
+public sealed record PromotedHelperPlan(
+    string Name,
+    string ReturnTypeText,
+    string ParameterListText,
+    RewrittenBody Rewrite,
+    bool IsAsync);
+
+/// <summary>
 /// The single migration decision set for one Form, built once by FormMigrationPlanner and shared
 /// by all three emitters (AXAML, View code-behind, ViewModel) so they can never disagree about
 /// where a handler went or which properties are bound.
@@ -142,11 +160,13 @@ public sealed record FormMigrationPlan(
     IReadOnlyList<TimerFieldPlan> Timers,
     IReadOnlyList<ComponentFieldPlan> Components,
     IReadOnlyList<FileDialogPlan> FileDialogs,
+    IReadOnlyList<PromotedFieldPlan> PromotedFields,
+    IReadOnlyList<PromotedHelperPlan> PromotedHelpers,
     IReadOnlyList<HelperMemberModel> PreservedMembers,
     IReadOnlyList<string> ConstructorExtraStatements,
     IReadOnlyList<string> Warnings)
 {
-    public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], []);
+    public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], [], [], []);
 
     /// <summary>Every body rewrite in this plan - both the code-behind and the ViewModel side.</summary>
     private IEnumerable<RewrittenBody> Rewrites =>
@@ -154,9 +174,18 @@ public sealed record FormMigrationPlan(
             .Concat(ViewModelCommands.Select(c => c.Rewrite))
             .OfType<RewrittenBody>();
 
+    /// <summary>
+    /// Every rewrite whose *output* lands in this project, helper bodies included. Separate from
+    /// <see cref="Rewrites"/> because a helper's statements are real emitted code - so they can
+    /// pull in a `using` or a bundled template - but they are not <em>handler</em> statements, and
+    /// counting them would quietly change what the migration rate means.
+    /// </summary>
+    private IEnumerable<RewrittenBody> AllEmittedRewrites =>
+        Rewrites.Concat(PromotedHelpers.Select(h => h.Rewrite));
+
     /// <summary>Extra `using`s the translated statements need, beyond a generated View's usual set.</summary>
     public IReadOnlyList<string> RequiredUsings =>
-        [.. Rewrites.SelectMany(r => r.RequiredUsings).Distinct(StringComparer.Ordinal).OrderBy(u => u, StringComparer.Ordinal)];
+        [.. AllEmittedRewrites.SelectMany(r => r.RequiredUsings).Distinct(StringComparer.Ordinal).OrderBy(u => u, StringComparer.Ordinal)];
 
     /// <summary>
     /// Bundled templates a translated statement depends on (today: MessageBoxFallback). Unlike
@@ -164,7 +193,7 @@ public sealed record FormMigrationPlan(
     /// ConversionPipeline has to union them in separately.
     /// </summary>
     public IReadOnlyList<string> RequiredFallbackKeys =>
-        [.. Rewrites.SelectMany(r => r.RequiredFallbackKeys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal)];
+        [.. AllEmittedRewrites.SelectMany(r => r.RequiredFallbackKeys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal)];
 
     /// <summary>
     /// NuGet packages the emitted component fields need. Like a mapper's

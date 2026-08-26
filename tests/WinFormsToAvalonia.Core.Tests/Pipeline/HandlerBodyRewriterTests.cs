@@ -1890,6 +1890,186 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- Helper methods --------------------------------------------------------------------
+
+    /// <summary>
+    /// A helper is callable once the plan has promoted it, and not before - which is what the
+    /// planner's fixed point turns into "not until its own body translated".
+    /// </summary>
+    [Fact]
+    public void RewriteForView_CallToAPromotedHelper_IsTranslated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+        var helpers = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal)
+        {
+            ["SetBusy"] = new(ParameterCount: 1, IsAsync: false),
+            ["Describe"] = new(ParameterCount: 1, IsAsync: false),
+        };
+
+        var result = Rewriter.RewriteForView(
+            """
+            SetBusy(true);
+            this.statusLabel.Text = Describe(1);
+            """,
+            form,
+            Navigation(),
+            promotedHelpers: helpers);
+
+        Assert.Equal(
+            ["SetBusy(true);", "statusLabel.Text = Describe(1);"],
+            result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_CallToAHelperThatWasNotPromoted_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView("SetBusy(true);", FormWith(), Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>An arity mismatch means this is not the helper the plan promoted.</summary>
+    [Fact]
+    public void RewriteForView_HelperCalledWithTheWrongNumberOfArguments_IsNotMigrated()
+    {
+        var helpers = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal)
+        {
+            ["SetBusy"] = new(ParameterCount: 1, IsAsync: false),
+        };
+
+        var result = Rewriter.RewriteForView(
+            "SetBusy(true, false);", FormWith(), Navigation(), promotedHelpers: helpers);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_CallToAnAsyncHelper_IsAwaitedAndTurnsTheCallerAsync()
+    {
+        var helpers = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal)
+        {
+            ["WarnAndReset"] = new(ParameterCount: 0, IsAsync: true),
+        };
+
+        var result = Rewriter.RewriteForView(
+            "this.WarnAndReset();", FormWith(), Navigation(), promotedHelpers: helpers);
+
+        Assert.Equal(["await WarnAndReset();"], result.MigratedStatements);
+        Assert.True(result.RequiresAsync);
+    }
+
+    /// <summary>
+    /// Awaiting inside a larger expression needs precedence handling this rewriter deliberately
+    /// avoids, so an async helper is callable as a statement and nowhere else.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_AsyncHelperUsedAsAValue_IsNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+        var helpers = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal)
+        {
+            ["Describe"] = new(ParameterCount: 0, IsAsync: true),
+        };
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = Describe();", form, Navigation(), promotedHelpers: helpers);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A helper body sees its parameters as ordinary locals, and nothing else.</summary>
+    [Fact]
+    public void RewriteForHelper_ParametersAreInScope()
+    {
+        var form = FormWith(("startButton", "Button"));
+
+        var result = Rewriter.RewriteForHelper(
+            new HelperMethodSignature("void", "(bool busy)", ["busy"], "this.startButton.Enabled = !busy;", IsAsync: false),
+            form,
+            ViewNavigationContext.None,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Equal(["startButton.IsEnabled = !busy;"], result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>A helper has no sender or EventArgs, so a body reaching for one cannot translate.</summary>
+    [Fact]
+    public void RewriteForHelper_BodyUsingEventArgs_IsNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForHelper(
+            new HelperMethodSignature("void", "()", [], "this.statusLabel.Text = e.ProgressPercentage.ToString();", IsAsync: false),
+            form,
+            ViewNavigationContext.None,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- Control methods that take an argument ---------------------------------------------
+
+    /// <summary>
+    /// Avalonia has no AppendText; appending to Text is what it does to the contents. The
+    /// argument goes through the ordinary expression path like any other.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_AppendText_BecomesAnAppendToTheTextProperty()
+    {
+        var form = FormWith(("logTextBox", "TextBox"), ("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView(
+            "this.logTextBox.AppendText(this.nameTextBox.Text + Environment.NewLine);", form);
+
+        Assert.Equal(
+            ["logTextBox.Text += (nameTextBox.Text ?? string.Empty) + Environment.NewLine;"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A fallback control carries the call when its template exposes the member the *translation*
+    /// touches - `Text` - even though the template has no AppendText of its own.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_AppendTextOnAFallbackControl_UsesTheTemplatesTextProperty()
+    {
+        var form = FormWith(("notesRichTextBox", "RichTextBox"));
+
+        var result = Rewriter.RewriteForView("this.notesRichTextBox.AppendText(\"done\");", form);
+
+        Assert.Equal(["notesRichTextBox.Text += \"done\";"], result.MigratedStatements);
+    }
+
+    /// <summary>An overload with a different arity is a different method.</summary>
+    [Fact]
+    public void RewriteForView_ControlMethodCalledWithTheWrongArity_IsNotMigrated()
+    {
+        var form = FormWith(("logTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView("this.logTextBox.Clear(true);", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>The argument is translated, so one reaching a WinForms API refuses the call.</summary>
+    [Fact]
+    public void RewriteForView_AppendTextWithAnUntranslatableArgument_IsNotMigrated()
+    {
+        var form = FormWith(("logTextBox", "TextBox"), ("treeView1", "TreeView"));
+
+        var result = Rewriter.RewriteForView(
+            "this.logTextBox.AppendText(this.treeView1.Nodes.Count.ToString());", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

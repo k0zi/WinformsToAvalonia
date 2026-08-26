@@ -104,7 +104,11 @@ public sealed class CodeBehindAnalyzer
                     break;
 
                 case MethodDeclarationSyntax method:
-                    helpers.Add(new HelperMemberModel(method.Identifier.ValueText, HelperMemberKind.Method, GetSourceTextWithIndent(method)));
+                    helpers.Add(new HelperMemberModel(
+                        method.Identifier.ValueText,
+                        HelperMemberKind.Method,
+                        GetSourceTextWithIndent(method),
+                        DescribeHelperMethod(method)));
                     break;
 
                 case PropertyDeclarationSyntax property:
@@ -115,7 +119,8 @@ public sealed class CodeBehindAnalyzer
                     helpers.Add(new HelperMemberModel(
                         field.Declaration.Variables.FirstOrDefault()?.Identifier.ValueText ?? "",
                         HelperMemberKind.Field,
-                        GetSourceTextWithIndent(field)));
+                        GetSourceTextWithIndent(field),
+                        Field: DescribeHelperField(field)));
                     break;
 
                 default:
@@ -443,6 +448,61 @@ public sealed class CodeBehindAnalyzer
                 name = "";
                 return false;
         }
+    }
+
+    /// <summary>
+    /// A private backing field of the Form, when its shape is one the conversion can carry over.
+    /// </summary>
+    /// <remarks>
+    /// Single declarator only - <c>private int a, b;</c> is rare in designer-era code and not
+    /// worth the ambiguity. The *type* is checked by the planner, alongside the same question it
+    /// asks about a helper's parameters.
+    /// </remarks>
+    private static HelperFieldInfo? DescribeHelperField(FieldDeclarationSyntax field)
+    {
+        if (field.Declaration.Variables is not [{ } variable])
+        {
+            return null;
+        }
+
+        var modifiers = string.Join(
+            " ",
+            field.Modifiers
+                .Where(m => !m.IsKind(SyntaxKind.PrivateKeyword)
+                    && !m.IsKind(SyntaxKind.PublicKeyword)
+                    && !m.IsKind(SyntaxKind.InternalKeyword)
+                    && !m.IsKind(SyntaxKind.ProtectedKeyword))
+                .Select(m => m.ValueText));
+
+        return new HelperFieldInfo(modifiers, field.Declaration.Type.ToString(), variable.Initializer?.Value.ToString());
+    }
+
+    /// <summary>
+    /// The parts of a helper method a translation attempt needs. Null for the shapes that could
+    /// never be translated faithfully anyway, so the planner never has to consider them.
+    /// </summary>
+    /// <remarks>
+    /// Refused up front: an expression-bodied method (no block to walk statement by statement),
+    /// a generic one, and anything with a <c>ref</c>/<c>out</c>/<c>params</c> parameter - all
+    /// shapes whose meaning this converter would have to reason about rather than re-spell. A
+    /// WinForms *type* in the signature is not checked here: the planner refuses it, where the
+    /// same "is this a plain .NET type" question is already being asked about locals.
+    /// </remarks>
+    private static HelperMethodSignature? DescribeHelperMethod(MethodDeclarationSyntax method)
+    {
+        if (method.Body is not { } body
+            || method.TypeParameterList is not null
+            || method.ParameterList.Parameters.Any(p => p.Modifiers.Count > 0))
+        {
+            return null;
+        }
+
+        return new HelperMethodSignature(
+            method.ReturnType.ToString(),
+            method.ParameterList.ToString(),
+            [.. method.ParameterList.Parameters.Select(p => p.Identifier.ValueText)],
+            ExtractBlockBodyText(body),
+            method.Modifiers.Any(m => m.IsKind(SyntaxKind.AsyncKeyword)));
     }
 
     private static string ExtractBlockBodyText(BlockSyntax block)

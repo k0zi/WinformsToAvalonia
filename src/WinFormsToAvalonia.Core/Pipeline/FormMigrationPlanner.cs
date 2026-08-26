@@ -113,6 +113,19 @@ public sealed class FormMigrationPlanner
         var components = PlanComponents(formModel, codeBehind, warnings);
         var componentFields = components.Select(c => c.FieldName).ToHashSet(StringComparer.Ordinal);
 
+        // Helpers first: a handler body may call one, and whether that call translates depends on
+        // whether the helper itself did.
+        // Fields before helpers: the classic `SetBusy` / `isBusy` pair only translates if the
+        // field it maintains exists on the Avalonia side too.
+        var promotedFields = PlanHelperFields(codeBehind);
+        var promotedFieldNames = promotedFields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        var promotedHelpers = PlanHelpers(
+            codeBehind, formModel, navigation, timerFields, componentFields, promotedFieldNames, rewriter);
+        var helperCalls = promotedHelpers.ToDictionary(
+            h => h.Name,
+            h => new HelperCallInfo(CountParameters(h.ParameterListText), h.IsAsync),
+            StringComparer.Ordinal);
+
         var rewrittenHandlers = ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings)
             .Select(h => h.Rewrite is not null
                 // Already synthesized (a designer-set DialogResult) - there is no original body
@@ -121,7 +134,8 @@ public sealed class FormMigrationPlanner
                 : h with
                 {
                     Rewrite = rewriter.RewriteForView(
-                        h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields, componentFields),
+                        h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields, componentFields,
+                        helperCalls, promotedFieldNames),
                 })
             .ToList();
 
@@ -139,7 +153,13 @@ public sealed class FormMigrationPlanner
             timers,
             components,
             PlanFileDialogs(formModel, inlinedDialogFields),
-            codeBehind.HelperMembers,
+            promotedFields,
+            promotedHelpers,
+            // A member that became real code must not *also* appear in the preserved comment
+            // block: it would read as un-migrated while a compiling copy sits above it.
+            [.. codeBehind.HelperMembers.Where(m =>
+                !(m.Kind == HelperMemberKind.Method && helperCalls.ContainsKey(m.Name))
+                && !(m.Kind == HelperMemberKind.Field && promotedFieldNames.Contains(m.Name)))],
             codeBehind.ConstructorExtraStatements,
             warnings);
     }
@@ -226,6 +246,145 @@ public sealed class FormMigrationPlanner
 
         return timers;
     }
+
+    /// <summary>
+    /// The Form's own private fields, carried over as real code.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The reason this is worth doing is the shape it unlocks rather than the fields themselves:
+    /// the canonical WinForms helper is a <c>SetBusy(bool)</c> maintaining an <c>isBusy</c> flag,
+    /// and without the field the helper cannot translate, so neither can any handler that calls it.
+    /// </para>
+    /// <para>
+    /// Keyword types only, and only a literal initializer - the same bar a helper's parameters
+    /// and a translated local have to clear, and for the same reason: a named type could be a
+    /// WinForms type whose Avalonia counterpart is a different type entirely, and nothing here
+    /// can tell without a semantic model.
+    /// </para>
+    /// </remarks>
+    private static List<PromotedFieldPlan> PlanHelperFields(CodeBehindModel codeBehind) =>
+    [
+        .. codeBehind.HelperMembers
+            .Where(m => m.Kind == HelperMemberKind.Field && m.Field is not null)
+            .Where(m => IsKeywordTypeText(m.Field!.TypeText))
+            .Where(m => m.Field!.InitializerText is null || IsSimpleLiteral(m.Field.InitializerText))
+            .Select(m => new PromotedFieldPlan(m.Name, m.Field!.ModifiersText, m.Field.TypeText, m.Field.InitializerText)),
+    ];
+
+    /// <summary>A literal, and nothing that could reach for a WinForms API on the way.</summary>
+    private static bool IsSimpleLiteral(string text) =>
+        SyntaxFactory.ParseExpression(text) is LiteralExpressionSyntax or PrefixUnaryExpressionSyntax { Operand: LiteralExpressionSyntax };
+
+    /// <summary>
+    /// Translates the code-behind helper methods, to a fixed point.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A helper is promoted only when its <b>entire</b> body translates - never a prefix. The
+    /// prefix rule is what makes a partly-migrated *handler* honest, because the un-migrated
+    /// remainder sits in a comment directly below the code that did translate. A helper has no
+    /// such place: at its call site there would be nothing at all, so a half-translated
+    /// <c>SetBusy</c> would look migrated while silently skipping half its work.
+    /// </para>
+    /// <para>
+    /// The loop is a fixed point because a helper may call another. A call to a helper that is
+    /// not promoted *yet* simply fails to translate, so that helper waits for the next round;
+    /// when nothing new promotes, the remainder never will. Recursion needs no special guard:
+    /// a helper is never in the promoted table while its own body is being translated, so a
+    /// self-call - or a mutually recursive pair - refuses on its own. The same loop settles
+    /// <c>async</c>, which propagates the same way: a helper that awaits a message box makes
+    /// every caller await it in turn.
+    /// </para>
+    /// </remarks>
+    private static List<PromotedHelperPlan> PlanHelpers(
+        CodeBehindModel codeBehind,
+        FormModel formModel,
+        ViewNavigationContext navigation,
+        IReadOnlySet<string> timerFields,
+        IReadOnlySet<string> componentFields,
+        IReadOnlySet<string> promotedFields,
+        HandlerBodyRewriter rewriter)
+    {
+        var candidates = codeBehind.HelperMembers
+            .Where(m => m.Kind == HelperMemberKind.Method && m.Signature is not null)
+            .Where(m => IsPlainDotNetSignature(m.Signature!))
+            .ToList();
+
+        var promoted = new List<PromotedHelperPlan>();
+        var byName = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal);
+
+        // Bounded by the number of candidates: each round promotes at least one, or stops.
+        for (var round = 0; round < candidates.Count; round++)
+        {
+            var promotedThisRound = false;
+
+            foreach (var candidate in candidates.Where(c => !byName.ContainsKey(c.Name)).ToList())
+            {
+                var signature = candidate.Signature!;
+                var rewrite = rewriter.RewriteForHelper(
+                    signature, formModel, navigation, timerFields, componentFields, byName, promotedFields);
+
+                // An empty body is complete in the sense that matters: there is nothing left over.
+                if (rewrite.RemainingBody.Length > 0)
+                {
+                    continue;
+                }
+
+                var isAsync = signature.IsAsync || rewrite.RequiresAsync;
+
+                // A helper that turns async has to become `async Task` so its callers can await
+                // it - `async void` is not awaitable. That works for a void helper and only for a
+                // void one: a value-returning helper would become `Task<T>`, whose result is
+                // usable only inside an expression, which is exactly where this converter refuses
+                // to await. So it is left un-promoted rather than emitted uncallable.
+                if (isAsync && signature.ReturnTypeText != "void")
+                {
+                    continue;
+                }
+
+                promoted.Add(new PromotedHelperPlan(
+                    candidate.Name, signature.ReturnTypeText, signature.ParameterListText, rewrite, isAsync));
+                byName[candidate.Name] = new HelperCallInfo(signature.ParameterNames.Count, isAsync);
+                promotedThisRound = true;
+            }
+
+            if (!promotedThisRound)
+            {
+                break;
+            }
+        }
+
+        return promoted;
+    }
+
+    /// <summary>
+    /// Whether a helper's signature is expressible on the Avalonia side without translation:
+    /// keyword types only, and a non-async method returns something or nothing but never a Task
+    /// this converter would have to reason about.
+    /// </summary>
+    /// <remarks>
+    /// A named type is refused for the same reason a named local type is - it could be a WinForms
+    /// type whose Avalonia counterpart is a different type entirely, and nothing here can tell the
+    /// difference without a semantic model.
+    /// </remarks>
+    private static bool IsPlainDotNetSignature(HelperMethodSignature signature)
+    {
+        if (!IsKeywordTypeText(signature.ReturnTypeText))
+        {
+            return false;
+        }
+
+        var parsed = SyntaxFactory.ParseParameterList(signature.ParameterListText);
+        return !parsed.ContainsDiagnostics
+            && parsed.Parameters.All(p => p.Type is PredefinedTypeSyntax);
+    }
+
+    private static bool IsKeywordTypeText(string typeText) =>
+        SyntaxFactory.ParseTypeName(typeText) is PredefinedTypeSyntax;
+
+    private static int CountParameters(string parameterListText) =>
+        SyntaxFactory.ParseParameterList(parameterListText).Parameters.Count;
 
     /// <summary>
     /// The non-visual components that are plain .NET types, emitted as real fields so a handler

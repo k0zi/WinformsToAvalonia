@@ -33,6 +33,7 @@ public partial class MainView : Window
     private readonly SerialPort serialPort1 = new();
     private readonly ServiceController serviceController1 = new();
     private readonly SoundPlayer soundPlayer1 = new();
+    private bool isBusy;
 
     public MainView()
     {
@@ -349,12 +350,8 @@ public partial class MainView : Window
             backgroundWorker1.CancelAsync();
             return;
         }
-
-        /* REMAINING WINFORMS BODY of 'startWorkerButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         SetBusy(true);
-        this.backgroundWorker1.RunWorkerAsync();
-        */
-        MigrationTodo.NotMigrated(nameof(startWorkerButton_Click), "startWorkerButton_Click");
+        backgroundWorker1.RunWorkerAsync();
     }
 
     private void watchButton_Click(object? sender, RoutedEventArgs e)
@@ -369,65 +366,42 @@ public partial class MainView : Window
         process1.StartInfo.FileName = "notepad.exe";
         process1.StartInfo.UseShellExecute = true;
         process1.Start();
-
-        /* REMAINING WINFORMS BODY of 'launchProcessButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         Log("Started notepad.exe");
-        */
-        MigrationTodo.NotMigrated(nameof(launchProcessButton_Click), "launchProcessButton_Click");
     }
 
     private void writeEventLogButton_Click(object? sender, RoutedEventArgs e)
     {
         eventLog1.WriteEntry("All-In-One sample wrote an entry.");
-
-        /* REMAINING WINFORMS BODY of 'writeEventLogButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         Log("Event log entry written.");
-        */
-        MigrationTodo.NotMigrated(nameof(writeEventLogButton_Click), "writeEventLogButton_Click");
     }
 
     private void readCounterButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'readCounterButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        Log($"CPU: {this.performanceCounter1.NextValue():F1}%");
-        */
-        MigrationTodo.NotMigrated(nameof(readCounterButton_Click), "readCounterButton_Click");
+        Log($"CPU: {performanceCounter1.NextValue():F1}%");
     }
 
     private void serviceStatusButton_Click(object? sender, RoutedEventArgs e)
     {
         serviceController1.Refresh();
-
-        /* REMAINING WINFORMS BODY of 'serviceStatusButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        Log($"{this.serviceController1.ServiceName}: {this.serviceController1.Status}");
-        */
-        MigrationTodo.NotMigrated(nameof(serviceStatusButton_Click), "serviceStatusButton_Click");
+        Log($"{serviceController1.ServiceName}: {serviceController1.Status}");
     }
 
     private void serialOpenButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'serialOpenButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.serialPort1.IsOpen)
+        if (serialPort1.IsOpen)
         {
-            this.serialPort1.Close();
-            Log($"{this.serialPort1.PortName} closed.");
+            serialPort1.Close();
+            Log($"{serialPort1.PortName} closed.");
             return;
         }
-
-        this.serialPort1.Open();
-        Log($"{this.serialPort1.PortName} opened at {this.serialPort1.BaudRate} baud.");
-        */
-        MigrationTodo.NotMigrated(nameof(serialOpenButton_Click), "serialOpenButton_Click");
+        serialPort1.Open();
+        Log($"{serialPort1.PortName} opened at {serialPort1.BaudRate} baud.");
     }
 
     private void playSoundButton_Click(object? sender, RoutedEventArgs e)
     {
         soundPlayer1.Play();
-
-        /* REMAINING WINFORMS BODY of 'playSoundButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         Log("Sound played.");
-        */
-        MigrationTodo.NotMigrated(nameof(playSoundButton_Click), "playSoundButton_Click");
     }
 
     private void showBalloonButton_Click(object? sender, RoutedEventArgs e)
@@ -478,21 +452,14 @@ public partial class MainView : Window
 
     private void backgroundWorker1_RunWorkerCompleted(object? sender, RunWorkerCompletedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'backgroundWorker1_RunWorkerCompleted' - TODO(Winforms2Avalonia): migrate it into this method.
         SetBusy(false);
         Log(e.Cancelled ? "Worker cancelled." : "Worker finished.");
-        */
-        MigrationTodo.NotMigrated(nameof(backgroundWorker1_RunWorkerCompleted), "backgroundWorker1_RunWorkerCompleted");
     }
 
     private void fileSystemWatcher1_Changed(object? sender, FileSystemEventArgs e)
     {
         watcherLabel.Text = $"{e.ChangeType}: {e.Name}";
-
-        /* REMAINING WINFORMS BODY of 'fileSystemWatcher1_Changed' - TODO(Winforms2Avalonia): migrate it into this method.
         Log($"{e.ChangeType}: {e.FullPath}");
-        */
-        MigrationTodo.NotMigrated(nameof(fileSystemWatcher1_Changed), "fileSystemWatcher1_Changed");
     }
 
     private void notifyIcon1_DoubleClick(object? sender, TappedEventArgs e)
@@ -538,21 +505,19 @@ public partial class MainView : Window
         MigrationTodo.NotMigrated(nameof(demoComponent1_Ticked), "demoComponent1_Ticked");
     }
 
-    /* ORIGINAL WINFORMS MEMBERS - NOT COMPILED, PRESERVED FOR MANUAL MIGRATION
-
-    private bool isBusy;
-
     private void SetBusy(bool busy)
     {
-        this.isBusy = busy;
-        this.startWorkerButton.Text = busy ? "Cancel" : "Run BackgroundWorker";
-        this.statusLabel.Text = busy ? "Working..." : "Ready";
+        isBusy = busy;
+        startWorkerButton.Content = busy ? "Cancel" : "Run BackgroundWorker";
+        statusLabel.Text = busy ? "Working..." : "Ready";
     }
 
     private void Log(string message)
     {
-        this.componentsLogTextBox.AppendText(message + Environment.NewLine);
+        componentsLogTextBox.Text += message + Environment.NewLine;
     }
+
+    /* ORIGINAL WINFORMS MEMBERS - NOT COMPILED, PRESERVED FOR MANUAL MIGRATION
 
     private sealed class GalleryRow
     {

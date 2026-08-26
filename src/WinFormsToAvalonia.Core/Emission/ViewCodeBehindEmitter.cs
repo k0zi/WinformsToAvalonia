@@ -55,7 +55,7 @@ public sealed class ViewCodeBehindEmitter
         }
 
         Using("System");
-        if (plan.FileDialogs.Count > 0)
+        if (plan.FileDialogs.Count > 0 || plan.PromotedHelpers.Any(h => h.IsAsync))
         {
             Using("System.Threading.Tasks");
         }
@@ -134,7 +134,16 @@ public sealed class ViewCodeBehindEmitter
             Line($"    private readonly {component.ClrTypeName} {component.FieldName} = new();");
         }
 
-        if (plan.Timers.Count > 0 || plan.Components.Count > 0)
+        // The Form's own backing fields, carried over so the helpers that maintain them can be
+        // real code rather than a comment.
+        foreach (var field in plan.PromotedFields)
+        {
+            var modifiers = field.ModifiersText.Length > 0 ? field.ModifiersText + " " : "";
+            var initializer = field.InitializerText is { } value ? $" = {value}" : "";
+            Line($"    private {modifiers}{field.TypeText} {field.Name}{initializer};");
+        }
+
+        if (plan.Timers.Count > 0 || plan.Components.Count > 0 || plan.PromotedFields.Count > 0)
         {
             Line();
         }
@@ -198,6 +207,12 @@ public sealed class ViewCodeBehindEmitter
         {
             Line();
             EmitFileDialogMethod(Line, dialog);
+        }
+
+        foreach (var helper in plan.PromotedHelpers)
+        {
+            Line();
+            EmitPromotedHelper(Line, helper);
         }
 
         if (plan.PreservedMembers.Count > 0)
@@ -336,6 +351,30 @@ public sealed class ViewCodeBehindEmitter
             .Select(t => EventArgsNamespaces[t])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal);
+
+    /// <summary>
+    /// A helper method whose whole body translated. Unlike a handler this carries no
+    /// <c>MigrationTodo</c> and no comment: a helper is emitted as code only when there is
+    /// nothing left over, so there is nothing to report.
+    /// </summary>
+    private static void EmitPromotedHelper(Action<string> line, PromotedHelperPlan helper)
+    {
+        var asyncModifier = helper.IsAsync ? "async " : "";
+
+        // A helper that turned async returns `Task`, never `async void`: its callers await it,
+        // and `void` is not awaitable. The planner only promotes void helpers into this shape.
+        var returnType = helper.IsAsync ? "Task" : helper.ReturnTypeText;
+
+        line($"    private {asyncModifier}{returnType} {helper.Name}{helper.ParameterListText}");
+        line("    {");
+
+        foreach (var statement in helper.Rewrite.MigratedStatements)
+        {
+            line(Indent(statement, "        "));
+        }
+
+        line("    }");
+    }
 
     private static string Indent(string text, string indent) =>
         string.Join("\n", text.Replace("\r\n", "\n").Split('\n').Select(l => l.Length == 0 ? l : indent + l));
