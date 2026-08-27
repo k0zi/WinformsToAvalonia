@@ -131,7 +131,7 @@ public partial class MainView : Window
         }
     }
 
-    private void MainForm_Load(object? sender, RoutedEventArgs e)
+    private void MainForm_Load(object? sender, EventArgs e)
     {
         /* ORIGINAL WINFORMS BODY of 'MainForm_Load' - TODO(Winforms2Avalonia): migrate it into this method.
         this.itemsTreeView.Nodes.Add("Documents");

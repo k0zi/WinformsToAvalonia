@@ -274,8 +274,15 @@ public sealed class EventMappingRegistry
 
     private static readonly Dictionary<string, EventMapping> FormEvents = new(StringComparer.Ordinal)
     {
-        ["Load"] = new("Load", "Loaded", "RoutedEventArgs"),
-        ["Shown"] = new("Shown", "Opened"),
+        // Load -> Opened and Shown -> Loaded, in that pairing, because the two frameworks raise
+        // their pair in opposite order. WinForms runs Load *before* the form is displayed and
+        // Shown after it first is; Avalonia raises Opened as the window opens and Loaded only
+        // once layout and render are complete - so mapping Load to Loaded put it after the window
+        // was already on screen, and inverted the order against a Shown handler in the same form.
+        ["Load"] = new("Load", "Opened",
+            Guidance: "Avalonia's Opened is raised each time the window is shown, where WinForms' Load ran "
+                + "once per form instance - a window that is hidden and shown again runs this again."),
+        ["Shown"] = new("Shown", "Loaded", "RoutedEventArgs"),
         ["FormClosing"] = new("FormClosing", "Closing", "WindowClosingEventArgs"),
         ["FormClosed"] = new("FormClosed", "Closed"),
         ["Activated"] = new("Activated", "Activated"),

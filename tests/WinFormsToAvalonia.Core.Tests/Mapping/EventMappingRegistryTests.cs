@@ -112,11 +112,18 @@ public class EventMappingRegistryTests
         Assert.Contains("SomeVendorEvent", mapping.Guidance);
     }
 
+    /// <summary>
+    /// Load pairs with Opened and Shown with Loaded, not the other way round: WinForms runs Load
+    /// *before* the form is displayed and Shown once it first is, while Avalonia raises Opened as
+    /// the window opens and Loaded only after layout and render complete. Pairing them by name
+    /// would put Load after the window was already on screen, and run a form's two handlers in the
+    /// opposite order to the original.
+    /// </summary>
     [Theory]
-    [InlineData("Load", "Loaded")]
+    [InlineData("Load", "Opened")]
     [InlineData("FormClosing", "Closing")]
     [InlineData("FormClosed", "Closed")]
-    [InlineData("Shown", "Opened")]
+    [InlineData("Shown", "Loaded")]
     public void ResolveFormEvent_LifecycleEvents_MapToWindowEquivalents(string winFormsEvent, string avaloniaEvent)
     {
         var mapping = _registry.ResolveFormEvent(winFormsEvent);

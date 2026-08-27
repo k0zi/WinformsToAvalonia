@@ -54,8 +54,9 @@ public class CodeBehindMigrationTests
             Assert.DoesNotContain("Paint=", axaml);
             Assert.Contains(result.Report.Warnings, w => w.Contains("Paint") && w.Contains("no Avalonia equivalent"));
 
-            // Form.Load becomes the Window's Loaded event.
-            Assert.Contains("Loaded=\"MainForm_Load\"", axaml);
+            // Form.Load becomes the Window's Opened event - the one raised as the window opens,
+            // where Loaded is raised only after layout and render, with the window already up.
+            Assert.Contains("Opened=\"MainForm_Load\"", axaml);
 
             // A promoted body is translated against the ViewModel's own properties: promotion
             // already proved every member it touches is bindable, so nothing is left to comment.

@@ -625,7 +625,16 @@ rule itself; what follows is what the rule does *not* cover yet.
   `EventCoverageTests` reads WinForms' own reference assembly to make sure none is missed - the
   same technique the Avalonia side uses, pointed the other way.
 
-  Most of them are the `XxxChanged` family, and they share one answer: Avalonia raises nothing
+  One correction came out of running the converted sample rather than reading the table:
+  **`Form.Load` pairs with `Window.Opened`, and `Form.Shown` with `Loaded`** - crossed over, not
+  matched by name. WinForms runs `Load` *before* the form is displayed and `Shown` once it first
+  is; Avalonia raises `Opened` as the window opens and `Loaded` only after layout and render are
+  complete. Pairing them by name put a `Load` handler after the window was already on screen -
+  visibly late for anything that populates controls or sizes the window - and ran a form's two
+  handlers in the opposite order to the original. The remaining difference is honest and reported:
+  `Opened` is raised each time the window is shown, where `Load` ran once per form instance.
+
+  Most of the rest are the `XxxChanged` family, and they share one answer: Avalonia raises nothing
   when a property changes, so you observe the property or bind to it. Three real pairs came out of
   the sweep that had been missing: `Form.Move`/`LocationChanged` → `Window.PositionChanged`,
   `Form.DpiChanged` → `TopLevel.ScalingChanged`, and the obsolete `Form.Closing`/`Closed`

@@ -185,7 +185,7 @@ public class FormMigrationPlannerTests
     }
 
     [Fact]
-    public void Plan_FormLoadHandler_SubscribesTheWindowsLoadedEvent()
+    public void Plan_FormLoadHandler_SubscribesTheWindowsOpenedEvent()
     {
         var formModel = FormWith(("button1", "Button"));
         formModel.FormEvents.Add(new EventHandlerBinding("Load", "Form1_Load", null));
@@ -204,8 +204,8 @@ public class FormMigrationPlannerTests
             """);
 
         var handler = Assert.Single(plan.CodeBehindHandlers);
-        Assert.Equal("RoutedEventArgs", handler.EventArgsTypeName);
-        Assert.Equal([("Loaded", "Form1_Load")], plan.XamlEventAttributesFor(null));
+        Assert.Equal("EventArgs", handler.EventArgsTypeName);
+        Assert.Equal([("Opened", "Form1_Load")], plan.XamlEventAttributesFor(null));
         Assert.Empty(plan.ViewModelCommands);
     }
 
