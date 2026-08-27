@@ -39,6 +39,16 @@ namespace HandlerMigrationApp
             this.statusLabel.Text = "Saved";
         }
 
+        // The two-button question, whose answer the caller branches on: one awaited call returning
+        // a bool, because the dialog on the other end is one the converter ships.
+        private void confirmButton_Click(object sender, EventArgs e)
+        {
+            if (MessageBox.Show("Discard changes?", "Demo", MessageBoxButtons.YesNo) == DialogResult.Yes)
+            {
+                this.nameTextBox.Text = string.Empty;
+            }
+        }
+
         // A dialog WinForms has and Avalonia does not: translated inline onto a bundled window,
         // whose result is the colour rather than an object to ask afterwards.
         private void pickColorButton_Click(object sender, EventArgs e)

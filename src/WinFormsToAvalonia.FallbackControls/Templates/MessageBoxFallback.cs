@@ -7,35 +7,52 @@ using Avalonia.Media;
 namespace __TARGET_NAMESPACE__;
 
 /// <summary>
-/// Fallback for WinForms' <c>MessageBox.Show(...)</c>: Avalonia ships no message box at all, so
-/// this builds a small modal window out of ordinary controls.
+/// Fallback for WinForms' <c>MessageBox.Show(...)</c>: Avalonia deliberately ships no message box,
+/// so a converted project needs one small owned window of its own.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Not a control but a static helper, because that is the shape the call site needs - which is
-/// also why it is the one catalog entry a converted <em>handler body</em> can pull in, rather
-/// than the AXAML.
+/// also why it is one of the few catalog entries a converted <em>handler body</em> can pull in,
+/// rather than the AXAML.
 /// </para>
 /// <para>
-/// Deliberately only the "show some text, dismiss it" case. WinForms' button/icon overloads
-/// return a <c>DialogResult</c> the caller branches on, and inventing an answer for that would
-/// change what the original handler did - those calls are left un-migrated for a human instead.
+/// Three entry points, matching the three WinForms shapes that have an unambiguous meaning here:
+/// a plain acknowledgement, and the two-button questions whose answer is a yes/no. WinForms'
+/// three-way overloads (<c>YesNoCancel</c>, <c>AbortRetryIgnore</c>) have no bool answer and are
+/// deliberately absent - the translation refuses them rather than inventing a third state.
 /// </para>
 /// <para>
-/// The owner is a <c>Visual</c> rather than a <c>Window</c> so this works unchanged from a
-/// converted UserControl's code-behind, which is not itself a window.
+/// Every entry point is awaitable, unlike WinForms' blocking call - which is what makes the
+/// converted handlers async.
 /// </para>
 /// </remarks>
 public static class MessageBoxFallback
 {
-    public static Task ShowAsync(Visual owner, string? text, string? caption = "")
+    /// <summary>The <c>MessageBox.Show(text[, caption])</c> equivalent.</summary>
+    public static async Task ShowAsync(Visual owner, string? text, string? caption = "") =>
+        await ShowCore(owner, text, caption, "OK", cancelContent: null);
+
+    /// <summary>True for Yes. The <c>MessageBoxButtons.YesNo</c> equivalent.</summary>
+    public static Task<bool> ShowYesNoAsync(Visual owner, string? text, string? caption = "") =>
+        ShowCore(owner, text, caption, "Yes", "No");
+
+    /// <summary>True for OK. The <c>MessageBoxButtons.OKCancel</c> equivalent.</summary>
+    public static Task<bool> ShowOkCancelAsync(Visual owner, string? text, string? caption = "") =>
+        ShowCore(owner, text, caption, "OK", "Cancel");
+
+    /// <param name="cancelContent">Null for the one-button shape, which always answers true.</param>
+    private static async Task<bool> ShowCore(
+        Visual owner, string? text, string? caption, string acceptContent, string? cancelContent)
     {
-        var okButton = new Button
+        var acceptButton = new Button { Content = acceptContent, IsDefault = true, MinWidth = 88 };
+
+        var buttons = new StackPanel
         {
-            Content = "OK",
-            IsDefault = true,
-            MinWidth = 88,
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Right,
+            Children = { acceptButton },
         };
 
         var dialog = new Window
@@ -58,23 +75,28 @@ public static class MessageBoxFallback
                         MaxWidth = 420,
                         TextWrapping = TextWrapping.Wrap,
                     },
-                    okButton,
+                    buttons,
                 },
             },
         };
 
-        okButton.Click += (_, _) => dialog.Close();
+        acceptButton.Click += (_, _) => dialog.Close(true);
 
-        // A converted app always has a window by the time a handler runs, but a non-modal
-        // fallback is still better than throwing if one is somehow not there yet.
-        return TopLevel.GetTopLevel(owner) is Window ownerWindow
-            ? dialog.ShowDialog(ownerWindow)
-            : ShowNonModal(dialog);
-    }
+        if (cancelContent is not null)
+        {
+            var cancelButton = new Button { Content = cancelContent, IsCancel = true, MinWidth = 88 };
+            cancelButton.Click += (_, _) => dialog.Close(false);
+            buttons.Children.Add(cancelButton);
+        }
 
-    private static Task ShowNonModal(Window dialog)
-    {
-        dialog.Show();
-        return Task.CompletedTask;
+        // A converted app always has a window by the time a handler runs, but answering "not
+        // accepted" is still better than throwing if one is somehow not there yet.
+        if (TopLevel.GetTopLevel(owner) is not Window ownerWindow)
+        {
+            dialog.Show();
+            return false;
+        }
+
+        return await dialog.ShowDialog<bool>(ownerWindow);
     }
 }

@@ -242,8 +242,13 @@ rule itself; what follows is what the rule does *not* cover yet.
     generated handler `async`. The owner overloads (`Show(this, text[, caption])`) work too: a
     literal leading `this` is dropped, since the translated call supplies its own owner. Only a
     literal `this` - that is what keeps the arity unambiguous, because `Show(text, caption)` and
-    `Show(owner, text)` are otherwise the same shape. The **buttons** overloads still refuse: they
-    return a `DialogResult` the caller branches on;
+    `Show(owner, text)` are otherwise the same shape. The **two-button** overloads are translated
+    too, and the whole comparison collapses the way the converted-dialog contract does:
+    `MessageBox.Show(text, caption, MessageBoxButtons.YesNo) == DialogResult.No` becomes
+    `!await MessageBoxFallback.ShowYesNoAsync(this, text, caption)`. That works because the dialog
+    on the other end is one this repo ships, so it can be given a `bool` return. `OKCancel` too;
+    `YesNoCancel` and `AbortRetryIgnore` refuse, having no bool answer, and so do the icon
+    overloads - the bundled dialog draws no icon, and accepting them would silently drop a cue;
   - `Application.Exit()` → the desktop lifetime's `Shutdown()`;
   - opening another converted Form: `new SettingsForm().ShowDialog([owner]);` →
     `await new SettingsView().ShowDialog(this);` (async, and the target View's namespace is
@@ -418,6 +423,16 @@ rule itself; what follows is what the rule does *not* cover yet.
   branch would silently drop its own tail with nothing at that spot to say so. The practical
   consequence is that one un-translatable call in a branch rejects the entire `if`, which is why
   control-flow support helps validation-shaped handlers far more than WinForms-API-shaped ones.
+
+  **Nothing that needs `await` is translated inside a `Closing` handler**, whatever it is. A
+  cancellable event is read the moment the handler returns, and an `async void` handler returns at
+  its first `await` - so `e.Cancel = await ...` would compile, look right, and never cancel
+  anything, because the window is gone by the time the await resumes. WinForms got away with this
+  only because its dialogs block. Emitting Avalonia's pattern for it instead (cancel first, await,
+  close again if confirmed) would restructure the handler into something the original never said,
+  which this converter does not do - so the statement is refused and the prefix before it still
+  comes across. This is the one place where a *correct* translation of a statement is still
+  rejected because of where it sits.
 
   Reads of string properties are emitted as `(control.Text ?? string.Empty)`: WinForms' string
   properties never return null while Avalonia's are `string?`, so this is both the faithful

@@ -106,8 +106,11 @@ public class HandlerMigrationConversionTests
             Assert.True(result.Vfs.TryGetText(csprojPath, out var csproj));
             Assert.Contains("Avalonia.Controls.ColorPicker", csproj);
 
-            Assert.Equal(16, result.Report.MigratedStatementCount);
-            Assert.Equal(19, result.Report.HandlerStatementCount);
+            // The two-button question collapses into one awaited call returning a bool.
+            Assert.Contains("if (await MessageBoxFallback.ShowYesNoAsync(this, \"Discard changes?\", \"Demo\"))", codeBehind);
+
+            Assert.Equal(17, result.Report.MigratedStatementCount);
+            Assert.Equal(20, result.Report.HandlerStatementCount);
 
             var buildResult = await RunDotnetAsync("build", outputDir);
             Assert.True(

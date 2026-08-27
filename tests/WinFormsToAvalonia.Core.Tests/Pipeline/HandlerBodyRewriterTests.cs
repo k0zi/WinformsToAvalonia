@@ -2363,6 +2363,80 @@ public class HandlerBodyRewriterTests
         Assert.Contains("colorDialog1.Color", result.RemainingBody);
     }
 
+    // ---- The two-button message boxes ---------------------------------------------------------
+
+    /// <summary>
+    /// Structurally the converted-dialog contract again: the whole comparison collapses into one
+    /// awaited call returning a bool, because the dialog on the other end is one this repo ships.
+    /// </summary>
+    [Theory]
+    [InlineData("MessageBoxButtons.YesNo", "DialogResult.Yes", "await MessageBoxFallback.ShowYesNoAsync(this, \"Sure?\", \"Demo\")")]
+    [InlineData("MessageBoxButtons.YesNo", "DialogResult.No", "!await MessageBoxFallback.ShowYesNoAsync(this, \"Sure?\", \"Demo\")")]
+    [InlineData("MessageBoxButtons.OKCancel", "DialogResult.OK", "await MessageBoxFallback.ShowOkCancelAsync(this, \"Sure?\", \"Demo\")")]
+    public void RewriteForView_TwoButtonMessageBox_CollapsesIntoOneAwaitedCall(string buttons, string result, string expected)
+    {
+        var form = FormWith(("agreeCheckBox", "CheckBox"));
+
+        var rewritten = Rewriter.RewriteForView(
+            $"this.agreeCheckBox.Checked = MessageBox.Show(\"Sure?\", \"Demo\", {buttons}) == {result};", form);
+
+        Assert.Equal([$"agreeCheckBox.IsChecked = {expected};"], rewritten.MigratedStatements);
+        Assert.True(rewritten.RequiresAsync);
+        Assert.Contains("MessageBoxFallback", rewritten.RequiredFallbackKeys);
+    }
+
+    /// <summary>
+    /// A three-way answer does not fit in a bool, and widening the result would change what every
+    /// bundled dialog returns.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ThreeWayMessageBox_IsNotMigrated()
+    {
+        var form = FormWith(("agreeCheckBox", "CheckBox"));
+
+        var rewritten = Rewriter.RewriteForView(
+            "this.agreeCheckBox.Checked = MessageBox.Show(\"Sure?\", \"Demo\", MessageBoxButtons.YesNoCancel) == DialogResult.Yes;",
+            form);
+
+        Assert.Empty(rewritten.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The one that matters most. A cancellable event is read the moment the handler returns, and
+    /// an `async void` handler returns at its first await - so `e.Cancel = await …` would compile,
+    /// look right, and never cancel anything.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_AsyncInsideAClosingHandler_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "e.Cancel = MessageBox.Show(\"Sure?\", \"Demo\", MessageBoxButtons.YesNo) == DialogResult.No;",
+            FormWith(),
+            Navigation(),
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldName: null));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>...and the prefix before it still comes across.</summary>
+    [Fact]
+    public void RewriteForView_ClosingHandler_KeepsThePrefixBeforeTheAsyncStatement()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.statusLabel.Text = "closing";
+            MessageBox.Show("Bye");
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldName: null));
+
+        Assert.Equal(["statusLabel.Text = \"closing\";"], result.MigratedStatements);
+        Assert.False(result.RequiresAsync);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

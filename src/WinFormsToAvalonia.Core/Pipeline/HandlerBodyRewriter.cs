@@ -238,6 +238,15 @@ public sealed class HandlerBodyRewriter
                 break;
             }
 
+            // An `async` statement in a handler whose result is read the moment it returns would
+            // compile and quietly do nothing. Undone like any other untranslatable statement, so
+            // the prefix before it still comes across.
+            if (!target.AllowsAsync && (rewritten.RequiresAsync || target.Requirements.RequiresAsync))
+            {
+                target.Requirements.Restore(snapshot);
+                break;
+            }
+
             migrated.Add(rewritten.Text);
             usings.UnionWith(rewritten.RequiredUsings);
             fallbackKeys.UnionWith(rewritten.RequiredFallbackKeys);
@@ -279,6 +288,7 @@ public sealed class HandlerBodyRewriter
             : RemainingText(body, block, statements[migratedCount]);
 
         usings.UnionWith(target.Requirements.RequiredUsings);
+        fallbackKeys.UnionWith(target.Requirements.RequiredFallbackKeys);
         requiresAsync |= target.Requirements.RequiresAsync;
 
         return new RewrittenBody(
@@ -1637,6 +1647,12 @@ public sealed class HandlerBodyRewriter
                 when TryRewriteDialogResultComparison(comparison, target, out text):
                 return true;
 
+            // `MessageBox.Show(..., MessageBoxButtons.YesNo) == DialogResult.No` - the same shape,
+            // against the bundled dialog rather than a converted Form.
+            case BinaryExpressionSyntax comparison
+                when TryRewriteMessageBoxComparison(comparison, target, out text):
+                return true;
+
             case BinaryExpressionSyntax binary:
                 if (!TryRewriteExpression(binary.Left, target, out var binaryLeft)
                     || !TryRewriteExpression(binary.Right, target, out var binaryRight))
@@ -1792,6 +1808,95 @@ public sealed class HandlerBodyRewriter
         text = $"{(meansAccepted ? "" : "!")}await {viewExpression}.ShowDialog<bool>(this)";
         return true;
     }
+
+    /// <summary>
+    /// The two-button <c>MessageBox</c> overloads, whose result the caller branches on:
+    /// <c>MessageBox.Show(text, caption, MessageBoxButtons.YesNo) == DialogResult.No</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Structurally the same translation as the converted-dialog contract above, and it works for
+    /// the same reason: the whole comparison collapses into one awaited call returning a bool,
+    /// because the dialog on the other end is one this repo ships and can therefore be given that
+    /// return type. Neither operand means anything on its own, which is why it has to be matched
+    /// as a comparison rather than as a call.
+    /// </para>
+    /// <para>
+    /// Only the two-way overloads. <c>YesNoCancel</c> and <c>AbortRetryIgnore</c> have no bool
+    /// answer, and widening the result would change what every bundled dialog returns - the same
+    /// argument that keeps <c>ShowDialog&lt;bool&gt;</c> two-valued. The icon overloads are out
+    /// too: the bundled dialog draws no icon, so accepting them would silently drop a cue the
+    /// original showed.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteMessageBoxComparison(
+        BinaryExpressionSyntax comparison, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        var isEquals = comparison.IsKind(SyntaxKind.EqualsExpression);
+        if ((!isEquals && !comparison.IsKind(SyntaxKind.NotEqualsExpression)) || !target.AllowsWindowApis)
+        {
+            return false;
+        }
+
+        var (call, expected) = comparison.Left is InvocationExpressionSyntax leftCall
+            ? (leftCall, comparison.Right)
+            : comparison.Right is InvocationExpressionSyntax rightCall ? (rightCall, comparison.Left) : (null, null);
+
+        if (call is null
+            || call.Expression is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "MessageBox" },
+                Name.Identifier.ValueText: "Show",
+            }
+            || expected is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "DialogResult" },
+                Name.Identifier.ValueText: var resultName,
+            })
+        {
+            return false;
+        }
+
+        // The owner overloads put the form first, and the translated call supplies its own owner.
+        var arguments = call.ArgumentList.Arguments;
+        if (arguments is [{ Expression: ThisExpressionSyntax }, ..])
+        {
+            arguments = SyntaxFactory.SeparatedList(arguments.Skip(1));
+        }
+
+        if (arguments is not [{ Expression: var textArgument }, { Expression: var captionArgument }, { Expression: var buttonsArgument }]
+            || buttonsArgument is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "MessageBoxButtons" },
+                Name.Identifier.ValueText: var buttonsName,
+            }
+            || !MessageBoxAnswers.TryGetValue(buttonsName, out var answer)
+            || (resultName != answer.AcceptedResult && resultName != answer.RejectedResult)
+            || !TryRewriteExpression(textArgument, target, out var messageText)
+            || !TryRewriteExpression(captionArgument, target, out var caption))
+        {
+            return false;
+        }
+
+        // `== Yes` and `!= No` both mean "the user accepted"; the other two mean the opposite.
+        var meansAccepted = isEquals == (resultName == answer.AcceptedResult);
+
+        target.Requirements.RequiresAsync = true;
+        target.Requirements.RequiredFallbackKeys.Add("MessageBoxFallback");
+
+        text = $"{(meansAccepted ? "" : "!")}await MessageBoxFallback.{answer.MethodName}(this, {messageText}, {caption})";
+        return true;
+    }
+
+    /// <summary>The <c>MessageBoxButtons</c> values with a two-valued answer, and nothing else.</summary>
+    private static readonly IReadOnlyDictionary<string, (string MethodName, string AcceptedResult, string RejectedResult)> MessageBoxAnswers =
+        new Dictionary<string, (string, string, string)>(StringComparer.Ordinal)
+        {
+            ["YesNo"] = ("ShowYesNoAsync", "Yes", "No"),
+            ["OKCancel"] = ("ShowOkCancelAsync", "OK", "Cancel"),
+        };
 
     /// <summary>
     /// The `X` of `X.ShowDialog(...)`, when X is a converted Form - either freshly constructed or
@@ -2289,17 +2394,25 @@ public sealed class HandlerBodyRewriter
 
         public HashSet<string> RequiredUsings { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Bundled templates an *expression* pulled in - the message-box comparison is the one
+        /// that does, since it collapses a whole comparison into an awaited call.
+        /// </summary>
+        public HashSet<string> RequiredFallbackKeys { get; } = new(StringComparer.Ordinal);
+
         /// <summary>Dialog fields a body opened inline, so no separate method is generated for them.</summary>
         public HashSet<string> InlinedDialogFields { get; } = new(StringComparer.Ordinal);
 
-        public (bool Async, string[] Usings, string[] Dialogs) Snapshot() =>
-            (RequiresAsync, [.. RequiredUsings], [.. InlinedDialogFields]);
+        public (bool Async, string[] Usings, string[] Fallbacks, string[] Dialogs) Snapshot() =>
+            (RequiresAsync, [.. RequiredUsings], [.. RequiredFallbackKeys], [.. InlinedDialogFields]);
 
-        public void Restore((bool Async, string[] Usings, string[] Dialogs) snapshot)
+        public void Restore((bool Async, string[] Usings, string[] Fallbacks, string[] Dialogs) snapshot)
         {
             RequiresAsync = snapshot.Async;
             RequiredUsings.Clear();
             RequiredUsings.UnionWith(snapshot.Usings);
+            RequiredFallbackKeys.Clear();
+            RequiredFallbackKeys.UnionWith(snapshot.Fallbacks);
             InlinedDialogFields.Clear();
             InlinedDialogFields.UnionWith(snapshot.Dialogs);
         }
@@ -2322,6 +2435,12 @@ public sealed class HandlerBodyRewriter
 
         /// <summary>False in a ViewModel, which has no Window to close and no dialog owner.</summary>
         bool AllowsWindowApis { get; }
+
+        /// <summary>
+        /// False where turning the handler <c>async</c> would change what it does, not just how it
+        /// reads - see <see cref="ViewTarget.AllowsAsync"/>.
+        /// </summary>
+        bool AllowsAsync { get; }
 
         /// <summary>False in a converted UserControl, which cannot own a modal dialog.</summary>
         bool HostIsWindow { get; }
@@ -2463,6 +2582,20 @@ public sealed class HandlerBodyRewriter
         }
 
         public bool AllowsWindowApis => true;
+
+        /// <summary>
+        /// A cancellable event is read the moment the handler returns, and an `async void` handler
+        /// returns at its first <c>await</c>. WinForms could get away with this because its dialogs
+        /// block; Avalonia's do not, so `e.Cancel = await …` compiles, looks right, and never
+        /// cancels anything - the window is already gone when the await resumes.
+        /// </summary>
+        /// <remarks>
+        /// Refusing the whole statement is the honest answer rather than emitting the Avalonia
+        /// pattern for it (cancel first, await, close again if confirmed): that restructures the
+        /// handler into something the original never said, and this converter does not invent
+        /// control flow. The prefix rule still applies, so everything before it comes across.
+        /// </remarks>
+        public bool AllowsAsync => signature.EventArgsTypeName != "WindowClosingEventArgs";
 
         public bool HostIsWindow => navigation.HostIsWindow;
 
@@ -2652,6 +2785,9 @@ public sealed class HandlerBodyRewriter
         public Dictionary<string, string> DialogSelections { get; } = new(StringComparer.Ordinal);
 
         public bool AllowsWindowApis => false;
+
+        /// <summary>A promoted command cannot touch EventArgs at all, so nothing here is cancellable.</summary>
+        public bool AllowsAsync => true;
 
         public bool HostIsWindow => false;
 
