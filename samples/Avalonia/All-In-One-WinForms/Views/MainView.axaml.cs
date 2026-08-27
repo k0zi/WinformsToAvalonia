@@ -38,6 +38,7 @@ public partial class MainView : Window
     private ServiceController? _serviceController1;
     private SoundPlayer? _soundPlayer1;
     private bool isBusy;
+    private bool w2aForceClose;
     private bool w2aInitialized;
 
     public MainView()
@@ -151,20 +152,39 @@ public partial class MainView : Window
         MigrationTodo.NotMigrated(nameof(MainForm_Load), "MainForm_Load");
     }
 
-    private void MainForm_FormClosing(object? sender, WindowClosingEventArgs e)
+    private async void MainForm_FormClosing(object? sender, WindowClosingEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'MainForm_FormClosing' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.isBusy)
+        // The confirmation was synchronous in WinForms. Avalonia reads e.Cancel when this
+        // method first awaits, so the close is cancelled, the answer awaited, and the window
+        // closed again from code - one turn of the loop later, and only if you said yes.
+        if (w2aForceClose)
         {
-            e.Cancel = MessageBox.Show(
-                "A background operation is still running. Close anyway?",
-                "All-In-One",
-                MessageBoxButtons.YesNo) == DialogResult.No;
+            return;
         }
 
-        this.notifyIcon1.Visible = false;
-        */
-        MigrationTodo.NotMigrated(nameof(MainForm_FormClosing), "MainForm_FormClosing");
+        if (isBusy)
+        {
+            e.Cancel = true;
+            var w2aClosing = await MessageBoxFallback.ShowYesNoAsync(this, "A background operation is still running. Close anyway?", "All-In-One");
+            w2aRemaining();
+            if (w2aClosing)
+            {
+                w2aForceClose = true;
+                Close();
+            }
+
+            return;
+        }
+
+        w2aRemaining();
+
+        void w2aRemaining()
+        {
+            /* REMAINING WINFORMS BODY of 'MainForm_FormClosing' - TODO(Winforms2Avalonia): migrate it into this method.
+            this.notifyIcon1.Visible = false;
+            */
+            MigrationTodo.NotMigrated(nameof(MainForm_FormClosing), "MainForm_FormClosing");
+        }
     }
 
     private void newMenuItem_Click(object? sender, RoutedEventArgs e)

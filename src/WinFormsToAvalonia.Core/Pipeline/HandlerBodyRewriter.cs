@@ -227,7 +227,7 @@ public sealed class HandlerBodyRewriter
 
         // The confirm-on-close handler is a whole-body shape rather than a sequence of
         // statements, so it is matched before the loop that would otherwise refuse it.
-        if (TryMatchCloseConfirmation(statements, target, out var confirmation))
+        if (TryMatchCloseConfirmation(body, block, statements, target, out var confirmation))
         {
             return confirmation;
         }
@@ -350,7 +350,11 @@ public sealed class HandlerBodyRewriter
     /// </para>
     /// </remarks>
     private static bool TryMatchCloseConfirmation(
-        SyntaxList<StatementSyntax> statements, IRewriteTarget target, out RewrittenBody rewritten)
+        string body,
+        BlockSyntax block,
+        SyntaxList<StatementSyntax> statements,
+        IRewriteTarget target,
+        out RewrittenBody rewritten)
     {
         rewritten = null!;
 
@@ -416,17 +420,22 @@ public sealed class HandlerBodyRewriter
 
         _ = beforeCancel;
 
-        if (!TryTranslatePlainStatements(
-                statements.Skip(index + 1), target, usings, fallbackKeys, out var tail))
-        {
-            target.Requirements.Restore(snapshot);
-            return false;
-        }
+        // The tail runs on every close attempt, on both paths - so a statement in it that cannot
+        // be translated does not take the whole shape with it. It goes into a local function that
+        // both paths call, which is the only arrangement where a human fixing it fixes both.
+        var tail = TranslatePrefix(
+            statements.Skip(index + 1).ToList(), target, usings, fallbackKeys, out var firstUntranslated);
+
+        var remainder = firstUntranslated is null
+            ? null
+            : new BodyRemainder(RemainderFunctionName, tail);
+        var remainingBody = firstUntranslated is null ? "" : RemainingText(body, block, firstUntranslated);
+        var tailStatements = remainder is null ? tail : [$"{RemainderFunctionName}();"];
 
         usings.UnionWith(target.Requirements.RequiredUsings);
         fallbackKeys.UnionWith(target.Requirements.RequiredFallbackKeys);
 
-        var body = new List<string>
+        var confirmationBody = new List<string>
         {
             $"// The confirmation was synchronous in WinForms. Avalonia reads e.Cancel when this",
             $"// method first awaits, so the close is cancelled, the answer awaited, and the window",
@@ -438,14 +447,14 @@ public sealed class HandlerBodyRewriter
             "",
         };
 
-        body.AddRange(prefix);
+        confirmationBody.AddRange(prefix);
 
         var confirmed = new List<string>
         {
             $"{argsParameterName}.Cancel = true;",
             $"var w2aClosing = {Negate(cancelText)};",
         };
-        confirmed.AddRange(tail);
+        confirmed.AddRange(tailStatements);
         confirmed.Add("if (w2aClosing)");
         confirmed.Add("{");
         confirmed.Add($"    {CloseGuardFieldName} = true;");
@@ -454,25 +463,34 @@ public sealed class HandlerBodyRewriter
 
         if (condition is null)
         {
-            body.AddRange(confirmed);
+            confirmationBody.AddRange(confirmed);
         }
         else
         {
-            body.Add($"if ({conditionText})");
-            body.Add("{");
-            body.AddRange(confirmed.Select(line => "    " + line));
-            body.Add("");
-            body.Add("    return;");
-            body.Add("}");
-            body.Add("");
-            body.AddRange(tail);
+            confirmationBody.Add($"if ({conditionText})");
+            confirmationBody.Add("{");
+            confirmationBody.AddRange(confirmed.Select(line => "    " + line));
+            confirmationBody.Add("");
+            confirmationBody.Add("    return;");
+            confirmationBody.Add("}");
+            confirmationBody.Add("");
+            confirmationBody.AddRange(tailStatements);
         }
 
         // One entry standing for the whole body, so the emitter indents it as the block it is -
         // and an explicit count, since the original's statements all came across.
         rewritten = new RewrittenBody(
-            [string.Join("\n", body)], "", statements.Count, usings, fallbackKeys, RequiresAsync: true,
-            RequiresCloseGuard: true, MigratedStatementCountOverride: statements.Count);
+            [string.Join("\n", confirmationBody)],
+            remainingBody,
+            statements.Count,
+            usings,
+            fallbackKeys,
+            RequiresAsync: true,
+            RequiresCloseGuard: true,
+            // Everything the original said came across - what is left is inside the local
+            // function, not a suffix the loop stopped before.
+            MigratedStatementCountOverride: statements.Count,
+            Remainder: remainder);
         return true;
     }
 
@@ -516,6 +534,53 @@ public sealed class HandlerBodyRewriter
             BlockSyntax => null,
             var single => single,
         };
+
+    /// <summary>The local function a close confirmation's un-migrated tail lives in.</summary>
+    /// <remarks>
+    /// Prefixed like every other name this conversion invents, so it cannot collide with anything
+    /// the original body declared.
+    /// </remarks>
+    private const string RemainderFunctionName = "w2aRemaining";
+
+    /// <summary>
+    /// Translates as far as it can and says where it stopped - the ordinary prefix rule, applied
+    /// to the tail of a close confirmation rather than to a whole body.
+    /// </summary>
+    private static List<string> TranslatePrefix(
+        IReadOnlyList<StatementSyntax> statements,
+        IRewriteTarget target,
+        HashSet<string> usings,
+        HashSet<string> fallbackKeys,
+        out StatementSyntax? firstUntranslated)
+    {
+        var translated = new List<string>();
+        firstUntranslated = null;
+
+        foreach (var statement in statements)
+        {
+            // As in TryTranslatePlainStatements: what matters is whether *this* statement awaits,
+            // which is the difference across it - the confirmation has already set the flag.
+            var snapshot = target.Requirements.Snapshot();
+            var wasAsync = target.Requirements.RequiresAsync;
+            if (!TryRewriteStatement(statement, target, out var rewritten)
+                || rewritten.RequiresAsync
+                || (target.Requirements.RequiresAsync && !wasAsync))
+            {
+                target.Requirements.Restore(snapshot);
+                firstUntranslated = statement;
+                return translated;
+            }
+
+            usings.UnionWith(rewritten.RequiredUsings);
+            fallbackKeys.UnionWith(rewritten.RequiredFallbackKeys);
+            if (rewritten.Text.Length > 0)
+            {
+                translated.Add(rewritten.Text);
+            }
+        }
+
+        return translated;
+    }
 
     /// <summary>
     /// Statements that translate and do <em>not</em> await - what may sit either side of the

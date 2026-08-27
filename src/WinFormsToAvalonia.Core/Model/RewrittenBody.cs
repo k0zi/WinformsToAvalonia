@@ -5,6 +5,21 @@ namespace WinFormsToAvalonia.Core.Model;
 /// The suffix of the original body that was not migrated, verbatim - still emitted as a comment.
 /// Empty only when the whole body was migrated.
 /// </param>
+/// <summary>
+/// Where the un-migrated remainder of a <em>whole-body</em> rewrite goes, when appending it to the
+/// end of the method would be wrong.
+/// </summary>
+/// <remarks>
+/// Only the close-confirmation produces one. Its shape runs the handler's tail on two paths - the
+/// one that asks and the one that does not - so a tail that could not be translated has to live
+/// in one place both of them call, or a human would fix it on one path and silently leave the
+/// other broken. A local function is that place: it keeps the remainder inside the method it came
+/// from, and there is exactly one of it to edit.
+/// </remarks>
+/// <param name="LocalFunctionName">What the emitted statements call, and what the emitter declares.</param>
+/// <param name="MigratedStatements">The part of the tail that did translate, if any.</param>
+public sealed record BodyRemainder(string LocalFunctionName, IReadOnlyList<string> MigratedStatements);
+
 public sealed record RewrittenBody(
     IReadOnlyList<string> MigratedStatements,
     string RemainingBody,
@@ -14,13 +29,20 @@ public sealed record RewrittenBody(
     bool RequiresAsync,
     IReadOnlySet<string>? InlinedDialogFields = null,
     bool RequiresCloseGuard = false,
-    int? MigratedStatementCountOverride = null)
+    int? MigratedStatementCountOverride = null,
+    BodyRemainder? Remainder = null)
 {
     /// <summary>
     /// Whether the View has to declare the <c>w2aForceClose</c> field this body's close
     /// confirmation reads - see <c>HandlerBodyRewriter.TryMatchCloseConfirmation</c>.
     /// </summary>
     public bool RequiresCloseGuard { get; } = RequiresCloseGuard;
+
+    /// <summary>
+    /// Where <see cref="RemainingBody"/> is rendered, when it is not simply appended to the end of
+    /// the method. Null for every ordinary prefix rewrite.
+    /// </summary>
+    public BodyRemainder? Remainder { get; } = Remainder;
 
     /// <summary>File dialogs this body opens inline, so no separate method is generated for them.</summary>
     public IReadOnlySet<string> InlinedDialogFields { get; } = InlinedDialogFields ?? EmptySet;

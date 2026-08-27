@@ -2525,24 +2525,62 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// A tail that cannot be translated takes the whole shape with it. Emitting the confirmation
-    /// without it would drop work the original did on every close attempt.
+    /// A tail that cannot be translated no longer takes the whole shape with it - it moves into a
+    /// local function both paths call.
     /// </summary>
+    /// <remarks>
+    /// That indirection is the point rather than a detail. The confirmation runs the tail on two
+    /// paths, so a remainder appended to the end of the method would sit on one of them only, and
+    /// a human fixing it would silently leave the other broken. There is exactly one of it to edit.
+    /// </remarks>
     [Fact]
-    public void RewriteForView_CloseConfirmationWithAnUntranslatableTail_IsNotMigrated()
+    public void RewriteForView_CloseConfirmationWithAnUntranslatableTail_PutsItInALocalFunction()
     {
         var form = FormWith(("statusLabel", "Label"));
 
         var result = Rewriter.RewriteForView(
             """
-            e.Cancel = MessageBox.Show("Sure?", "Demo", MessageBoxButtons.YesNo) == DialogResult.No;
+            if (this.statusLabel.Text == "busy")
+            {
+                e.Cancel = MessageBox.Show("Sure?", "Demo", MessageBoxButtons.YesNo) == DialogResult.No;
+            }
+
             this.statusLabel.SomethingElse();
             """,
             form,
             Navigation(),
             new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));
 
-        Assert.Empty(result.MigratedStatements);
+        // Once on the path that asks, once on the path that does not - the two the original ran
+        // its tail on.
+        var body = Assert.Single(result.MigratedStatements);
+        Assert.Equal(2, body.Split("w2aRemaining();").Length - 1);
+        Assert.Equal("this.statusLabel.SomethingElse();", result.RemainingBody);
+        Assert.Equal("w2aRemaining", result.Remainder?.LocalFunctionName);
+        Assert.Empty(result.Remainder!.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The part of the tail that does translate still comes across - it goes into the same local
+    /// function, above the remainder, exactly as a partly-translated handler body would.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_CloseConfirmationWithAPartlyTranslatableTail_KeepsWhatItCan()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            e.Cancel = MessageBox.Show("Sure?", "Demo", MessageBoxButtons.YesNo) == DialogResult.No;
+            this.statusLabel.Text = "bye";
+            this.statusLabel.SomethingElse();
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));
+
+        Assert.Equal(["statusLabel.Text = \"bye\";"], result.Remainder?.MigratedStatements);
+        Assert.Equal("this.statusLabel.SomethingElse();", result.RemainingBody);
     }
 
     /// <summary>

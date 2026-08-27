@@ -344,6 +344,34 @@ public sealed class ViewCodeBehindEmitter
         }
 
         var remaining = handler.RemainingBody;
+
+        // A whole-body rewrite whose tail did not translate puts the remainder in a local
+        // function instead of appending it, because its structure calls that tail from two paths
+        // and a remainder appended to the end would only ever be on one of them.
+        if (remaining.Length > 0 && rewrite?.Remainder is { } placement)
+        {
+            line("");
+            line($"        void {placement.LocalFunctionName}()");
+            line("        {");
+            foreach (var statement in placement.MigratedStatements)
+            {
+                line(Indent(statement, "            "));
+            }
+
+            if (placement.MigratedStatements.Count > 0)
+            {
+                line("");
+            }
+
+            line($"            /* REMAINING WINFORMS BODY of '{handler.OriginalMethodName}' - TODO(Winforms2Avalonia): migrate it into this method.");
+            line(Indent(EscapeForBlockComment(remaining), "            "));
+            line("            */");
+            line($"            MigrationTodo.NotMigrated(nameof({handler.MethodName}), \"{handler.OriginalMethodName}\");");
+            line("        }");
+            line("    }");
+            return;
+        }
+
         if (remaining.Length > 0)
         {
             if (rewrite?.MigratedStatementCount > 0)

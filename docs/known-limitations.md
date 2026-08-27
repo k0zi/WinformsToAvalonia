@@ -508,10 +508,14 @@ rule itself; what follows is what the rule does *not* cover yet.
   This is the only whole-body rewrite in the converter, and it is deliberately narrow: any prefix
   that translates without awaiting, then `e.Cancel = <expr>` (bare, or as the single statement of
   an `if` with no `else`) whose expression awaits, then any tail that translates without awaiting.
-  A tail that does *not* translate takes the whole shape with it, since emitting the confirmation
-  without it would drop work the original did on every attempt - which is why the all-in-one
-  sample's own closing handler still does not convert: it ends in `notifyIcon1.Visible = false`,
-  and a `NotifyIcon` has no per-View element to write to.
+  A tail that does *not* translate no longer takes the whole shape with it. It moves into a
+  **local function** that both paths call, and that indirection is the point rather than a
+  detail: the confirmation runs the tail on the path that asks and on the path that does not, so
+  a remainder appended to the end of the method would sit on one of them only, and a human fixing
+  it would silently leave the other broken. There is exactly one of it to edit, and the checklist
+  names the statement rather than the whole handler. Whatever part of the tail *does* translate
+  goes into the same function above the remainder, exactly as a partly-translated handler body
+  would.
 
   Reads of string properties are emitted as `(control.Text ?? string.Empty)`: WinForms' string
   properties never return null while Avalonia's are `string?`, so this is both the faithful

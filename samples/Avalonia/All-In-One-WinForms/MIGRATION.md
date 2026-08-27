@@ -2,7 +2,7 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**77 of 106 handler statements (73%)** came across as real Avalonia code.
+**79 of 106 handler statements (75%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
@@ -17,7 +17,7 @@ one is the first the conversion could not prove equivalent.
 
 ### `Views/MainView.axaml.cs`
 
-- [ ] `MainForm_FormClosing` — `if (this.isBusy)`
+- [ ] `MainForm_FormClosing` — `this.notifyIcon1.Visible = false;`
 - [ ] `MainForm_Load` — `this.itemsTreeView.Nodes.Add("Documents");`
 - [ ] `contextPanel_DragDrop` — `var files = (string[])e.Data!.GetData(DataFormats.FileDrop)!;`
 - [ ] `dataGridView1_CellClick` — `this.gridInfoLabel.Text = $"Cell clicked: row {e.RowIndex}, column {e.ColumnIndex}";`
