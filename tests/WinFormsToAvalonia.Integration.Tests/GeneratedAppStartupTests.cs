@@ -1,6 +1,6 @@
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using WinFormsToAvalonia.Core.Pipeline;
+using WinFormsToAvalonia.Integration.Tests.TestSupport;
 using Xunit;
 
 namespace WinFormsToAvalonia.Integration.Tests;
@@ -51,7 +51,7 @@ public class GeneratedAppStartupTests
             new ConversionPipeline().Run(new ConversionOptions(sourceProject, outputDir));
             InjectHeadlessHarness(outputDir);
 
-            var run = await RunDotnetAsync("run", outputDir);
+            var run = await DotnetRunner.RunAsync("run", outputDir);
 
             Assert.True(
                 run.ExitCode == 0 && run.StdOut.Contains(SuccessMarker, StringComparison.Ordinal),
@@ -130,33 +130,4 @@ public class GeneratedAppStartupTests
         return text[..index] + replacement + text[(index + search.Length)..];
     }
 
-    private static async Task<(int ExitCode, string StdOut, string StdErr)> RunDotnetAsync(string arguments, string workingDirectory)
-    {
-        var psi = new ProcessStartInfo("dotnet", arguments)
-        {
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-
-        using var process = Process.Start(psi)!;
-        var stdOutTask = process.StandardOutput.ReadToEndAsync();
-        var stdErrTask = process.StandardError.ReadToEndAsync();
-
-        // The harness returns without running a message loop, so it cannot hang on its own - but a
-        // converted app that blocks during startup would, and a hung test is worse than a failing one.
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(4));
-        try
-        {
-            await process.WaitForExitAsync(timeout.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            process.Kill(entireProcessTree: true);
-            return (-1, await stdOutTask, "Timed out waiting for the converted app to start.");
-        }
-
-        return (process.ExitCode, await stdOutTask, await stdErrTask);
-    }
 }

@@ -589,6 +589,24 @@ rule itself; what follows is what the rule does *not* cover yet.
   button: the designer never records which handler opened which dialog, since handler bodies
   are not part of `InitializeComponent()`.
 
+## Multiple projects
+
+`--source` takes a `.sln` or `.slnx` as well as a `.csproj`. Every WinForms project the solution
+lists is converted into its own folder under the output directory, and a generated `.slnx` ties
+them together - which is what `samples/convert.sh` had been doing by hand. A project the pipeline
+finds nothing convertible in (a class library, a test project) is reported and skipped rather than
+failing the run: a solution with non-WinForms projects in it is the normal case. Solution files are
+parsed as text rather than through MSBuild, so a project path built from an MSBuild property is not
+understood - and is reported rather than guessed at.
+
+What is **not** handled yet is the case that most often motivates a multi-project solution in the
+first place: a Form in one project hosting a **UserControl from another**. The control mappings are
+built per project, so that control has no mapping and is reported as unmapped, exactly as an
+unknown third-party control would be. Fixing it needs three things that do not exist yet -
+discovery across the whole solution, an `assembly=` qualified xmlns for the other project's
+namespace, and `ProjectReference`s between the generated projects - and a library project currently
+converts to an executable with a placeholder window, which would have to change with it.
+
 ## Re-converting over output you have already migrated
 
 Conversion is a starting point you then edit by hand, so a second run defaults to **never

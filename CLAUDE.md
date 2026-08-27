@@ -21,7 +21,8 @@ dotnet test tests/WinFormsToAvalonia.Integration.Tests --filter "FullyQualifiedN
 dotnet test --filter "DisplayName~ConvertedFixtureProject_BuildsSuccessfullyWithDotnetBuild"
 
 # run the tool
-dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj> --output ./Out [--force|--overwrite-all|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--log-file <p>]
+# --source takes a .csproj, or a .sln/.slnx to convert every WinForms project in it at once
+dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--log-file <p>]
 dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source <app.csproj>
 dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
 
@@ -32,11 +33,13 @@ dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
 
 Integration tests shell out to `dotnet build` - and, for the startup smoke tests, `dotnet run` -
 on generated output in a temp dir, so they are slow and need the SDK on `PATH`; `dotnet test` on
-the solution runs them. Their assembly caps xUnit at two parallel threads on purpose: those child
-processes share one NuGet cache and MSBuild node pool, and at full parallelism they fight
-(MSB3026/MSB4018) and fail at random. **Never diagnose this suite with `-v q`** - it hides the
-build output the assertions put in their failure message, which is the only evidence of what
-actually broke.
+the solution runs them. Every one of them goes through `TestSupport/DotnetRunner`, which passes
+`-nodeReuse:false` and imposes a timeout. **Both are load-bearing.** MSBuild's persistent worker
+nodes outlive the build that started them and inherit the redirected stdout/stderr handles, so a
+reader draining those pipes never reaches end-of-stream: the suite hung forever on a `dotnet build`
+of a *solution* that had already finished, and intermittently failed elsewhere with MSB3026/MSB4018
+as leftover nodes fought over files. **Never diagnose this suite with `-v q`** - it hides the build
+output the assertions put in their failure message, which is the only evidence of what broke.
 
 ## Architecture
 

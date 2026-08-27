@@ -7,7 +7,7 @@ namespace WinFormsToAvalonia.Cli.Commands;
 public sealed class ConvertCommandSettings : CommandSettings
 {
     [CommandOption("-s|--source <PATH>")]
-    [Description("Path to the WinForms project file (.csproj) to convert.")]
+    [Description("Path to the WinForms project (.csproj) or solution (.sln/.slnx) to convert.")]
     public required string Source { get; init; }
 
     [CommandOption("-o|--output <DIR>")]
@@ -44,7 +44,7 @@ public sealed class ConvertCommandSettings : CommandSettings
 
     public override ValidationResult Validate()
     {
-        var sourceValidation = SourceValidation.ValidateSourceCsproj(Source);
+        var sourceValidation = SourceValidation.ValidateSourceProjectOrSolution(Source);
         if (!sourceValidation.Successful)
         {
             return sourceValidation;

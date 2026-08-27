@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using WinFormsToAvalonia.Core.Pipeline;
+using WinFormsToAvalonia.Integration.Tests.TestSupport;
 using Xunit;
 
 namespace WinFormsToAvalonia.Integration.Tests;
@@ -44,7 +44,7 @@ public class ItemsAndCanExecuteConversionTests
             Assert.DoesNotContain("IsEnabled=\"{Binding", axaml);
             Assert.DoesNotContain("SubmitButtonIsEnabled", viewModel);
 
-            var buildResult = await RunDotnetAsync("build", outputDir);
+            var buildResult = await DotnetRunner.RunAsync("build", outputDir);
             Assert.True(
                 buildResult.ExitCode == 0,
                 $"dotnet build failed with exit code {buildResult.ExitCode}.\n--- stdout ---\n{buildResult.StdOut}\n--- stderr ---\n{buildResult.StdErr}");
@@ -59,21 +59,4 @@ public class ItemsAndCanExecuteConversionTests
         }
     }
 
-    private static async Task<(int ExitCode, string StdOut, string StdErr)> RunDotnetAsync(string arguments, string workingDirectory)
-    {
-        var psi = new ProcessStartInfo("dotnet", arguments)
-        {
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-
-        using var process = Process.Start(psi)!;
-        var stdOutTask = process.StandardOutput.ReadToEndAsync();
-        var stdErrTask = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-
-        return (process.ExitCode, await stdOutTask, await stdErrTask);
-    }
 }

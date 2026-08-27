@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using WinFormsToAvalonia.Core.Pipeline;
+using WinFormsToAvalonia.Integration.Tests.TestSupport;
 using Xunit;
 
 namespace WinFormsToAvalonia.Integration.Tests;
@@ -30,7 +30,7 @@ public class FallbackControlConversionTests
             Assert.Contains("<controls:GroupBoxFallback", axaml);
             Assert.Contains("Header=\"Options\"", axaml);
 
-            var buildResult = await RunDotnetAsync("build", outputDir);
+            var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 
             Assert.True(
                 buildResult.ExitCode == 0,
@@ -71,7 +71,7 @@ public class FallbackControlConversionTests
             vfs.TryGetText("Views/MainView.axaml.cs", out var viewCodeBehind);
             Assert.Contains("private void exitMenuItem_Click(object? sender, RoutedEventArgs e)", viewCodeBehind);
 
-            var buildResult = await RunDotnetAsync("build", outputDir);
+            var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 
             Assert.True(
                 buildResult.ExitCode == 0,
@@ -104,7 +104,7 @@ public class FallbackControlConversionTests
             Assert.Contains("<controls:DomainUpDownFallback", axaml);
             Assert.Contains("Wrap=\"True\"", axaml);
 
-            var buildResult = await RunDotnetAsync("build", outputDir);
+            var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 
             Assert.True(
                 buildResult.ExitCode == 0,
@@ -142,7 +142,7 @@ public class FallbackControlConversionTests
             vfs.TryGetText("Views/MainView.axaml", out var axaml);
             Assert.Contains("<controls:ToolStripContainerFallback", axaml);
 
-            var buildResult = await RunDotnetAsync("build", outputDir);
+            var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 
             Assert.True(
                 buildResult.ExitCode == 0,
@@ -157,21 +157,4 @@ public class FallbackControlConversionTests
         }
     }
 
-    private static async Task<(int ExitCode, string StdOut, string StdErr)> RunDotnetAsync(string arguments, string workingDirectory)
-    {
-        var psi = new ProcessStartInfo("dotnet", arguments)
-        {
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-
-        using var process = Process.Start(psi)!;
-        var stdOutTask = process.StandardOutput.ReadToEndAsync();
-        var stdErrTask = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-
-        return (process.ExitCode, await stdOutTask, await stdErrTask);
-    }
 }
