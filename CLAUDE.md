@@ -206,6 +206,12 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
   and asserts `dotnet build` on the generated output succeeds. Add a `SampleApps` folder + an
   `[InlineData]` row (in `RealFormConversionBuildTests` or the feature-specific test class) when
   adding a feature that changes generated code.
+- `GeneratedAppStartupTests` does three things per app, not one: constructs the View (so every
+  field initializer, event subscription and the AXAML itself really run), executes every generated
+  `[RelayCommand]` (safe by construction - a promoted body touches nothing but ObservableProperties),
+  and raises `Click` on every button so the code-behind handler bodies run too. The sample is the
+  one app whose buttons are *not* clicked: its handlers open a serial port and write to the OS
+  event log, dependencies the conversion neither introduced nor can remove.
 - `GeneratedAppStartupTests` boots **the all-in-one sample** as well as the fixtures, and that is
   the row that matters most: a handler Avalonia raised *during* XAML population crashed the sample
   at startup while every fixture passed, because none happened to have a TabControl with a handler

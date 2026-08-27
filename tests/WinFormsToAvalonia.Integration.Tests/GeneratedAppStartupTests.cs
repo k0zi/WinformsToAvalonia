@@ -50,7 +50,8 @@ public class GeneratedAppStartupTests
     public Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName) =>
         AssertStarts(
             Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj"),
-            sampleAppName);
+            sampleAppName,
+            clickButtons: true);
 
     /// <summary>
     /// The all-in-one sample, which is not a fixture at all - it is the app this repo ships to be
@@ -62,14 +63,28 @@ public class GeneratedAppStartupTests
     /// of them happened to have a TabControl with a handler on it. Fixture coverage is only ever
     /// what someone thought to write down; this one is the whole thing.
     /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// Startup only - this is the one app whose buttons are not clicked, and that is a real gap
+    /// rather than an oversight. Its handlers open a serial port and write to the OS event log:
+    /// dependencies the conversion neither introduced nor can remove, whose absence on a test
+    /// machine says nothing about whether the conversion was right. Clicking here would trade a
+    /// sharp assertion for a growing list of exceptions to forgive.
+    /// </para>
+    /// <para>
+    /// The fixtures are where a handler body is exercised, and they are hand-written to reach
+    /// nothing but themselves.
+    /// </para>
+    /// </remarks>
     [Fact]
     public Task ConvertedAllInOneSample_StartsOnTheHeadlessPlatform() =>
         AssertStarts(
             Path.Combine(
                 RepositoryRoot(), "samples", "WinForms", "All-In-One-WinForms", "All-In-One-WinForms.csproj"),
-            "All-In-One-WinForms");
+            "All-In-One-WinForms",
+            clickButtons: false);
 
-    private static async Task AssertStarts(string sourceProject, string name)
+    private static async Task AssertStarts(string sourceProject, string name, bool clickButtons)
     {
         Assert.True(File.Exists(sourceProject), $"Source project not found: {sourceProject}");
 
@@ -77,7 +92,7 @@ public class GeneratedAppStartupTests
         try
         {
             new ConversionPipeline().Run(new ConversionOptions(sourceProject, outputDir));
-            InjectHeadlessHarness(outputDir);
+            InjectHeadlessHarness(outputDir, clickButtons);
 
             var run = await DotnetRunner.RunAsync("run", outputDir);
 
@@ -100,7 +115,7 @@ public class GeneratedAppStartupTests
     /// the package that provides it. Both are test-side edits: nothing here changes what the
     /// converter emits.
     /// </summary>
-    private static void InjectHeadlessHarness(string outputDir)
+    private static void InjectHeadlessHarness(string outputDir, bool clickButtons)
     {
         var programPath = Path.Combine(outputDir, "Program.cs");
         var rootNamespace = Regex.Match(File.ReadAllText(programPath), @"namespace\s+([\w.]+)\s*;").Groups[1].Value;
@@ -112,6 +127,8 @@ public class GeneratedAppStartupTests
             using Avalonia.Controls;
             using Avalonia.Controls.ApplicationLifetimes;
             using Avalonia.Headless;
+            using Avalonia.Interactivity;
+            using Avalonia.LogicalTree;
             using CommunityToolkit.Mvvm.Input;
 
             namespace {{rootNamespace}};
@@ -137,9 +154,75 @@ public class GeneratedAppStartupTests
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
                     ExecutePromotedCommands(lifetime.MainWindow?.DataContext);
+                    {{(clickButtons ? "ClickEveryButton(lifetime.MainWindow);" : "")}}
 
                     Console.WriteLine("{{SuccessMarker}}");
                     return 0;
+                }
+
+                /// <summary>
+                /// Raises Click on every button in the window, so the translated handler bodies
+                /// run rather than only the constructor.
+                /// </summary>
+                /// <remarks>
+                /// <para>
+                /// Through the tree rather than by calling the methods, so `sender` and the args
+                /// are the real ones a user would produce. An async handler returns at its first
+                /// await - it does not finish here, and is not meant to.
+                /// </para>
+                /// <para>
+                /// PlatformNotSupportedException is the one exception allowed through, and it is
+                /// not a hole in the assertion - it is the contract. A Windows-only component is
+                /// emitted as a lazily built field precisely so the app starts everywhere and
+                /// only *touching* it fails off Windows; a handler that writes to the EventLog is
+                /// supposed to throw here, on Linux, exactly as the WinForms original would have.
+                /// Everything else still fails the run.
+                /// </para>
+                /// </remarks>
+                private static void ClickEveryButton(Window? window)
+                {
+                    if (window is null)
+                    {
+                        return;
+                    }
+
+                    foreach (var button in Descendants(window).OfType<Button>().ToList())
+                    {
+                        try
+                        {
+                            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        }
+                        catch (Exception e) when (IsPlatformGate(e))
+                        {
+                            Console.WriteLine($"platform-gated: {button.Name}");
+                        }
+                    }
+                }
+
+                private static bool IsPlatformGate(Exception? e)
+                {
+                    for (; e is not null; e = e.InnerException)
+                    {
+                        if (e is PlatformNotSupportedException)
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                private static IEnumerable<Control> Descendants(Control root)
+                {
+                    foreach (var child in root.GetLogicalChildren().OfType<Control>())
+                    {
+                        yield return child;
+
+                        foreach (var nested in Descendants(child))
+                        {
+                            yield return nested;
+                        }
+                    }
                 }
 
                 /// <summary>
