@@ -7,6 +7,29 @@ namespace WinFormsToAvalonia.Core.Mapping;
 /// [RelayCommand]: a body that only reads and writes these can be expressed against ViewModel
 /// properties, anything else needs the control object itself and therefore stays in code-behind.
 /// </summary>
+/// <summary>
+/// How a value has to be rewritten to cross from WinForms to Avalonia, when the two frameworks
+/// mean the same thing by different values.
+/// </summary>
+/// <remarks>
+/// A rename is the ordinary case and needs nothing here. This is for the entries where the shapes
+/// differ - and it is deliberately an enum rather than a pair of format strings: each member is a
+/// specific, argued equivalence, and a new one should have to be written down and defended rather
+/// than expressed in passing.
+/// </remarks>
+public enum BindableValueShape
+{
+    /// <summary>The value crosses unchanged.</summary>
+    Same,
+
+    /// <summary>
+    /// WinForms' <c>WordWrap</c> bool against Avalonia's <c>TextWrapping</c> enum. Two-valued on
+    /// both sides - <c>Wrap</c> and <c>NoWrap</c> are the only members a converted TextBox can
+    /// hold - so the round trip is exact.
+    /// </summary>
+    BoolAsTextWrapping,
+}
+
 public static class BindablePropertyCatalog
 {
     /// <param name="AvaloniaPropertyName">The Avalonia property to bind on the mapped element.</param>
@@ -28,7 +51,8 @@ public static class BindablePropertyCatalog
         string AvaloniaPropertyName,
         string ClrTypeName,
         string DefaultValueSuffix = "",
-        string? AvaloniaTypeName = null);
+        string? AvaloniaTypeName = null,
+        BindableValueShape ValueShape = BindableValueShape.Same);
 
     /// <summary>
     /// How a code-behind read of <paramref name="access"/> has to be written so it yields
@@ -42,7 +66,25 @@ public static class BindablePropertyCatalog
     /// is refused at the call site rather than coalesced, since WinForms reports Indeterminate as
     /// <c>true</c> and <c>?? false</c> would say the opposite.
     /// </remarks>
+    /// <summary>
+    /// How a code-behind <em>write</em> of <paramref name="value"/> has to be spelled. Only the
+    /// entries whose value shape differs need one; everything else assigns as it stands.
+    /// </summary>
+    public static string WriteExpression(string value, BindableProperty property) =>
+        property.ValueShape switch
+        {
+            BindableValueShape.BoolAsTextWrapping => $"({value}) ? TextWrapping.Wrap : TextWrapping.NoWrap",
+            _ => value,
+        };
+
     public static string ReadExpression(string access, BindableProperty property) =>
+        property.ValueShape switch
+        {
+            BindableValueShape.BoolAsTextWrapping => $"({access} == TextWrapping.Wrap)",
+            _ => ReadByType(access, property),
+        };
+
+    private static string ReadByType(string access, BindableProperty property) =>
         (property.AvaloniaTypeName, property.ClrTypeName) switch
         {
             ("object", "string") => $"({access} as string ?? string.Empty)",
@@ -58,11 +100,39 @@ public static class BindablePropertyCatalog
         ["Visible"] = new("IsVisible", "bool", " = true;"),
     };
 
+    /// <summary>
+    /// The text-entry family. Everything here is a plain rename that Avalonia's <c>TextBox</c>
+    /// really has - checked, entry by entry, in WinFormsToAvalonia.Mapping.Tests.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Declared before <c>ByControlType</c>: static initializers run in source order.
+    /// </para>
+    /// <para>
+    /// <c>WordWrap</c> is the odd one and the interesting one. WinForms holds a <c>bool</c> where
+    /// Avalonia holds a <c>TextWrapping</c> enum - the same idea in a different shape - so it is
+    /// the first entry that needs the value itself rewritten, not just the name. See
+    /// <see cref="BindableProperty.ValueShape"/>.
+    /// </para>
+    /// </remarks>
+    private static Dictionary<string, BindableProperty> TextBoxProperties { get; } =
+        new(StringComparer.Ordinal)
+        {
+            ["Text"] = new("Text", "string", " = string.Empty;"),
+            ["Multiline"] = new("AcceptsReturn", "bool"),
+            ["ReadOnly"] = new("IsReadOnly", "bool"),
+            ["MaxLength"] = new("MaxLength", "int"),
+            ["SelectionStart"] = new("SelectionStart", "int"),
+            ["WordWrap"] = new(
+                "TextWrapping", "bool", ValueShape: BindableValueShape.BoolAsTextWrapping,
+                AvaloniaTypeName: "TextWrapping"),
+        };
+
     private static readonly Dictionary<string, Dictionary<string, BindableProperty>> ByControlType = new(StringComparer.Ordinal)
     {
-        ["TextBox"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
-        ["MaskedTextBox"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
-        ["RichTextBox"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
+        ["TextBox"] = TextBoxProperties,
+        ["MaskedTextBox"] = TextBoxProperties,
+        ["RichTextBox"] = TextBoxProperties,
         ["Label"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
         // Content, not Text: a LinkLabel maps to a HyperlinkButton, which has no Text property.
         // Getting this wrong is an AVLN2000 in the *generated* project - see the consistency test

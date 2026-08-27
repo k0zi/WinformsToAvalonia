@@ -187,10 +187,7 @@ public partial class MainView : Window
 
     private void wordWrapMenuItem_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'wordWrapMenuItem_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.notesRichTextBox.WordWrap = this.wordWrapMenuItem.Checked;
-        */
-        MigrationTodo.NotMigrated(nameof(wordWrapMenuItem_Click), "wordWrapMenuItem_Click");
+        notesRichTextBox.TextWrapping = (wordWrapMenuItem.IsChecked) ? TextWrapping.Wrap : TextWrapping.NoWrap;
     }
 
     private async void aboutMenuItem_Click(object? sender, RoutedEventArgs e)

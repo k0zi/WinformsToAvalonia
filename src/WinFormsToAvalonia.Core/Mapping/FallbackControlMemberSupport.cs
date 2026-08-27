@@ -31,6 +31,9 @@ public static class FallbackControlMemberSupport
             // Inherited from TemplatedControl by way of TextBox, so a font really can be written
             // to one of these - which is what lets a FontDialog result reach a RichTextBox.
             "FontFamily", "FontSize", "FontWeight", "FontStyle",
+
+            // TextBox's own, which is what a WinForms WordWrap becomes.
+            "TextWrapping", "AcceptsReturn", "IsReadOnly", "MaxLength", "SelectionStart",
         };
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> MembersByTemplateKey =

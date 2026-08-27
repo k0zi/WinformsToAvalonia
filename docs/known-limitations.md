@@ -253,6 +253,15 @@ rule itself; what follows is what the rule does *not* cover yet.
     map to the same element; mixed types stay refused, since telling them apart is the whole
     reason such a handler reads `sender`. Either way the cast has to name the control's own
     WinForms type - a base-type cast (`(Control)sender`) is refused rather than widened;
+  - the text-entry family's own properties, which are plain renames: `Multiline` →
+    `AcceptsReturn`, `ReadOnly` → `IsReadOnly`, plus `MaxLength` and `SelectionStart` unchanged.
+    One of them is not a rename at all: `WordWrap` is a `bool` in WinForms and a `TextWrapping`
+    enum in Avalonia, so the **value** is rewritten too (`... ? TextWrapping.Wrap :
+    TextWrapping.NoWrap` writing, `== TextWrapping.Wrap` reading). A property in that shape is
+    deliberately **not** two-way bindable - a `{Binding}` has no converter in between, so it
+    cannot carry a promoted `[RelayCommand]` and stays in code-behind, where the conversion is
+    written out. A compound assignment to one is refused, since that reads it as well as writing
+    it and a read cannot be spliced into a left-hand side;
   - the Form's own properties that a `Window` spells differently or not at all
     (`Mapping/WindowPropertyCatalog`): `Text` → `Title`, `TopMost` → `Topmost`, `WindowState`
     (with `FormWindowState.Maximized` → `WindowState.Maximized`), `ShowInTaskbar`, `Opacity` -

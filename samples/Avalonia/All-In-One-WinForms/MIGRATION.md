@@ -2,13 +2,13 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**75 of 106 handler statements (71%)** came across as real Avalonia code.
+**76 of 106 handler statements (72%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
 runs while you work through this list.
 
-## Methods to migrate (14)
+## Methods to migrate (13)
 
 ### `Views/MainView.axaml.cs`
 
@@ -25,7 +25,6 @@ runs while you work through this list.
 - [ ] `refreshButton_Click` — `this.itemsTreeView.Nodes.Clear();`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 - [ ] `tabControl1_SelectedIndexChanged` — `this.statusInfoLabel.Text = this.tabControl1.SelectedTab?.Text ?? string.Empty;`
-- [ ] `wordWrapMenuItem_Click` — `this.notesRichTextBox.WordWrap = this.wordWrapMenuItem.Checked;`
 
 ## Conversion notes (71)
 

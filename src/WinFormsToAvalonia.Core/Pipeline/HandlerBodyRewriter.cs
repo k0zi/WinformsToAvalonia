@@ -1316,6 +1316,24 @@ public sealed class HandlerBodyRewriter
             return false;
         }
 
+        // A property whose value has to be rewritten to cross - WinForms' WordWrap bool against
+        // Avalonia's TextWrapping enum - is written through the catalog rather than assigned as
+        // it stands. Only with `=`: a compound operator would read it too, and reading is the
+        // other half of the same conversion, which cannot be spliced into a left-hand side.
+        if (target.TryResolveWrittenProperty(assignment.Left, out var writtenProperty)
+            && writtenProperty.ValueShape != BindableValueShape.Same)
+        {
+            if (!assignment.OperatorToken.IsKind(SyntaxKind.EqualsToken))
+            {
+                return false;
+            }
+
+            rewritten = new RewrittenStatement(
+                $"{left} = {BindablePropertyCatalog.WriteExpression(right, writtenProperty)};",
+                RequiredUsings: ["Avalonia.Media"]);
+            return true;
+        }
+
         rewritten = new RewrittenStatement($"{left} = {right};");
         return true;
     }
@@ -2787,6 +2805,13 @@ public sealed class HandlerBodyRewriter
         bool TryResolveProperty(string fieldName, string winFormsPropertyName, bool forWrite, out string text);
 
         /// <summary>
+        /// The catalog entry behind a control-property assignment target, when there is one - what
+        /// says whether the *value* needs rewriting as well as the name.
+        /// </summary>
+        bool TryResolveWrittenProperty(
+            ExpressionSyntax left, out BindablePropertyCatalog.BindableProperty property);
+
+        /// <summary>
         /// A property another converted View exposes for real - the whole vocabulary a body may
         /// use on a View that is not this one. Named after the *WinForms* type, since that is what
         /// the original body says.
@@ -3002,6 +3027,21 @@ public sealed class HandlerBodyRewriter
             // is often nullable, or wider, where WinForms' was neither. The catalog says how.
             text = forWrite ? access : BindablePropertyCatalog.ReadExpression(access, bindable);
             return true;
+        }
+
+        /// <remarks>
+        /// Resolved from the assignment target rather than passed in, so the write path asks the
+        /// same question the read path does and the two cannot answer differently.
+        /// </remarks>
+        public bool TryResolveWrittenProperty(
+            ExpressionSyntax left, out BindablePropertyCatalog.BindableProperty property)
+        {
+            property = default;
+
+            return left is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var propertyName } access
+                && TryResolveControlField(access.Expression, out var fieldName)
+                && TryGetControl(fieldName, out var control)
+                && BindablePropertyCatalog.TryGet(control.ClrTypeName, propertyName, out property);
         }
 
         public bool TryResolveFileDialog(string fieldName, out FileDialogKind kind)
@@ -3357,6 +3397,17 @@ public sealed class HandlerBodyRewriter
         /// No null-guard needed on reads, unlike the View: the generated [ObservableProperty] for
         /// a string is non-nullable and initialized to string.Empty.
         /// </remarks>
+        /// <summary>
+        /// Never: a property whose value shape differs is not two-way bindable, so no promoted
+        /// command can have been planned against one.
+        /// </summary>
+        public bool TryResolveWrittenProperty(
+            ExpressionSyntax left, out BindablePropertyCatalog.BindableProperty property)
+        {
+            property = default;
+            return false;
+        }
+
         public bool TryResolveProperty(string fieldName, string winFormsPropertyName, bool forWrite, out string text)
         {
             text = "";

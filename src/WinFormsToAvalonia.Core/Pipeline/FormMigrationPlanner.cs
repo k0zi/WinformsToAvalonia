@@ -928,7 +928,12 @@ public sealed class FormMigrationPlanner
         out BindablePropertyCatalog.BindableProperty bindable,
         out string winFormsPropertyName)
     {
-        if (BindablePropertyCatalog.TryGet(controlTypeName, memberName, out bindable))
+        // A property whose value has to be *rewritten* to cross (WordWrap's bool against
+        // TextWrapping) cannot be two-way bound: a {Binding} has no converter in between, so the
+        // ViewModel would push a bool at an enum. It stays translatable in code-behind, where the
+        // conversion is written out - it just cannot carry a promoted command.
+        if (BindablePropertyCatalog.TryGet(controlTypeName, memberName, out bindable)
+            && bindable.ValueShape == BindableValueShape.Same)
         {
             winFormsPropertyName = memberName;
             return true;

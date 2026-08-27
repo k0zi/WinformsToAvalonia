@@ -72,6 +72,10 @@ public class CodeBehindMigrationTests
             // these compiled to a CS0266 in the generated project until the catalog said what the
             // Avalonia side really is: `IsChecked` is a bool?, `Content` an object?.
             Assert.Contains("if ((agreeCheckBox.IsChecked ?? false))", codeBehind);
+            // A value that changes shape on the way across: a WinForms bool, an Avalonia enum.
+            Assert.Contains(
+                "nameTextBox.TextWrapping = ((agreeCheckBox.IsChecked ?? false)) ? TextWrapping.Wrap : TextWrapping.NoWrap;",
+                codeBehind);
             Assert.Contains("greetingLabel.Text = (readBackButton.Content as string ?? string.Empty);", codeBehind);
 
             // A body that needs 'sender'/EventArgs still cannot be translated, and survives

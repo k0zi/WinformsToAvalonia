@@ -2631,6 +2631,62 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    /// <summary>
+    /// The plain renames the catalog was missing. Each one is a WinForms property whose Avalonia
+    /// counterpart is the same thing under another name - and every one is checked against the
+    /// real TextBox in WinFormsToAvalonia.Mapping.Tests, which is what makes adding them safe.
+    /// </summary>
+    [Theory]
+    [InlineData("this.nameTextBox.Multiline = true;", "nameTextBox.AcceptsReturn = true;")]
+    [InlineData("this.nameTextBox.ReadOnly = true;", "nameTextBox.IsReadOnly = true;")]
+    [InlineData("this.nameTextBox.MaxLength = 40;", "nameTextBox.MaxLength = 40;")]
+    [InlineData("this.nameTextBox.SelectionStart = 0;", "nameTextBox.SelectionStart = 0;")]
+    public void RewriteForView_TextBoxProperty_IsRenamed(string body, string expected)
+    {
+        var result = Rewriter.RewriteForView(body, FormWith(("nameTextBox", "TextBox")));
+
+        Assert.Equal([expected], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The first entry whose *value* has to be rewritten rather than just its name: WinForms holds
+    /// a bool where Avalonia holds a two-valued enum. Both directions, because a half-translated
+    /// pair would read back something the write never meant.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_WordWrap_BecomesTextWrapping()
+    {
+        var form = FormWith(("notesTextBox", "TextBox"), ("wrapCheckBox", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.notesTextBox.WordWrap = this.wrapCheckBox.Checked;
+            this.wrapCheckBox.Checked = this.notesTextBox.WordWrap;
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                "notesTextBox.TextWrapping = ((wrapCheckBox.IsChecked ?? false)) ? TextWrapping.Wrap : TextWrapping.NoWrap;",
+                "wrapCheckBox.IsChecked = (notesTextBox.TextWrapping == TextWrapping.Wrap);",
+            ],
+            result.MigratedStatements);
+        Assert.Contains("Avalonia.Media", result.RequiredUsings);
+    }
+
+    /// <summary>
+    /// A compound operator reads the property as well as writing it, and reading is the other half
+    /// of the same conversion - which cannot be spliced into a left-hand side. So it refuses.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_CompoundAssignmentToAConvertedValue_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "this.notesTextBox.WordWrap |= true;", FormWith(("notesTextBox", "TextBox")));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     // ---- Null-conditional and null-coalescing -------------------------------------------------
 
     /// <summary>

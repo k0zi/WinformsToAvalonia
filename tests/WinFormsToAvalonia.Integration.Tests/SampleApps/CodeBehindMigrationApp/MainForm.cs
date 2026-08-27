@@ -49,6 +49,10 @@ namespace CodeBehindMigrationApp
                 greetingLabel.Text = readBackButton.Text;
             }
 
+            // A bool on this side, a two-valued enum on the other - the value is rewritten, not
+            // just the property name.
+            nameTextBox.WordWrap = agreeCheckBox.Checked;
+
             Close();
         }
 
