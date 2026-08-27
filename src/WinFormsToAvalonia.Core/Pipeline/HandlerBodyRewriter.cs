@@ -1692,6 +1692,9 @@ public sealed class HandlerBodyRewriter
             case IdentifierNameSyntax when TryRewriteWindowPropertyRead(expression, target, out text):
                 return true;
 
+            case ConditionalAccessExpressionSyntax conditional:
+                return TryRewriteConditionalAccess(conditional, target, out text);
+
             case InterpolatedStringExpressionSyntax interpolated:
                 return TryRewriteInterpolatedString(interpolated, target, out text);
 
@@ -1705,6 +1708,54 @@ public sealed class HandlerBodyRewriter
                 return false;
         }
     }
+
+    /// <summary>
+    /// <c>x?.Trim()</c> / <c>x?.Text.Length</c> - a null-conditional access on something that
+    /// already translates to a value.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The receiver has to translate as an <em>expression</em>, which is exactly the condition
+    /// that makes the rest safe: everything this rewriter can produce as a value is a plain BCL
+    /// value, so the members hanging off it are ordinary .NET and survive verbatim. A control
+    /// field does not translate as an expression, so <c>textBox1?.Text</c> falls through to the
+    /// ordinary refusal rather than being quietly reinterpreted.
+    /// </para>
+    /// <para>
+    /// Only member accesses and zero-argument calls in the chain. An argument could name a
+    /// control (<c>s?.StartsWith(this.prefixBox.Text)</c>), and emitting the chain verbatim would
+    /// leave it untranslated - so the whole thing is refused rather than half-rewritten. Lifting
+    /// that means rebuilding the chain rather than copying it, which is more machinery than the
+    /// shape has earned.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteConditionalAccess(
+        ConditionalAccessExpressionSyntax conditional, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (!TryRewriteExpression(conditional.Expression, target, out var receiver)
+            || !IsVerbatimBindingChain(conditional.WhenNotNull))
+        {
+            return false;
+        }
+
+        // The `?` lives on the operator token, not on WhenNotNull, so it has to be put back
+        // explicitly. Keeping it matters: the receiver is often provably non-null here (a
+        // null-guarded string read), but a plain local is not, and dropping the operator there
+        // would turn a safe call into a NullReferenceException.
+        text = $"{receiver}{conditional.OperatorToken}{conditional.WhenNotNull}";
+        return true;
+    }
+
+    /// <summary>The part after `?.`, when it can be copied across unchanged.</summary>
+    private static bool IsVerbatimBindingChain(ExpressionSyntax chain) => chain switch
+    {
+        MemberBindingExpressionSyntax => true,
+        MemberAccessExpressionSyntax access => IsVerbatimBindingChain(access.Expression),
+        InvocationExpressionSyntax { ArgumentList.Arguments.Count: 0 } call => IsVerbatimBindingChain(call.Expression),
+        _ => false,
+    };
 
     /// <summary>
     /// `$"TrackBar value: {this.trackBar1.Value}"` - the literal parts pass through untouched and

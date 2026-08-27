@@ -39,6 +39,13 @@ namespace HandlerMigrationApp
             this.statusLabel.Text = "Saved";
         }
 
+        // Null-conditional on something that already translates to a value.
+        private void trimButton_Click(object sender, EventArgs e)
+        {
+            var trimmed = this.nameTextBox.Text?.Trim();
+            this.statusLabel.Text = trimmed ?? "empty";
+        }
+
         // The two-button question, whose answer the caller branches on: one awaited call returning
         // a bool, because the dialog on the other end is one the converter ships.
         private void confirmButton_Click(object sender, EventArgs e)

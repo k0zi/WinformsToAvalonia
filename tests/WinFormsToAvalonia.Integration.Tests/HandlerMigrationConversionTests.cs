@@ -109,8 +109,13 @@ public class HandlerMigrationConversionTests
             // The two-button question collapses into one awaited call returning a bool.
             Assert.Contains("if (await MessageBoxFallback.ShowYesNoAsync(this, \"Discard changes?\", \"Demo\"))", codeBehind);
 
-            Assert.Equal(17, result.Report.MigratedStatementCount);
-            Assert.Equal(20, result.Report.HandlerStatementCount);
+            // Null-conditional on a value, translated against whichever target the handler landed
+            // on - this one promoted, so its receiver is the generated property.
+            Assert.Contains("var trimmed = NameTextBoxText?.Trim();", viewModel);
+            Assert.Contains("StatusLabelText = trimmed ?? \"empty\";", viewModel);
+
+            Assert.Equal(19, result.Report.MigratedStatementCount);
+            Assert.Equal(22, result.Report.HandlerStatementCount);
 
             var buildResult = await RunDotnetAsync("build", outputDir);
             Assert.True(

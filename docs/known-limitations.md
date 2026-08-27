@@ -324,6 +324,14 @@ rule itself; what follows is what the rule does *not* cover yet.
     loop variable is scoped to the loop, and `i++`/`i += n` on a local are translated (a local
     holds a plain .NET value, so any operator on it is ordinary .NET). A `for` with a
     comma-separated initializer list is refused;
+  - **`?.` and `??`** on something that already translates to a value. The receiver translating as
+    an *expression* is exactly what makes the rest safe: everything this rewriter can produce as a
+    value is a plain BCL value, so the members hanging off it are ordinary .NET. A control field
+    is not a value, so `textBox1?.Text` is refused rather than quietly reinterpreted as the
+    property path with the null-check dropped - and the `?.` itself is always preserved, since the
+    receiver is only *sometimes* provably non-null. Only member accesses and zero-argument calls
+    in the chain: an argument could name a control, and the chain is copied verbatim, so
+    `s?.StartsWith(this.prefixBox.Text)` is refused rather than half-rewritten;
   - **local variables**, declared `var` or with a keyword type, when the initializer translates.
     Members of a local are then allowed for the same reason members of a control property are: a
     translatable initializer can only produce a plain .NET value. Locals are block-scoped, so one

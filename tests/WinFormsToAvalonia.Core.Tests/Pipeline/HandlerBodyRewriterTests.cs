@@ -2437,6 +2437,62 @@ public class HandlerBodyRewriterTests
         Assert.False(result.RequiresAsync);
     }
 
+    // ---- Null-conditional and null-coalescing -------------------------------------------------
+
+    /// <summary>
+    /// `??` already went through the generic binary path; `?.` had no case at all. The receiver
+    /// translating as an expression is what makes the rest safe - everything this rewriter can
+    /// produce as a value is a plain BCL value.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_NullConditionalOnATranslatedValue_IsTranslated()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var trimmed = this.nameTextBox.Text?.Trim();
+            this.statusLabel.Text = trimmed ?? "empty";
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                "var trimmed = (nameTextBox.Text ?? string.Empty)?.Trim();",
+                "statusLabel.Text = trimmed ?? \"empty\";",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A control field is not a value, so `textBox1?.Text` is refused rather than quietly
+    /// reinterpreted as the property path with the null-check dropped.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_NullConditionalOnAControlField_IsNotMigrated()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView("this.statusLabel.Text = this.nameTextBox?.Text;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// An argument in the chain could name a control, and the chain is copied verbatim - so the
+    /// whole thing is refused rather than half-rewritten.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_NullConditionalCallWithArguments_IsNotMigrated()
+    {
+        var form = FormWith(("nameTextBox", "TextBox"), ("prefixBox", "TextBox"), ("agreeCheckBox", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            "this.agreeCheckBox.Checked = this.nameTextBox.Text?.StartsWith(this.prefixBox.Text) == true;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };
