@@ -198,10 +198,7 @@ public partial class MainView : Window
 
     private void tabControl1_SelectedIndexChanged(object? sender, SelectionChangedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'tabControl1_SelectedIndexChanged' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.statusInfoLabel.Text = this.tabControl1.SelectedTab?.Text ?? string.Empty;
-        */
-        MigrationTodo.NotMigrated(nameof(tabControl1_SelectedIndexChanged), "tabControl1_SelectedIndexChanged");
+        statusInfoLabel.Text = ((tabControl1.SelectedItem as TabItem)?.Header as string) ?? string.Empty;
     }
 
     private void linkLabel1_LinkClicked(object? sender, RoutedEventArgs e)

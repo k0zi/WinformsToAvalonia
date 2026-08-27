@@ -2687,6 +2687,52 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    /// <summary>
+    /// The one thing WinForms code usually asks a TabControl. Provable because the
+    /// TabPage → TabItem mapping is this converter's own: a non-null SelectedItem *is* a TabItem,
+    /// because the conversion made every page one.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SelectedTabText_ReadsTheSelectedItemsHeader()
+    {
+        var form = FormWith(("tabControl1", "TabControl"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = this.tabControl1.SelectedTab?.Text ?? string.Empty;", form);
+
+        Assert.Equal(
+            ["statusLabel.Text = ((tabControl1.SelectedItem as TabItem)?.Header as string) ?? string.Empty;"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Only the `?.` form. WinForms' SelectedTab is non-null whenever the control has pages, so
+    /// `SelectedTab.Text` throws on an empty TabControl - and any translation of it would quietly
+    /// return an empty string instead, which is a different program.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SelectedTabTextWithoutTheConditional_IsNotMigrated()
+    {
+        var form = FormWith(("tabControl1", "TabControl"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = this.tabControl1.SelectedTab.Text;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A `SelectedTab` on something that is not a TabControl is not this shape.</summary>
+    [Fact]
+    public void RewriteForView_SelectedTabOnAnotherControlType_IsNotMigrated()
+    {
+        var form = FormWith(("listBox1", "ListBox"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = this.listBox1.SelectedTab?.Text ?? string.Empty;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     // ---- Null-conditional and null-coalescing -------------------------------------------------
 
     /// <summary>

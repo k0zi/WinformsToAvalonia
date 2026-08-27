@@ -2003,6 +2003,13 @@ public sealed class HandlerBodyRewriter
     {
         text = "";
 
+        // `tabControl1.SelectedTab?.Text` - the selected tab is a whole shape rather than a
+        // property, so it is matched before the general chain rule.
+        if (TryRewriteSelectedTabHeader(conditional, target, out text))
+        {
+            return true;
+        }
+
         if (!TryRewriteExpression(conditional.Expression, target, out var receiver)
             || !IsVerbatimBindingChain(conditional.WhenNotNull))
         {
@@ -2014,6 +2021,42 @@ public sealed class HandlerBodyRewriter
         // null-guarded string read), but a plain local is not, and dropping the operator there
         // would turn a safe call into a NullReferenceException.
         text = $"{receiver}{conditional.OperatorToken}{conditional.WhenNotNull}";
+        return true;
+    }
+
+    /// <summary>
+    /// <c>tabControl1.SelectedTab?.Text</c> - the one thing WinForms code usually asks a
+    /// TabControl.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Provable because the <c>TabPage</c> → <c>TabItem</c> mapping is this converter's own: if
+    /// the <c>SelectedItem</c> is not null it <em>is</em> a TabItem, because this conversion made
+    /// every page one. The header is an <c>object</c>, so it is read back as a string the same way
+    /// a Button's <c>Content</c> is.
+    /// </para>
+    /// <para>
+    /// Only the <c>?.</c> form. WinForms' <c>SelectedTab</c> is non-null whenever the control has
+    /// pages, so <c>SelectedTab.Text</c> throws on an empty TabControl - and any translation of it
+    /// would quietly return an empty string instead. The conditional form says what to do when
+    /// there is no selection, so it is the only one with an answer.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteSelectedTabHeader(
+        ConditionalAccessExpressionSyntax conditional, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (conditional.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "SelectedTab" } selected
+            || conditional.WhenNotNull is not MemberBindingExpressionSyntax { Name.Identifier.ValueText: "Text" }
+            || !target.TryResolveControlField(selected.Expression, out var fieldName)
+            || !target.TryResolveControlTypeName(fieldName, out var controlTypeName)
+            || controlTypeName != "TabControl")
+        {
+            return false;
+        }
+
+        text = $"(({fieldName}.SelectedItem as TabItem)?.Header as string)";
         return true;
     }
 
@@ -2804,6 +2847,9 @@ public sealed class HandlerBodyRewriter
         /// <param name="forWrite">True for an assignment target, where the expression must stay assignable.</param>
         bool TryResolveProperty(string fieldName, string winFormsPropertyName, bool forWrite, out string text);
 
+        /// <summary>The WinForms type of a control this body may name, when it names one.</summary>
+        bool TryResolveControlTypeName(string fieldName, out string winFormsTypeName);
+
         /// <summary>
         /// The catalog entry behind a control-property assignment target, when there is one - what
         /// says whether the *value* needs rewriting as well as the name.
@@ -3060,6 +3106,12 @@ public sealed class HandlerBodyRewriter
         public bool IsDispatcherTimerField(string fieldName) => dispatcherTimerFields.Contains(fieldName);
 
         public bool IsComponentField(string fieldName) => componentFields.Contains(fieldName);
+
+        public bool TryResolveControlTypeName(string fieldName, out string winFormsTypeName)
+        {
+            winFormsTypeName = TryGetControl(fieldName, out var control) ? control.ClrTypeName : "";
+            return winFormsTypeName.Length > 0;
+        }
 
         public bool TryResolveComponentTypeName(string fieldName, out string winFormsTypeName)
         {
@@ -3397,6 +3449,13 @@ public sealed class HandlerBodyRewriter
         /// No null-guard needed on reads, unlike the View: the generated [ObservableProperty] for
         /// a string is non-nullable and initialized to string.Empty.
         /// </remarks>
+        /// <summary>A promoted body names no controls, only ViewModel properties.</summary>
+        public bool TryResolveControlTypeName(string fieldName, out string winFormsTypeName)
+        {
+            winFormsTypeName = "";
+            return false;
+        }
+
         /// <summary>
         /// Never: a property whose value shape differs is not two-way bindable, so no promoted
         /// command can have been planned against one.

@@ -262,6 +262,12 @@ rule itself; what follows is what the rule does *not* cover yet.
     cannot carry a promoted `[RelayCommand]` and stays in code-behind, where the conversion is
     written out. A compound assignment to one is refused, since that reads it as well as writing
     it and a read cannot be spliced into a left-hand side;
+  - `tabControl1.SelectedTab?.Text`, as
+    `((tabControl1.SelectedItem as TabItem)?.Header as string)`. Provable because the
+    `TabPage` → `TabItem` mapping is this converter's own: a non-null `SelectedItem` *is* a
+    TabItem, because the conversion made every page one. Only the `?.` form - WinForms'
+    `SelectedTab` is non-null whenever the control has pages, so `SelectedTab.Text` throws on an
+    empty TabControl and any translation of it would quietly return an empty string instead;
   - the Form's own properties that a `Window` spells differently or not at all
     (`Mapping/WindowPropertyCatalog`): `Text` → `Title`, `TopMost` → `Topmost`, `WindowState`
     (with `FormWindowState.Maximized` → `WindowState.Maximized`), `ShowInTaskbar`, `Opacity` -
