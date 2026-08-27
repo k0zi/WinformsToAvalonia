@@ -519,16 +519,13 @@ public partial class MainView : Window
         statusLabel.Text = "Copied";
     }
 
-    private void openDialogFormButton_Click(object? sender, RoutedEventArgs e)
+    private async void openDialogFormButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'openDialogFormButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        using var dialog = new DialogForm();
-        if (dialog.ShowDialog(this) == DialogResult.OK)
+        var dialog = new DialogView();
+        if (await dialog.ShowDialog<bool>(this))
         {
-            this.titleTextBox.Text = dialog.EnteredText;
+            titleTextBox.Text = dialog.EnteredText;
         }
-        */
-        MigrationTodo.NotMigrated(nameof(openDialogFormButton_Click), "openDialogFormButton_Click");
     }
 
     private async void aboutButton_Click(object? sender, RoutedEventArgs e)

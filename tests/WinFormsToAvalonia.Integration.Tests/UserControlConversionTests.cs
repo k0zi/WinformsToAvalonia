@@ -38,10 +38,28 @@ public class UserControlConversionTests
             vfs.TryGetText("Views/Controls/CounterControlView.axaml.cs", out var userControlCodeBehind);
             Assert.Contains("public partial class CounterControlView : UserControl", userControlCodeBehind);
 
+            // The UserControl's public surface comes across as real code - that surface is what a
+            // WinForms UserControl is *for*, and until it did, every use of it stopped translating.
+            Assert.Contains("public string Caption", userControlCodeBehind);
+            Assert.Contains("return (counterLabel.Text ?? string.Empty);", userControlCodeBehind);
+            Assert.Contains("counterLabel.Text = value;", userControlCodeBehind);
+            Assert.Contains("public int Count", userControlCodeBehind);
+
+            // Whole-or-nothing: `Tooltip`'s getter would translate on its own, its setter never
+            // can - so neither is emitted, and the property stays in the preserved comment block.
+            // Half of it would read as migrated while assigning to it did nothing.
+            Assert.DoesNotContain("public string Tooltip", userControlCodeBehind.Split("/* ORIGINAL")[0]);
+            Assert.Contains("public string Tooltip", userControlCodeBehind);
+
             // The host Form references the generated View instead of reporting it unmapped.
             vfs.TryGetText("Views/MainView.axaml", out var mainAxaml);
             Assert.Contains(":CounterControlView x:Name=\"counterControl1\"", mainAxaml);
             Assert.DoesNotContain("TODO(Winforms2Avalonia)", mainAxaml);
+
+            // ...and the hosting Form's handler may name it, in both directions.
+            vfs.TryGetText("Views/MainView.axaml.cs", out var hostCodeBehind);
+            Assert.Contains("counterControl1.Caption = (titleLabel.Text ?? string.Empty);", hostCodeBehind);
+            Assert.Contains("titleLabel.Text = counterControl1.Caption;", hostCodeBehind);
 
             // Only the Form can be the startup Window - a UserControl is not one.
             vfs.TryGetText("App.axaml.cs", out var appCodeBehind);

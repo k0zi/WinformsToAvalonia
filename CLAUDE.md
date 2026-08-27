@@ -78,7 +78,11 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    overrides — `Click` is a real `Click` only on Button/menu-item-like types, a `PointerPressed`
    everywhere else) and `BindablePropertyCatalog` (the deliberately small set of two-way-bindable
    properties that is the *entire* vocabulary a handler body may use to qualify for
-   `[RelayCommand]`). The third feeds `AxamlEmitter`: `AvaloniaStylePropertySupport` says which
+   `[RelayCommand]`; each entry carries **two** types, and they answer different questions —
+   `ClrTypeName` is what the generated ViewModel property is declared as, with a `{Binding}`
+   converting on its way to the element, while `AvaloniaTypeName` is what the member really is,
+   which is what a code-behind read has to come out as: see `ReadExpression`). The third feeds
+   `AxamlEmitter`: `AvaloniaStylePropertySupport` says which
    of `Background`/`Foreground`/font/`Padding` each **target element name** can carry, and
    `AvaloniaItemsSupport` which targets accept literal item children — both keyed on the Avalonia
    element, not the WinForms type. **Adding a mapper with a new target element means adding it to
@@ -100,10 +104,17 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    `ClosesWithSuccess` for synthesizing a designer-declared button, a *partial* `TryGetBool` for
    a hand-written result that has to round-trip. `BindablePropertyCatalog` and the mappers name the same Avalonia property from two
    places — `BindablePropertyCatalogTests` asserts they agree, because a disagreement is a build
-   error in the **generated** project, which this repo's own build cannot catch.
+   error in the **generated** project, which this repo's own build cannot catch. The same blind
+   spot covers the *types*: nothing here can see Avalonia, so an entry claiming a non-nullable
+   type for a nullable member is only caught by an integration test that builds
+   (`CodeBehindMigrationTests`). Verify a new entry against the real reference assembly.
 3. **Planning** — `FormMigrationPlanner.Plan(formModel, codeBehind)` produces one
    `FormMigrationPlan` per Form, and all three emitters consume that same plan so they cannot
-   disagree about where a handler landed. This is where the strict "code-behind by default,
+   disagree about where a handler landed. It runs *after* a discovery pass over every artifact:
+   `ConversionPipeline` parses them all, asks `PlanProperties` what public surface each converted
+   View will carry, and hands the answer back in as a `ViewSurfaceContext` — because a handler
+   saying `dialog.EnteredText` names a member of a View that may not be planned yet. Same shape as
+   `BuildFormViews`, one level down. This is where the strict "code-behind by default,
    `[RelayCommand]` only when provable" rules from README live. It also plans the non-control
    pieces: `Timer` components → `DispatcherTimer`, and `OpenFileDialog`/`SaveFileDialog`/
    `FolderBrowserDialog` → the corresponding `StorageProvider` picker call.

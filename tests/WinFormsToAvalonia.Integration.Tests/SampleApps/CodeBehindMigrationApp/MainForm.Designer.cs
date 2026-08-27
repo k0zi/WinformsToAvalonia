@@ -20,6 +20,8 @@ namespace CodeBehindMigrationApp
             this.greetButton = new Button();
             this.clearButton = new Button();
             this.canvasPanel = new Panel();
+            this.agreeCheckBox = new CheckBox();
+            this.readBackButton = new Button();
             this.SuspendLayout();
             //
             // nameTextBox
@@ -60,14 +62,31 @@ namespace CodeBehindMigrationApp
             this.canvasPanel.MouseDown += new System.Windows.Forms.MouseEventHandler(this.canvasPanel_MouseDown);
             this.canvasPanel.Paint += new System.Windows.Forms.PaintEventHandler(this.canvasPanel_Paint);
             //
+            // agreeCheckBox
+            //
+            this.agreeCheckBox.Location = new System.Drawing.Point(12, 190);
+            this.agreeCheckBox.Name = "agreeCheckBox";
+            this.agreeCheckBox.Size = new System.Drawing.Size(120, 24);
+            this.agreeCheckBox.Text = "Agree";
+            //
+            // readBackButton
+            //
+            this.readBackButton.Location = new System.Drawing.Point(12, 220);
+            this.readBackButton.Name = "readBackButton";
+            this.readBackButton.Size = new System.Drawing.Size(120, 28);
+            this.readBackButton.Text = "Read back";
+            this.readBackButton.Click += new EventHandler(this.readBackButton_Click);
+            //
             // MainForm
             //
-            this.ClientSize = new System.Drawing.Size(240, 200);
+            this.ClientSize = new System.Drawing.Size(240, 260);
             this.Controls.Add(this.nameTextBox);
             this.Controls.Add(this.greetingLabel);
             this.Controls.Add(this.greetButton);
             this.Controls.Add(this.clearButton);
             this.Controls.Add(this.canvasPanel);
+            this.Controls.Add(this.agreeCheckBox);
+            this.Controls.Add(this.readBackButton);
             this.Name = "MainForm";
             this.Text = "Code-behind migration demo";
             this.Load += new EventHandler(this.MainForm_Load);
@@ -79,5 +98,7 @@ namespace CodeBehindMigrationApp
         private Button greetButton;
         private Button clearButton;
         private Panel canvasPanel;
+        private CheckBox agreeCheckBox;
+        private Button readBackButton;
     }
 }

@@ -15,6 +15,14 @@ public partial class DialogView : Window
         DataContext = new DialogViewModel();
     }
 
+    public string EnteredText
+    {
+        get
+        {
+            return (inputTextBox.Text ?? string.Empty);
+        }
+    }
+
     private void okButton_Click(object? sender, RoutedEventArgs e)
     {
         Close(true);
@@ -24,11 +32,6 @@ public partial class DialogView : Window
     {
         Close(false);
     }
-
-    /* ORIGINAL WINFORMS MEMBERS - NOT COMPILED, PRESERVED FOR MANUAL MIGRATION
-
-    public string EnteredText => this.inputTextBox.Text;
-    */
 
     /* ORIGINAL WINFORMS CODE-BEHIND - NOT COMPILED, PRESERVED FOR REFERENCE
        Original file: DialogForm.cs

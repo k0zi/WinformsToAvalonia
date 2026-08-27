@@ -108,15 +108,33 @@ public sealed class ConversionPipeline
         var allMigratedStatements = 0;
         var allHandlerStatements = 0;
 
-        foreach (var pairing in pairings)
+        // Every artifact parsed before any of them is planned. A handler that says
+        // `dialog.EnteredText` names a property of a View that may not be planned yet, so - like
+        // BuildFormViews for the Forms themselves - ordering alone cannot settle it.
+        var parsedArtifacts = pairings
+            .Select(p => ParseArtifact(project.ProjectDirectory, p))
+            .ToList();
+
+        var promotedPropertiesByArtifact = parsedArtifacts.ToDictionary(
+            a => a.Pairing.ClassName,
+            a => migrationPlanner.PlanProperties(a.FormModel, a.CodeBehind, a.Pairing.Kind),
+            StringComparer.Ordinal);
+
+        // Only the public ones cross an artifact boundary - a private property is nobody else's
+        // vocabulary, exactly as in C#.
+        var viewPropertiesByType = promotedPropertiesByArtifact.ToDictionary(
+            entry => entry.Key,
+            entry => (IReadOnlyList<ViewPropertyInfo>)
+            [
+                .. entry.Value
+                    .Where(p => p.ModifiersText.Split(' ').Contains("public"))
+                    .Select(p => new ViewPropertyInfo(p.Name, p.TypeText, p.Setter is not null)),
+            ],
+            StringComparer.Ordinal);
+
+        foreach (var (pairing, relativeFolder, formModel, codeBehindModel, resx, walkWarnings) in parsedArtifacts)
         {
-            var relativeFolder = GetRelativeFolder(project.ProjectDirectory, pairing.DesignerFilePath!);
-            var designerContent = File.ReadAllText(pairing.DesignerFilePath!);
-            var resx = _resxReader.Read(pairing.ResxFilePath);
-            var walkResult = _designerSyntaxWalker.Walk(
-                designerContent, pairing.DesignerFilePath!, pairing.ClassName, pairing.Namespace, resx);
-            var formModel = _controlGraphBuilder.Build(walkResult);
-            allWarnings.AddRange(walkResult.Warnings);
+            allWarnings.AddRange(walkWarnings);
             ResolveResourceAssets(formModel, resx, assetsToCopy, allWarnings);
 
             foreach (var component in formModel.Components)
@@ -145,9 +163,9 @@ public sealed class ConversionPipeline
 
             // One plan per Form, shared by all three emitters, so they can never disagree about
             // where a handler ended up or which properties are bound.
-            var codeBehindModel = _codeBehindAnalyzer.Analyze(pairing.PrimaryFilePath, formModel);
             var migrationPlan = migrationPlanner.Plan(
-                formModel, codeBehindModel, formViews, pairing.Kind, carriedComponentNamespaces);
+                formModel, codeBehindModel, formViews, pairing.Kind, carriedComponentNamespaces,
+                new ViewSurfaceContext(promotedPropertiesByArtifact[pairing.ClassName], viewPropertiesByType));
             allWarnings.AddRange(migrationPlan.Warnings);
 
             // Unlike every other fallback key, these come from a translated *handler body*
@@ -396,6 +414,39 @@ public sealed class ConversionPipeline
     /// Resolves every discovered Form to the View it will be emitted as, keyed by the original
     /// WinForms class name - which is what a handler body writes in <c>new SettingsForm()</c>.
     /// </summary>
+    /// <summary>
+    /// One artifact read off disk: its designer walked into a control graph, and its code-behind
+    /// analysed. Everything the conversion needs before it can decide anything.
+    /// </summary>
+    private sealed record ParsedArtifact(
+        DesignerFilePairing Pairing,
+        string RelativeFolder,
+        FormModel FormModel,
+        CodeBehindModel CodeBehind,
+        ResxDocument Resx,
+        IReadOnlyList<string> WalkWarnings);
+
+    /// <summary>
+    /// Parsing only - no warnings are reported and no assets resolved here, so that the main loop
+    /// below keeps saying everything in the order it always did.
+    /// </summary>
+    private ParsedArtifact ParseArtifact(string projectDirectory, DesignerFilePairing pairing)
+    {
+        var designerContent = File.ReadAllText(pairing.DesignerFilePath!);
+        var resx = _resxReader.Read(pairing.ResxFilePath);
+        var walkResult = _designerSyntaxWalker.Walk(
+            designerContent, pairing.DesignerFilePath!, pairing.ClassName, pairing.Namespace, resx);
+        var formModel = _controlGraphBuilder.Build(walkResult);
+
+        return new ParsedArtifact(
+            pairing,
+            GetRelativeFolder(projectDirectory, pairing.DesignerFilePath!),
+            formModel,
+            _codeBehindAnalyzer.Analyze(pairing.PrimaryFilePath, formModel),
+            resx,
+            walkResult.Warnings);
+    }
+
     private static IReadOnlyDictionary<string, FormViewInfo> BuildFormViews(
         string projectDirectory, string projectName, IReadOnlyList<DesignerFilePairing> pairings)
     {

@@ -169,6 +169,22 @@ public sealed record PromotedHelperPlan(
     bool IsAsync);
 
 /// <summary>
+/// A property of the original Form or UserControl whose accessor bodies translated <em>whole</em>,
+/// so the generated View can carry it as real, compiling code.
+/// </summary>
+/// <remarks>
+/// This is the converted View's public surface, and it is the reason a handler elsewhere can say
+/// <c>dialog.EnteredText</c> or <c>demoUserControl1.Caption = "..."</c> at all: without it the
+/// property survives only as a comment, and every use of it stops translating.
+/// </remarks>
+public sealed record PromotedPropertyPlan(
+    string Name,
+    string ModifiersText,
+    string TypeText,
+    RewrittenBody? Getter,
+    RewrittenBody? Setter);
+
+/// <summary>
 /// The single migration decision set for one Form, built once by FormMigrationPlanner and shared
 /// by all three emitters (AXAML, View code-behind, ViewModel) so they can never disagree about
 /// where a handler went or which properties are bound.
@@ -183,11 +199,12 @@ public sealed record FormMigrationPlan(
     IReadOnlyList<PromotedFieldPlan> PromotedFields,
     IReadOnlyList<PromotedHelperPlan> PromotedHelpers,
     IReadOnlyList<PromotedHelperPlan> ViewModelHelpers,
+    IReadOnlyList<PromotedPropertyPlan> PromotedProperties,
     IReadOnlyList<HelperMemberModel> PreservedMembers,
     IReadOnlyList<string> ConstructorExtraStatements,
     IReadOnlyList<string> Warnings)
 {
-    public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], [], [], [], []);
+    public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], [], [], [], [], []);
 
     /// <summary>Every body rewrite in this plan - both the code-behind and the ViewModel side.</summary>
     private IEnumerable<RewrittenBody> Rewrites =>
@@ -202,7 +219,10 @@ public sealed record FormMigrationPlan(
     /// counting them would quietly change what the migration rate means.
     /// </summary>
     private IEnumerable<RewrittenBody> AllEmittedRewrites =>
-        Rewrites.Concat(PromotedHelpers.Select(h => h.Rewrite)).Concat(ViewModelHelpers.Select(h => h.Rewrite));
+        Rewrites
+            .Concat(PromotedHelpers.Select(h => h.Rewrite))
+            .Concat(ViewModelHelpers.Select(h => h.Rewrite))
+            .Concat(PromotedProperties.SelectMany(p => new[] { p.Getter, p.Setter }).OfType<RewrittenBody>());
 
     /// <summary>Extra `using`s the translated statements need, beyond a generated View's usual set.</summary>
     public IReadOnlyList<string> RequiredUsings =>

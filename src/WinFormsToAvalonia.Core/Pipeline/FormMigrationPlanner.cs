@@ -51,13 +51,19 @@ public sealed class FormMigrationPlanner
     /// Decides whether the host View is a Window. Only a Window can own a modal dialog, so a
     /// converted UserControl's handlers cannot translate `ShowDialog`.
     /// </param>
+    /// <param name="viewSurface">
+    /// What the project's converted Views expose to each other, resolved before any body is
+    /// translated - including this artifact's own, which the pre-pass already planned.
+    /// </param>
     public FormMigrationPlan Plan(
         FormModel formModel,
         CodeBehindModel codeBehind,
         IReadOnlyDictionary<string, FormViewInfo>? formViews = null,
         WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form,
-        IReadOnlyDictionary<string, string>? projectComponentNamespaces = null)
+        IReadOnlyDictionary<string, string>? projectComponentNamespaces = null,
+        ViewSurfaceContext? viewSurface = null)
     {
+        viewSurface ??= ViewSurfaceContext.None;
         var warnings = new List<string>();
         var subscriptionsByHandler = CollectSubscriptions(formModel, codeBehind, warnings);
 
@@ -133,7 +139,8 @@ public sealed class FormMigrationPlanner
         var promotedFields = PlanHelperFields(codeBehind);
         var promotedFieldNames = promotedFields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         var promotedHelpers = PlanHelpers(
-            codeBehind, formModel, navigation, timerFields, componentFields, promotedFieldNames, rewriter);
+            codeBehind, formModel, navigation, timerFields, componentFields, promotedFieldNames, rewriter,
+            viewSurface.ByType);
         var helperCalls = promotedHelpers.ToDictionary(
             h => h.Name,
             h => new HelperCallInfo(CountParameters(h.ParameterListText), h.IsAsync),
@@ -157,7 +164,7 @@ public sealed class FormMigrationPlanner
                 {
                     Rewrite = rewriter.RewriteForView(
                         h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields, componentFields,
-                        helperCalls, promotedFieldNames),
+                        helperCalls, promotedFieldNames, viewSurface.ByType),
                 })
             .ToList();
 
@@ -181,11 +188,14 @@ public sealed class FormMigrationPlanner
             promotedFields,
             promotedHelpers,
             viewModelHelpers,
+            viewSurface.Own,
             // A member that became real code must not *also* appear in the preserved comment
             // block: it would read as un-migrated while a compiling copy sits above it.
             [.. codeBehind.HelperMembers.Where(m =>
                 !(m.Kind == HelperMemberKind.Method && helperCalls.ContainsKey(m.Name))
-                && !(m.Kind == HelperMemberKind.Field && promotedFieldNames.Contains(m.Name)))],
+                && !(m.Kind == HelperMemberKind.Field && promotedFieldNames.Contains(m.Name))
+                && !(m.Kind == HelperMemberKind.Property
+                    && viewSurface.Own.Any(p => string.Equals(p.Name, m.Name, StringComparison.Ordinal))))],
             codeBehind.ConstructorExtraStatements,
             warnings);
     }
@@ -360,6 +370,99 @@ public sealed class FormMigrationPlanner
         SyntaxFactory.ParseExpression(text) is LiteralExpressionSyntax or PrefixUnaryExpressionSyntax { Operand: LiteralExpressionSyntax };
 
     /// <summary>
+    /// The public surface a converted View really carries: the properties of the original Form or
+    /// UserControl whose accessor bodies translate <em>whole</em>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Whole-or-nothing for the same reason a helper is: at a use site - <c>dialog.EnteredText</c>
+    /// - there is nowhere to put a remainder, so a half-translated property would read as migrated
+    /// while quietly doing half its work. Both accessors have to make it, or neither does: a
+    /// property that could be read but not written would silently change what assigning to it
+    /// means.
+    /// </para>
+    /// <para>
+    /// The body may name <b>only this artifact's own controls</b> - no timers, components, helpers
+    /// or promoted fields. That is a real restriction and a deliberate one: it makes a property
+    /// depend on nothing that planning decides, which is what lets the whole project's properties
+    /// be resolved in one pass *before* any handler is translated. It also covers the shape that
+    /// actually occurs - a property over a control property is what a WinForms UserControl's
+    /// surface is made of.
+    /// </para>
+    /// <para>
+    /// This runs from <c>ConversionPipeline</c>'s discovery pass rather than from <see cref="Plan"/>,
+    /// and its result comes back in as <see cref="ViewSurfaceContext.Own"/>.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<PromotedPropertyPlan> PlanProperties(
+        FormModel formModel,
+        CodeBehindModel codeBehind,
+        WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form)
+    {
+        var rewriter = new HandlerBodyRewriter(_controlMappings);
+        var navigation = new ViewNavigationContext(
+            new Dictionary<string, FormViewInfo>(StringComparer.Ordinal),
+            HostIsWindow: artifactKind != WinFormsArtifactKind.UserControl);
+        var nothing = new HashSet<string>(StringComparer.Ordinal);
+        var noHelpers = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal);
+
+        var promoted = new List<PromotedPropertyPlan>();
+
+        foreach (var candidate in codeBehind.HelperMembers
+            .Where(m => m.Kind == HelperMemberKind.Property && m.Property is not null)
+            // A named type could be a WinForms type whose Avalonia counterpart is a different type
+            // entirely - the same bar a helper's return type has to clear, for the same reason.
+            .Where(m => IsKeywordTypeText(m.Property!.TypeText))
+            // A property called `Tag` or `Name` would hide the one the generated class already
+            // inherits - CS0108 in the generated project, which this build cannot see.
+            .Where(m => !ReservedMemberNames.IsReserved(m.Name)))
+        {
+            var property = candidate.Property!;
+
+            if (!TryTranslateAccessor(property.GetterBodyText, isSetter: false, out var getter)
+                || !TryTranslateAccessor(property.SetterBodyText, isSetter: true, out var setter))
+            {
+                continue;
+            }
+
+            promoted.Add(new PromotedPropertyPlan(
+                candidate.Name, property.ModifiersText, property.TypeText, getter, setter));
+        }
+
+        return promoted;
+
+        bool TryTranslateAccessor(string? body, bool isSetter, out RewrittenBody? rewritten)
+        {
+            rewritten = null;
+
+            if (body is null)
+            {
+                return true;
+            }
+
+            // `value` reaches the body as an ordinary parameter local, which is exactly what it is.
+            var signature = new HelperMethodSignature(
+                isSetter ? "void" : "string",
+                isSetter ? "(object value)" : "()",
+                isSetter ? ["value"] : [],
+                body,
+                IsAsync: false);
+
+            var result = rewriter.RewriteForHelper(
+                signature, formModel, navigation, nothing, nothing, noHelpers, nothing);
+
+            // A property cannot be async, and a remainder has nowhere to go.
+            if (result.RemainingBody.Length > 0 || result.RequiresAsync)
+            {
+                return false;
+            }
+
+            rewritten = result;
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Translates the code-behind helper methods, to a fixed point.
     /// </summary>
     /// <remarks>
@@ -387,7 +490,8 @@ public sealed class FormMigrationPlanner
         IReadOnlySet<string> timerFields,
         IReadOnlySet<string> componentFields,
         IReadOnlySet<string> promotedFields,
-        HandlerBodyRewriter rewriter)
+        HandlerBodyRewriter rewriter,
+        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties)
     {
         var candidates = codeBehind.HelperMembers
             .Where(m => m.Kind == HelperMemberKind.Method && m.Signature is not null)
@@ -409,7 +513,8 @@ public sealed class FormMigrationPlanner
             {
                 var signature = candidate.Signature!;
                 var rewrite = rewriter.RewriteForHelper(
-                    signature, formModel, navigation, timerFields, componentFields, byName, promotedFields);
+                    signature, formModel, navigation, timerFields, componentFields, byName, promotedFields,
+                    viewProperties);
 
                 // An empty body is complete in the sense that matters: there is nothing left over.
                 if (rewrite.RemainingBody.Length > 0)

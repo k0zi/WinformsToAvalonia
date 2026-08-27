@@ -67,6 +67,13 @@ public class CodeBehindMigrationTests
             Assert.Contains("nameTextBox.Text = string.Empty;", codeBehind);
             Assert.Contains("Close();", codeBehind);
 
+            // A code-behind read touches the Avalonia member directly, with no binding in between
+            // to convert - so it has to come out as the type the WinForms expression had. Both of
+            // these compiled to a CS0266 in the generated project until the catalog said what the
+            // Avalonia side really is: `IsChecked` is a bool?, `Content` an object?.
+            Assert.Contains("if ((agreeCheckBox.IsChecked ?? false))", codeBehind);
+            Assert.Contains("greetingLabel.Text = (readBackButton.Content as string ?? string.Empty);", codeBehind);
+
             // A body that needs 'sender'/EventArgs still cannot be translated, and survives
             // verbatim as the comment inside the method that replaced it.
             Assert.Contains("panel.Text = e.X + \",\" + e.Y;", codeBehind);

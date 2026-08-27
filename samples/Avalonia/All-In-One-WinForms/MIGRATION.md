@@ -2,13 +2,13 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**70 of 106 handler statements (66%)** came across as real Avalonia code.
+**72 of 106 handler statements (68%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
 runs while you work through this list.
 
-## Methods to migrate (17)
+## Methods to migrate (16)
 
 ### `Views/MainView.axaml.cs`
 
@@ -18,7 +18,6 @@ runs while you work through this list.
 - [ ] `dataGridView1_CellClick` — `this.gridInfoLabel.Text = $"Cell clicked: row {e.RowIndex}, column {e.ColumnIndex}";`
 - [ ] `fontButton_Click` — `if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)`
 - [ ] `linkLabel1_LinkClicked` — `this.linkLabel1.LinkVisited = true;`
-- [ ] `openDialogFormButton_Click` — `using var dialog = new DialogForm();`
 - [ ] `pageSetupButton_Click` — `this.pageSetupDialog1.ShowDialog(this);`
 - [ ] `pictureBox1_Paint` — `e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);`
 - [ ] `printButton_Click` — `if (this.printDialog1.ShowDialog(this) == DialogResult.OK)`
@@ -29,14 +28,6 @@ runs while you work through this list.
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 - [ ] `tabControl1_SelectedIndexChanged` — `this.statusInfoLabel.Text = this.tabControl1.SelectedTab?.Text ?? string.Empty;`
 - [ ] `wordWrapMenuItem_Click` — `this.notesRichTextBox.WordWrap = this.wordWrapMenuItem.Checked;`
-
-## Preserved members
-
-Not handlers, and not translatable as they stand, so they are kept as a comment block at
-the end of their View. Nothing in the generated code calls them yet.
-
-- **DemoUserControl**: `Caption`
-- **DialogForm**: `EnteredText`
 
 ## Conversion notes (71)
 

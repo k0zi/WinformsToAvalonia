@@ -116,7 +116,11 @@ public sealed class CodeBehindAnalyzer
                     break;
 
                 case PropertyDeclarationSyntax property:
-                    helpers.Add(new HelperMemberModel(property.Identifier.ValueText, HelperMemberKind.Property, GetSourceTextWithIndent(property)));
+                    helpers.Add(new HelperMemberModel(
+                        property.Identifier.ValueText,
+                        HelperMemberKind.Property,
+                        GetSourceTextWithIndent(property),
+                        Property: DescribeHelperProperty(property)));
                     break;
 
                 case FieldDeclarationSyntax field:
@@ -514,6 +518,74 @@ public sealed class CodeBehindAnalyzer
             [.. method.ParameterList.Parameters.Select(p => p.Identifier.ValueText)],
             ExtractBlockBodyText(body),
             method.Modifiers.Any(m => m.IsKind(SyntaxKind.AsyncKeyword)));
+    }
+
+    /// <summary>
+    /// A property reduced to the two things the planner needs: what it is declared as, and what
+    /// each accessor does, as statements.
+    /// </summary>
+    /// <remarks>
+    /// An expression-bodied property is a getter whose body is <c>return &lt;expr&gt;;</c>, and an
+    /// expression-bodied accessor the same one line down - normalising here is what lets the
+    /// planner ask one question ("does this body translate?") instead of three.
+    /// </remarks>
+    private static HelperPropertyInfo? DescribeHelperProperty(PropertyDeclarationSyntax property)
+    {
+        var modifiers = property.Modifiers.ToString();
+
+        if (property.ExpressionBody is { } expressionBody)
+        {
+            return new HelperPropertyInfo(
+                modifiers, property.Type.ToString(), $"return {expressionBody.Expression};", null);
+        }
+
+        if (property.AccessorList is not { } accessors)
+        {
+            return null;
+        }
+
+        string? getter = null;
+        string? setter = null;
+
+        foreach (var accessor in accessors.Accessors)
+        {
+            // An `init` accessor, or one with an attribute or accessibility of its own, is a
+            // shape this conversion has no opinion about - refuse the whole property rather than
+            // carry across half of it.
+            if (!accessor.Keyword.IsKind(SyntaxKind.GetKeyword) && !accessor.Keyword.IsKind(SyntaxKind.SetKeyword))
+            {
+                return null;
+            }
+
+            var body = accessor switch
+            {
+                { Body: { } block } => ExtractBlockBodyText(block),
+                { ExpressionBody: { } arrow } => accessor.Keyword.IsKind(SyntaxKind.GetKeyword)
+                    ? $"return {arrow.Expression};"
+                    : $"{arrow.Expression};",
+
+                // No body at all: an auto-property, which is a field wearing a property's clothes.
+                _ => null,
+            };
+
+            if (body is null)
+            {
+                return null;
+            }
+
+            if (accessor.Keyword.IsKind(SyntaxKind.GetKeyword))
+            {
+                getter = body;
+            }
+            else
+            {
+                setter = body;
+            }
+        }
+
+        return getter is null && setter is null
+            ? null
+            : new HelperPropertyInfo(modifiers, property.Type.ToString(), getter, setter);
     }
 
     private static string ExtractBlockBodyText(BlockSyntax block)

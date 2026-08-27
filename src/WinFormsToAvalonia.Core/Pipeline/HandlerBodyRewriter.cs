@@ -99,7 +99,8 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string>? dispatcherTimerFields = null,
         IReadOnlySet<string>? componentFields = null,
         IReadOnlyDictionary<string, HelperCallInfo>? promotedHelpers = null,
-        IReadOnlySet<string>? promotedFields = null) =>
+        IReadOnlySet<string>? promotedFields = null,
+        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null) =>
         Rewrite(
             body,
             new ViewTarget(
@@ -110,7 +111,8 @@ public sealed class HandlerBodyRewriter
                 dispatcherTimerFields ?? new HashSet<string>(StringComparer.Ordinal),
                 componentFields ?? new HashSet<string>(StringComparer.Ordinal),
                 promotedHelpers ?? new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal),
-                promotedFields ?? new HashSet<string>(StringComparer.Ordinal)));
+                promotedFields ?? new HashSet<string>(StringComparer.Ordinal),
+                viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal)));
 
     /// <summary>
     /// Rewrites the body of a code-behind <em>helper</em> method, against the same View the
@@ -130,11 +132,13 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string> dispatcherTimerFields,
         IReadOnlySet<string> componentFields,
         IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers,
-        IReadOnlySet<string> promotedFields)
+        IReadOnlySet<string> promotedFields,
+        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null)
     {
         var target = new ViewTarget(
             formModel, _controlMappings, navigation, HandlerSignature.None,
-            dispatcherTimerFields, componentFields, promotedHelpers, promotedFields);
+            dispatcherTimerFields, componentFields, promotedHelpers, promotedFields,
+            viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal));
 
         foreach (var parameterName in signature.ParameterNames)
         {
@@ -918,7 +922,8 @@ public sealed class HandlerBodyRewriter
         if (initializer is ObjectCreationExpressionSyntax { ArgumentList: null or { Arguments.Count: 0 } } creation
             && target.TryResolveFormView(RoslynTypeNameHelper.GetSimpleTypeName(creation.Type), out var view))
         {
-            target.Locals.Declare(name, LocalKind.FormView);
+            target.Locals.Declare(
+                name, LocalKind.FormView, winFormsTypeName: RoslynTypeNameHelper.GetSimpleTypeName(creation.Type));
             rewritten = new RewrittenStatement(
                 $"var {name} = new {view.ViewClassName}();",
                 RequiredUsings: [view.ViewNamespace]);
@@ -2291,13 +2296,28 @@ public sealed class HandlerBodyRewriter
     {
         text = "";
 
-        if (expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var propertyName } access
-            || !target.TryResolveControlField(access.Expression, out var fieldName))
+        if (expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var propertyName } access)
         {
             return false;
         }
 
-        return target.TryResolveProperty(fieldName, propertyName, forWrite, out text);
+        // `dialog.EnteredText` - a property of another converted View, on a local holding one.
+        // Before the control branch, because such a local is not a control field at all.
+        if (access.Expression is IdentifierNameSyntax { Identifier.ValueText: var localName }
+            && target.Locals.TryGetBinding(localName, out var binding)
+            && binding is { Kind: LocalKind.FormView, WinFormsTypeName: { } viewTypeName })
+        {
+            if (!target.TryResolveViewProperty(viewTypeName, propertyName, forWrite))
+            {
+                return false;
+            }
+
+            text = $"{localName}.{propertyName}";
+            return true;
+        }
+
+        return target.TryResolveControlField(access.Expression, out var fieldName)
+            && target.TryResolveProperty(fieldName, propertyName, forWrite, out text);
     }
 
     /// <summary>
@@ -2387,8 +2407,13 @@ public sealed class HandlerBodyRewriter
         Control,
     }
 
-    /// <summary>One local, and the control it aliases when it is a <see cref="LocalKind.Control"/>.</summary>
-    private readonly record struct LocalBinding(LocalKind Kind, string? ControlFieldName = null);
+    /// <summary>
+    /// One local: the control it aliases when it is a <see cref="LocalKind.Control"/>, or the
+    /// WinForms type it was constructed from when it is a <see cref="LocalKind.FormView"/> - which
+    /// is what says whose public surface `dialog.EnteredText` is asking about.
+    /// </summary>
+    private readonly record struct LocalBinding(
+        LocalKind Kind, string? ControlFieldName = null, string? WinFormsTypeName = null);
 
     /// <summary>
     /// The locals in scope while one body is translated. Block-scoped, so a declaration inside an
@@ -2403,8 +2428,9 @@ public sealed class HandlerBodyRewriter
 
         public void Pop() => _scopes.RemoveAt(_scopes.Count - 1);
 
-        public void Declare(string name, LocalKind kind, string? controlFieldName = null) =>
-            _scopes[^1][name] = new LocalBinding(kind, controlFieldName);
+        public void Declare(
+            string name, LocalKind kind, string? controlFieldName = null, string? winFormsTypeName = null) =>
+            _scopes[^1][name] = new LocalBinding(kind, controlFieldName, winFormsTypeName);
 
         public bool TryGet(string name, out LocalKind kind)
         {
@@ -2515,6 +2541,13 @@ public sealed class HandlerBodyRewriter
         bool TryResolveProperty(string fieldName, string winFormsPropertyName, bool forWrite, out string text);
 
         /// <summary>
+        /// A property another converted View exposes for real - the whole vocabulary a body may
+        /// use on a View that is not this one. Named after the *WinForms* type, since that is what
+        /// the original body says.
+        /// </summary>
+        bool TryResolveViewProperty(string winFormsTypeName, string propertyName, bool forWrite);
+
+        /// <summary>
         /// A control method with an exact Avalonia equivalent, given the call's already-translated
         /// arguments. The arity has to match: a different overload is a different method.
         /// </summary>
@@ -2581,7 +2614,8 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string> dispatcherTimerFields,
         IReadOnlySet<string> componentFields,
         IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers,
-        IReadOnlySet<string> promotedFields) : IRewriteTarget
+        IReadOnlySet<string> promotedFields,
+        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties) : IRewriteTarget
     {
         public LocalScope Locals { get; } = new();
 
@@ -2684,20 +2718,41 @@ public sealed class HandlerBodyRewriter
         {
             text = "";
 
-            if (!formModel.Controls.TryGetValue(fieldName, out var control)
-                || !BindablePropertyCatalog.TryGet(control.ClrTypeName, winFormsPropertyName, out var bindable)
+            if (!formModel.Controls.TryGetValue(fieldName, out var control))
+            {
+                return false;
+            }
+
+            // A UserControl this project defines, hosted here as an element: its own public
+            // surface is the vocabulary, not the catalog - the catalog only knows in-box types.
+            // The name survives unchanged, because the generated View declares that same property.
+            if (TryResolveViewProperty(control.ClrTypeName, winFormsPropertyName, forWrite))
+            {
+                text = $"{fieldName}.{winFormsPropertyName}";
+                return true;
+            }
+
+            if (!BindablePropertyCatalog.TryGet(control.ClrTypeName, winFormsPropertyName, out var bindable)
                 || !IsReachable(control, bindable.AvaloniaPropertyName))
+            {
+                return false;
+            }
+
+            // A three-state CheckBox reports Indeterminate as `Checked == true`, which no
+            // coalescing of Avalonia's `bool?` reproduces - so it is refused rather than guessed.
+            if (!forWrite
+                && bindable.AvaloniaTypeName == "bool?"
+                && control.Properties.TryGetValue("ThreeState", out var threeState)
+                && threeState is PropertyValue.Literal { Value: true })
             {
                 return false;
             }
 
             var access = $"{fieldName}.{bindable.AvaloniaPropertyName}";
 
-            // WinForms' string properties never return null - Avalonia's are `string?`. Reading
-            // one straight into something like int.Parse would be a CS8604 in the generated
-            // project, which enables nullable; `?? string.Empty` is both warning-free and the
-            // faithful translation of the WinForms behaviour.
-            text = !forWrite && bindable.ClrTypeName == "string" ? $"({access} ?? string.Empty)" : access;
+            // A read has to come out as the type the WinForms expression had - Avalonia's member
+            // is often nullable, or wider, where WinForms' was neither. The catalog says how.
+            text = forWrite ? access : BindablePropertyCatalog.ReadExpression(access, bindable);
             return true;
         }
 
@@ -2764,6 +2819,12 @@ public sealed class HandlerBodyRewriter
 
         public bool IsPromotedField(string name) => promotedFields.Contains(name);
 
+        public bool TryResolveViewProperty(string winFormsTypeName, string propertyName, bool forWrite) =>
+            viewProperties.TryGetValue(winFormsTypeName, out var properties)
+            && properties.FirstOrDefault(p => string.Equals(p.Name, propertyName, StringComparison.Ordinal))
+                is { } property
+            && (!forWrite || property.HasSetter);
+
         /// <summary>
         /// The cast has to name the control's own WinForms type. A base type (`(Control)sender`)
         /// is refused rather than widened: what the body then does with the local is checked
@@ -2814,9 +2875,22 @@ public sealed class HandlerBodyRewriter
         /// authoritative. A Fallback element is one of this repo's own templates, and only the
         /// members it demonstrably exposes are safe to touch.
         /// </summary>
+        /// <summary>
+        /// Whether a translated statement may touch this member of this control at all.
+        /// </summary>
+        /// <remarks>
+        /// A target the AXAML emits without an <c>x:Name</c> - a DataGrid column, which is a
+        /// description of a column rather than an element in the visual tree - has no field on the
+        /// generated View, so naming it in code is a CS0103 there whatever the member is.
+        /// </remarks>
         private bool IsReachable(ControlModel control, string avaloniaMemberName)
         {
             var mapped = controlMappings.Map(control);
+
+            if (!mapped.SupportsName)
+            {
+                return false;
+            }
 
             return mapped.Status == MappingStatus.Direct
                 || (mapped.Status == MappingStatus.Fallback
@@ -2848,6 +2922,12 @@ public sealed class HandlerBodyRewriter
             view = null!;
             return false;
         }
+
+        /// <summary>
+        /// A ViewModel has no Views to reach into - the whole point of a promoted command is that
+        /// it names nothing visual.
+        /// </summary>
+        public bool TryResolveViewProperty(string winFormsTypeName, string propertyName, bool forWrite) => false;
 
         /// <summary>
         /// Only the entries whose Avalonia member is a property this plan actually bound.

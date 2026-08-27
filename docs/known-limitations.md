@@ -218,7 +218,16 @@ rule itself; what follows is what the rule does *not* cover yet.
   `MigrationTodo.NotMigrated(...)` marker below it. What it translates today:
   - a write to a control property in `BindablePropertyCatalog`, on a `Direct`-mapped control
     (`this.label1.Text = ...` → `label1.Text = ...`, `Checked` → `IsChecked`, and so on), plus
-    reads of those same properties anywhere in the expression;
+    reads of those same properties anywhere in the expression. A **read** is converted back to the
+    type the WinForms expression had, which is not always the type the Avalonia member is: a
+    `{Binding}` converts on its way to the element, but a translated code-behind statement touches
+    the member directly. So `Checked` reads as `(x.IsChecked ?? false)` and a Button's `Text` as
+    `(x.Content as string ?? string.Empty)` - both faithful, since a two-state `IsChecked` is
+    never null and `Content` holds the string this conversion put there. A **three-state**
+    CheckBox is refused instead, because WinForms reports Indeterminate as `Checked == true` and
+    no coalescing says that. A control the AXAML emits **without an `x:Name`** (a DataGrid column,
+    which is a description of a column rather than an element) has no field to name at all, so
+    nothing about it translates;
   - `Close()` / `Show()` / `Hide()` / `Activate()` on the form (the View *is* the Window). Only
     `Show()` and `Hide()` survive on a converted **UserControl**, and as a visibility write rather
     than a call: Avalonia's `UserControl` has no `Close`/`Show`/`Activate` at all, so the others
@@ -493,8 +502,26 @@ rule itself; what follows is what the rule does *not* cover yet.
   type whose Avalonia counterpart is a different type entirely); a generic one, an
   expression-bodied one, or one with a `ref`/`out`/`params` parameter; a **value-returning helper
   that turns async**, whose `Task<T>` would only be usable inside an expression, which is exactly
-  where this converter refuses to await; and properties, nested types and everything else
-  non-handler, which stay a comment as before.
+  where this converter refuses to await; and nested types and everything else non-handler,
+  which stay a comment as before.
+
+- **A converted View carries its public properties.** The surface a WinForms UserControl is made
+  of - `Caption { get => captionLabel.Text; set => captionLabel.Text = value; }` - comes across as
+  a real property on the generated View, which is what lets a hosting Form's handler say
+  `counterControl1.Caption = ...`, and a dialog's caller read `dialog.EnteredText`. Expression
+  bodies, expression-bodied accessors and block accessors all qualify; an auto-property does not,
+  since it is a field wearing a property's clothes.
+
+  **Whole-or-nothing**, exactly as for a helper: both accessors translate or neither is emitted.
+  At a use site there is nowhere to put a remainder, so half a property would read as migrated
+  while assigning to it quietly did nothing.
+
+  The accessor body may name **only the artifact's own controls** - no timers, components,
+  helpers or carried-over fields. That restriction is what lets the whole project's properties be
+  resolved in one pass *before* any handler is translated, which is what a handler naming another
+  View's property needs (the same problem Form navigation has, one level down). It also covers the
+  shape that actually occurs. A named property type is refused for the usual reason: it could be a
+  WinForms type whose Avalonia counterpart is a different type entirely.
 
   A handler that calls a helper **can** be promoted to a ViewModel now, and the helper moves with
   it. Promotion condition 5 used to refuse any helper call outright; it now asks whether the helper

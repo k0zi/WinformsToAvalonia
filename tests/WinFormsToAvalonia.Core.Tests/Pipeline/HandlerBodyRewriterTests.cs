@@ -63,14 +63,52 @@ public class HandlerBodyRewriterTests
             result.MigratedStatements);
     }
 
+    /// <summary>
+    /// WinForms' <c>CheckBox.Checked</c> is a <c>bool</c>; Avalonia's <c>IsChecked</c> is a
+    /// <c>bool?</c>. A read has to come out as the type the original expression had, or the
+    /// generated project does not compile - <c>if (checkBox1.IsChecked)</c> is a CS0266. Writing
+    /// needs no such thing, since a <c>bool</c> goes into a <c>bool?</c> unaided.
+    /// </summary>
     [Fact]
-    public void RewriteForView_NonStringProperty_IsNotNullGuarded()
+    public void RewriteForView_NullableAvaloniaProperty_IsCoalescedOnReadButNotOnWrite()
     {
         var form = FormWith(("agreeCheckBox", "CheckBox"), ("otherCheckBox", "CheckBox"));
 
         var result = Rewriter.RewriteForView("this.agreeCheckBox.Checked = this.otherCheckBox.Checked;", form);
 
-        Assert.Equal(["agreeCheckBox.IsChecked = otherCheckBox.IsChecked;"], result.MigratedStatements);
+        Assert.Equal(["agreeCheckBox.IsChecked = (otherCheckBox.IsChecked ?? false);"], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A three-state CheckBox reports Indeterminate as <c>Checked == true</c>, and no coalescing
+    /// of Avalonia's <c>bool?</c> says that - so the read is refused rather than quietly inverted.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ThreeStateCheckBox_RefusesTheRead()
+    {
+        var form = FormWith(("agreeCheckBox", "CheckBox"), ("statusLabel", "Label"));
+        form.Controls["agreeCheckBox"].Properties["ThreeState"] = new PropertyValue.Literal(true);
+
+        var result = Rewriter.RewriteForView(
+            "if (this.agreeCheckBox.Checked) { this.statusLabel.Text = \"on\"; }", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A Button's <c>Text</c> becomes <c>Content</c>, which is an <c>object?</c> - reading one
+    /// into a string is a CS0266 in the generated project unless the read says how.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ObjectTypedAvaloniaProperty_IsReadAsAString()
+    {
+        var form = FormWith(("goButton", "Button"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView("this.statusLabel.Text = this.goButton.Text;", form);
+
+        Assert.Equal(
+            ["statusLabel.Text = (goButton.Content as string ?? string.Empty);"],
+            result.MigratedStatements);
     }
 
     /// <summary>
@@ -341,7 +379,7 @@ public class HandlerBodyRewriterTests
         Assert.Equal(
             [
                 """
-                if (agreeCheckBox.IsChecked)
+                if ((agreeCheckBox.IsChecked ?? false))
                 {
                     statusLabel.Text = "yes";
                 }
@@ -373,7 +411,7 @@ public class HandlerBodyRewriterTests
             """,
             form);
 
-        Assert.Contains("else if (b.IsChecked)", Assert.Single(result.MigratedStatements));
+        Assert.Contains("else if ((b.IsChecked ?? false))", Assert.Single(result.MigratedStatements));
     }
 
     /// <summary>Braces are added even where the original had none, so `else` cannot re-bind.</summary>
@@ -388,7 +426,7 @@ public class HandlerBodyRewriterTests
         Assert.Equal(
             [
                 """
-                if (agreeCheckBox.IsChecked)
+                if ((agreeCheckBox.IsChecked ?? false))
                 {
                     statusLabel.Text = "yes";
                 }

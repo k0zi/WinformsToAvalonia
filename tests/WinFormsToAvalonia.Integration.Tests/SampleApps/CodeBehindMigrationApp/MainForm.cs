@@ -37,6 +37,21 @@ namespace CodeBehindMigrationApp
             e.Graphics.DrawRectangle(Pens.Black, 0, 0, 10, 10);
         }
 
+        // Not promotable (it closes the Form), so these reads touch the real Avalonia members
+        // rather than going through a binding - which is where the two sides' types have to
+        // actually agree. `Checked` is a bool in WinForms and a bool? in Avalonia; a Button's
+        // `Text` becomes `Content`, an object?. Reading either one straight through does not
+        // compile in the generated project.
+        private void readBackButton_Click(object sender, EventArgs e)
+        {
+            if (agreeCheckBox.Checked)
+            {
+                greetingLabel.Text = readBackButton.Text;
+            }
+
+            Close();
+        }
+
         private void MainForm_Load(object sender, EventArgs e)
         {
             greetingLabel.Text = string.Empty;

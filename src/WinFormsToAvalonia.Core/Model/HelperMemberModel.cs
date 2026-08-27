@@ -29,7 +29,28 @@ public sealed record HelperMemberModel(
     string SourceText,
     HelperMethodSignature? Signature = null,
     HelperFieldInfo? Field = null,
-    HandlerMethodModel? Facts = null);
+    HandlerMethodModel? Facts = null,
+    HelperPropertyInfo? Property = null);
+
+/// <summary>
+/// A property of the original Form or UserControl. Null unless its shape is one the conversion
+/// could reproduce: an accessor with a real body, not an auto-property (a field-shaped property
+/// is the field-promotion path, not this one).
+/// </summary>
+/// <remarks>
+/// Both accessor bodies are normalised to statements, so an expression-bodied property, an
+/// expression-bodied accessor and a block accessor all reach the planner in one shape - it is
+/// the property's *body* that decides whether it can come across, never how it was spelled.
+/// </remarks>
+/// <param name="ModifiersText">As written, e.g. <c>"public"</c>.</param>
+/// <param name="TypeText">As written.</param>
+/// <param name="GetterBodyText">The getter's statements, dedented like a helper's; null if it has none.</param>
+/// <param name="SetterBodyText">The setter's statements, with <c>value</c> in scope; null if it has none.</param>
+public sealed record HelperPropertyInfo(
+    string ModifiersText,
+    string TypeText,
+    string? GetterBodyText,
+    string? SetterBodyText);
 
 /// <summary>
 /// A private backing field of the original Form. Null unless the field's shape is one the

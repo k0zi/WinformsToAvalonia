@@ -214,6 +214,14 @@ public sealed class ViewCodeBehindEmitter
             EmitLazyComponent(Line, component);
         }
 
+        // The View's public surface. Before the handlers, because that is where a property
+        // belongs - and because a handler in another View names these, not the other way round.
+        foreach (var property in plan.PromotedProperties)
+        {
+            Line();
+            EmitPromotedProperty(Line, property);
+        }
+
         foreach (var handler in plan.CodeBehindHandlers)
         {
             Line();
@@ -425,6 +433,48 @@ public sealed class ViewCodeBehindEmitter
     /// <c>MigrationTodo</c> and no comment: a helper is emitted as code only when there is
     /// nothing left over, so there is nothing to report.
     /// </summary>
+    /// <summary>
+    /// A property of the original Form or UserControl, carried over as real code.
+    /// </summary>
+    /// <remarks>
+    /// Emitted with block accessors whatever the original used, since a translated body is a list
+    /// of statements by the time it gets here - the shape it was written in is not information
+    /// this converter kept, and re-deriving an expression body would only be cosmetic.
+    /// </remarks>
+    private static void EmitPromotedProperty(Action<string> line, PromotedPropertyPlan property)
+    {
+        var modifiers = property.ModifiersText.Length > 0 ? property.ModifiersText + " " : "";
+
+        line($"    {modifiers}{property.TypeText} {property.Name}");
+        line("    {");
+
+        EmitAccessor("get", property.Getter);
+        if (property.Getter is not null && property.Setter is not null)
+        {
+            line("");
+        }
+
+        EmitAccessor("set", property.Setter);
+        line("    }");
+
+        void EmitAccessor(string keyword, RewrittenBody? body)
+        {
+            if (body is null)
+            {
+                return;
+            }
+
+            line($"        {keyword}");
+            line("        {");
+            foreach (var statement in body.MigratedStatements)
+            {
+                line(Indent(statement, "            "));
+            }
+
+            line("        }");
+        }
+    }
+
     private static void EmitPromotedHelper(Action<string> line, PromotedHelperPlan helper)
     {
         var asyncModifier = helper.IsAsync ? "async " : "";

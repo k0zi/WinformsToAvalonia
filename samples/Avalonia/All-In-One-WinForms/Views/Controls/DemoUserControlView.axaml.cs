@@ -15,15 +15,18 @@ public partial class DemoUserControlView : UserControl
         DataContext = new DemoUserControlViewModel();
     }
 
-    /* ORIGINAL WINFORMS MEMBERS - NOT COMPILED, PRESERVED FOR MANUAL MIGRATION
-
-    [DefaultValue("Demo user control")]
     public string Caption
     {
-        get => this.captionLabel.Text;
-        set => this.captionLabel.Text = value;
+        get
+        {
+            return (captionLabel.Text ?? string.Empty);
+        }
+
+        set
+        {
+            captionLabel.Text = value;
+        }
     }
-    */
 
     /* ORIGINAL WINFORMS CODE-BEHIND - NOT COMPILED, PRESERVED FOR REFERENCE
        Original file: DemoUserControl.cs
