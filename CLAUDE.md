@@ -110,7 +110,11 @@ single orchestrator — read it first, every stage below is a field on it:
    call site there is nowhere to put the remainder. `PlanFileDialogs` is the one that stays after,
    since what it emits depends on what the rewrite did.
 4. **Emission** (`Core/Emission`) — `AxamlEmitter` (+ `AxamlDocumentBuilder`),
-   `ViewCodeBehindEmitter`, `ViewModelEmitter`. All naming (`Form1` → `Form1View`/`Form1ViewModel`,
+   `ViewCodeBehindEmitter`, `ViewModelEmitter`, and `MigrationChecklistEmitter` for the
+   `MIGRATION.md` the generated project carries. That last one is built from the plans, never from
+   the emitted text: `CodeBehindHandlerPlan.IsUnfinished` is the *same* predicate the code emitters
+   use to decide whether to write a `MigrationTodo`, so the checklist cannot drift from the code
+   it describes — put any new "is this done" opinion there rather than beside it. All naming (`Form1` → `Form1View`/`Form1ViewModel`,
    nested-folder namespaces, command names) goes through `NamingConventions` — never hand-roll it.
 5. **Scaffolding** (`Core/Scaffolding`) — `AvaloniaProjectScaffolder.BuildProject` writes the fixed
    App/Program/ViewLocator/csproj skeleton plus the Views/ViewModels into a `VirtualFileSystem`

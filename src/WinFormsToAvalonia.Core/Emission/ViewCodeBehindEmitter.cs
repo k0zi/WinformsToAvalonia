@@ -294,7 +294,7 @@ public sealed class ViewCodeBehindEmitter
             line(Indent(statement, "        "));
         }
 
-        var remaining = rewrite?.RemainingBody ?? handler.OriginalBody;
+        var remaining = handler.RemainingBody;
         if (remaining.Length > 0)
         {
             if (rewrite?.MigratedStatementCount > 0)

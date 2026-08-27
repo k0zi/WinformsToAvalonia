@@ -78,6 +78,7 @@ public sealed class ConversionPipeline
         var migrationPlanner = new FormMigrationPlanner(mappingRegistry, eventMappingRegistry);
 
         var convertedForms = new List<ConvertedFormOutput>();
+        var migrationSummaries = new List<ArtifactMigrationSummary>();
         var allUsedFallbackKeys = new HashSet<string>(StringComparer.Ordinal);
         var allRequiredNuGetPackages = new HashSet<string>(StringComparer.Ordinal);
 
@@ -172,6 +173,9 @@ public sealed class ConversionPipeline
 
             convertedForms.Add(new ConvertedFormOutput(
                 relativeFolder, viewClassName, viewModelClassName, axamlResult.Axaml, viewCodeBehind, viewModel, pairing.Kind));
+
+            migrationSummaries.Add(SummarizeMigration(
+                pairing.ClassName, relativeFolder, viewClassName, viewModelClassName, migrationPlan));
         }
 
         // A bundled template can need a package of its own (ColorDialogFallback wraps Avalonia's
@@ -199,6 +203,12 @@ public sealed class ConversionPipeline
         {
             vfs.AddBinary(assetPath, content);
         }
+
+        // The map to the work this conversion deliberately left for a human. Written through the
+        // VFS like everything else, so --dry-run and the preserve-existing re-run behave on it.
+        vfs.AddText("MIGRATION.md", new MigrationChecklistEmitter().Emit(
+            projectName, options.SourceProjectPath, allMigratedStatements, allHandlerStatements,
+            allWarnings, migrationSummaries));
 
         var preservedFiles = new List<string>();
         if (!options.DryRun)
@@ -339,6 +349,40 @@ public sealed class ConversionPipeline
 
         return carried;
     }
+
+    /// <summary>
+    /// What one converted artifact still needs a human for, taken from the plan rather than from
+    /// the emitted text - the same <c>IsUnfinished</c> predicate the code emitters use.
+    /// </summary>
+    private static ArtifactMigrationSummary SummarizeMigration(
+        string sourceArtifactName,
+        string relativeFolder,
+        string viewClassName,
+        string viewModelClassName,
+        FormMigrationPlan plan)
+    {
+        var viewPath = CombineOutputFolder("Views", relativeFolder) + $"/{viewClassName}.axaml.cs";
+        var viewModelPath = CombineOutputFolder("ViewModels", relativeFolder) + $"/{viewModelClassName}.cs";
+
+        var unfinished = plan.CodeBehindHandlers
+            .Where(h => h.IsUnfinished)
+            .Select(h => new UnfinishedMember(viewPath, h.MethodName, h.OriginalMethodName, FirstLineOf(h.RemainingBody)))
+            .Concat(plan.ViewModelCommands
+                .Where(c => c.IsUnfinished)
+                .Select(c => new UnfinishedMember(viewModelPath, c.CommandMethodName, c.OriginalMethodName, FirstLineOf(c.RemainingBody))))
+            .ToList();
+
+        return new ArtifactMigrationSummary(
+            sourceArtifactName,
+            unfinished,
+            [.. plan.PreservedMembers.Select(m => m.Name).Where(n => n.Length > 0)]);
+    }
+
+    private static string CombineOutputFolder(string root, string relativeFolder) =>
+        string.IsNullOrEmpty(relativeFolder) ? root : $"{root}/{relativeFolder}";
+
+    private static string FirstLineOf(string body) =>
+        body.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
 
     /// <summary>
     /// Resolves every discovered Form to the View it will be emitted as, keyed by the original

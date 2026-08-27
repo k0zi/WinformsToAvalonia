@@ -44,6 +44,7 @@ source project is never modified.
 | ✍️ **Handler bodies translated** | Bindable property access, control flow and loops, `Close()`/`Focus()`, window properties, `MessageBox.Show`, opening another Form (with its `DialogResult` contract), file dialogs, the clipboard, `sender`, non-visual .NET components and your own helper methods become real Avalonia code; the report says how much came across. |
 | 🎯 **Conservative MVVM** | Handlers are promoted to `[RelayCommand]` only when a Roslyn analysis *proves* it is safe — everything else stays event-driven. A private helper the handler calls moves with it when it can. A handler that only kept a button's `Enabled` in sync becomes that command's `CanExecute` guard. |
 | 📦 **Zero extra dependencies** | Fallback controls are copied into the generated project as source; only the ones actually used. |
+| 🗺️ **A checklist in the output** | The generated project carries a `MIGRATION.md` listing every method still waiting for a human, with the first statement that stopped it — built from the same data that decides whether to emit the `MigrationTodo` marker, so the two cannot drift apart. |
 | 🧪 **Verified end-to-end** | Integration tests convert real WinForms fixture projects, `dotnet build` the result, and **start** it on Avalonia's headless platform — because building alone never catches a converted app that throws before its first window. |
 
 ## Requirements

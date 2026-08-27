@@ -98,7 +98,7 @@ public sealed class ViewModelEmitter
                 Line(Indent(statement, "        "));
             }
 
-            var remaining = rewrite?.RemainingBody ?? command.OriginalBody;
+            var remaining = command.RemainingBody;
             if (remaining.Length > 0)
             {
                 if (rewrite?.MigratedStatementCount > 0)

@@ -35,7 +35,21 @@ public sealed record CodeBehindHandlerPlan(
     string OriginalMethodName,
     string OriginalBody,
     IReadOnlyList<EventSubscriptionPlan> Subscriptions,
-    RewrittenBody? Rewrite = null);
+    RewrittenBody? Rewrite = null)
+{
+    /// <summary>The part of the original body still waiting for a human.</summary>
+    public string RemainingBody => Rewrite?.RemainingBody ?? OriginalBody;
+
+    /// <summary>
+    /// True when the generated method still carries a <c>MigrationTodo</c> marker.
+    /// </summary>
+    /// <remarks>
+    /// Computed here rather than at each site so the emitter and the generated
+    /// <c>MIGRATION.md</c> cannot disagree about which methods are finished - a checklist that
+    /// drifts from the code it describes is worse than no checklist.
+    /// </remarks>
+    public bool IsUnfinished => RemainingBody.Length > 0 || Rewrite?.MigratedStatementCount is null or 0;
+}
 
 /// <summary>
 /// A handler promoted to a CommunityToolkit [RelayCommand] on the ViewModel, together with the
@@ -65,6 +79,12 @@ public sealed record ViewModelCommandPlan(
 
     /// <summary>The generated ICommand property name CommunityToolkit derives from the method, e.g. "Ok" -> "OkCommand".</summary>
     public string CommandPropertyName => $"{CommandMethodName}Command";
+
+    /// <summary>The part of the original body still waiting for a human.</summary>
+    public string RemainingBody => Rewrite?.RemainingBody ?? OriginalBody;
+
+    /// <summary>True when the generated command still carries a <c>MigrationTodo</c> marker.</summary>
+    public bool IsUnfinished => RemainingBody.Length > 0 || Rewrite?.MigratedStatementCount is null or 0;
 }
 
 /// <summary>
