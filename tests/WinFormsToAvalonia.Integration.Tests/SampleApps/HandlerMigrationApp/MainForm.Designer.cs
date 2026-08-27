@@ -26,6 +26,7 @@ namespace HandlerMigrationApp
             this.countButton = new System.Windows.Forms.Button();
             this.canvas = new System.Windows.Forms.Panel();
             this.errorProvider1 = new System.Windows.Forms.ErrorProvider();
+            this.colorButton = new System.Windows.Forms.Button();
             this.flagButton = new System.Windows.Forms.Button();
             this.SuspendLayout();
             //
@@ -137,7 +138,13 @@ namespace HandlerMigrationApp
             this.Controls.Add(this.validateButton);
             this.Controls.Add(this.countButton);
             this.Controls.Add(this.canvas);
+            this.colorButton.Location = new System.Drawing.Point(416, 12);
+            this.colorButton.Name = "colorButton";
+            this.colorButton.Size = new System.Drawing.Size(90, 28);
+            this.colorButton.Text = "Colour";
+            this.colorButton.Click += new System.EventHandler(this.colorButton_Click);
             this.Controls.Add(this.flagButton);
+            this.Controls.Add(this.colorButton);
             this.Name = "MainForm";
             this.Text = "Handler Migration Demo";
             this.ResumeLayout(false);
@@ -146,6 +153,7 @@ namespace HandlerMigrationApp
 
         private System.Windows.Forms.ErrorProvider errorProvider1;
         private System.Windows.Forms.Button flagButton;
+        private System.Windows.Forms.Button colorButton;
         private System.Windows.Forms.Button okButton;
         private System.Windows.Forms.Button aboutButton;
         private System.Windows.Forms.Button resetButton;

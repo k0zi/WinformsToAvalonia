@@ -39,6 +39,14 @@ namespace HandlerMigrationApp
             this.statusLabel.Text = "Saved";
         }
 
+        // Colours: WinForms writes a Color, Avalonia wants a brush - and which of the two
+        // properties exists at all depends on the element the control maps to.
+        private void colorButton_Click(object sender, EventArgs e)
+        {
+            this.statusLabel.ForeColor = Color.Red;
+            this.nameTextBox.BackColor = SystemColors.Window;
+        }
+
         // The WinForms validation idiom: the component has no element of its own, so its Avalonia
         // answer is a static call on the bundled fallback.
         private void flagButton_Click(object sender, EventArgs e)

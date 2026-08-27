@@ -90,8 +90,14 @@ public class HandlerMigrationConversionTests
             Assert.Contains("Controls/ErrorProviderFallback.cs", result.Vfs.RelativePaths);
             Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(flagButton_Click)", codeBehind);
 
-            Assert.Equal(13, result.Report.MigratedStatementCount);
-            Assert.Equal(16, result.Report.HandlerStatementCount);
+            // A colour is a brush in Avalonia, and which of the two properties the element has
+            // at all is decided by the same table the AXAML styling pass consults.
+            Assert.Contains("statusLabel.Foreground = new SolidColorBrush(Color.Parse(\"#FFFF0000\"));", codeBehind);
+            Assert.Contains("nameTextBox.Background = new SolidColorBrush(Color.Parse(\"#FFFFFFFF\"));", codeBehind);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(colorButton_Click)", codeBehind);
+
+            Assert.Equal(15, result.Report.MigratedStatementCount);
+            Assert.Equal(18, result.Report.HandlerStatementCount);
 
             var buildResult = await RunDotnetAsync("build", outputDir);
             Assert.True(

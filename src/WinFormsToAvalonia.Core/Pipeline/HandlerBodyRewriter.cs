@@ -842,6 +842,15 @@ public sealed class HandlerBodyRewriter
     {
         rewritten = default;
 
+        // `this.plainPanel.BackColor = Color.Red;` - a colour, which Avalonia spells as a brush.
+        // Checked before the right-hand side is translated, for the same reason the window
+        // properties are: `Color.Red` is a System.Drawing name the generic expression path would
+        // (correctly) refuse.
+        if (TryRewriteStyleColorAssignment(assignment, target, out rewritten))
+        {
+            return true;
+        }
+
         // `this.Text = "..."` / `dialog.WindowState = ...` - a Form property that is really a
         // Window property. Checked before the right-hand side is translated, because an enum
         // value like `FormWindowState.Maximized` is a WinForms name the generic expression path
@@ -919,6 +928,73 @@ public sealed class HandlerBodyRewriter
 
         rewritten = new RewrittenStatement($"{left} = {right};");
         return true;
+    }
+
+    /// <summary>
+    /// <c>control.BackColor = &lt;colour&gt;</c> / <c>ForeColor</c>, which Avalonia spells as a
+    /// <c>Background</c>/<c>Foreground</c> <em>brush</em>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The colour itself goes through <see cref="ExpressionEvaluator"/> and
+    /// <see cref="PropertyValueFormatters.AsBrush"/> - the very same pair the designer path uses -
+    /// so a colour written in a handler and the same colour written in the designer can never come
+    /// out differently. Anything those two cannot resolve to a literal (a computed colour, another
+    /// control's <c>BackColor</c>) is refused rather than guessed at, exactly as in the AXAML.
+    /// </para>
+    /// <para>
+    /// Gated on the *element*, through the same table <c>AxamlEmitter</c> consults: a Panel has a
+    /// Background but no Foreground, an Image has neither, and writing one that is not there is a
+    /// compile error in the generated project.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteStyleColorAssignment(
+        AssignmentExpressionSyntax assignment, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!assignment.OperatorToken.IsKind(SyntaxKind.EqualsToken)
+            || assignment.Left is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var winFormsName } access
+            || !StyleColorProperties.TryGetValue(winFormsName, out var style)
+            || !target.TryResolveControlField(access.Expression, out var fieldName)
+            || !target.SupportsStyleProperty(fieldName, style.Surface))
+        {
+            return false;
+        }
+
+        if (!TryRewriteColorExpression(assignment.Right, target, out var brush))
+        {
+            return false;
+        }
+
+        rewritten = new RewrittenStatement(
+            $"{fieldName}.{style.AvaloniaName} = {brush};",
+            RequiredUsings: ["Avalonia.Media"]);
+        return true;
+    }
+
+    /// <summary>The two WinForms colour properties, and what each becomes.</summary>
+    private static readonly IReadOnlyDictionary<string, (string AvaloniaName, AvaloniaStyleProperties Surface)> StyleColorProperties =
+        new Dictionary<string, (string, AvaloniaStyleProperties)>(StringComparer.Ordinal)
+        {
+            ["BackColor"] = ("Background", AvaloniaStyleProperties.Background),
+            ["ForeColor"] = ("Foreground", AvaloniaStyleProperties.Foreground),
+        };
+
+    /// <summary>A colour-valued expression, as an Avalonia brush.</summary>
+    private static bool TryRewriteColorExpression(ExpressionSyntax expression, IRewriteTarget target, out string brush)
+    {
+        brush = "";
+
+        // `Color.Red`, `SystemColors.Control`, `Color.FromArgb(...)` - resolved by the same
+        // evaluator the designer path uses, so the two agree by construction.
+        if (PropertyValueFormatters.AsBrush(ExpressionEvaluator.Evaluate(expression)) is { } hex)
+        {
+            brush = $"new SolidColorBrush(Color.Parse(\"{hex}\"))";
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -2101,6 +2177,13 @@ public sealed class HandlerBodyRewriter
         bool TryResolveFallbackTemplate(string fieldName, out string templateKey);
 
         /// <summary>
+        /// True when the field's *Avalonia* element really carries the given styling surface -
+        /// the same question <c>AxamlEmitter</c> asks before emitting a style attribute, and for
+        /// the same reason: a Panel has a Background but no Foreground, and an Image has neither.
+        /// </summary>
+        bool SupportsStyleProperty(string fieldName, AvaloniaStyleProperties property);
+
+        /// <summary>
         /// True when the field really becomes a named element in the AXAML - so the generated View
         /// has a `Control`-typed field for it, which is what an API taking a control can be given.
         /// </summary>
@@ -2285,6 +2368,23 @@ public sealed class HandlerBodyRewriter
             formModel.Controls.TryGetValue(fieldName, out var control)
             && controlMappings.Map(control).Status is MappingStatus.Direct or MappingStatus.Fallback;
 
+        /// <summary>
+        /// Direct-mapped controls only. A fallback control gets no styling anywhere in this
+        /// converter - its bundled template need not expose the property at all - and that rule
+        /// has to hold for a handler body exactly as it does for the AXAML.
+        /// </summary>
+        public bool SupportsStyleProperty(string fieldName, AvaloniaStyleProperties property)
+        {
+            if (!formModel.Controls.TryGetValue(fieldName, out var control))
+            {
+                return false;
+            }
+
+            var mapped = controlMappings.Map(control);
+            return mapped.Status == MappingStatus.Direct
+                && AvaloniaStylePropertySupport.Supports(mapped.AvaloniaElementName, property);
+        }
+
         public bool TryResolveHelperCall(string methodName, int argumentCount, out HelperCallInfo helper) =>
             promotedHelpers.TryGetValue(methodName, out helper!) && helper.ParameterCount == argumentCount;
 
@@ -2395,6 +2495,9 @@ public sealed class HandlerBodyRewriter
         }
 
         public bool IsMappedElement(string fieldName) => false;
+
+        /// <summary>Styling is an element concern, and a ViewModel has no elements.</summary>
+        public bool SupportsStyleProperty(string fieldName, AvaloniaStyleProperties property) => false;
 
         /// <summary>
         /// Helpers stay on the View. A handler that calls one is not promoted in the first place,

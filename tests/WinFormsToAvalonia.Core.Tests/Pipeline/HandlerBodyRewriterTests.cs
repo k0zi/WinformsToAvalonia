@@ -2180,6 +2180,81 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- Colours ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// WinForms writes a Color, Avalonia wants a brush - and the colour itself goes through the
+    /// very same evaluator and formatter the designer path uses, so a colour written in a handler
+    /// and the same colour written in the designer cannot come out differently.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ColorProperties_BecomeBrushes()
+    {
+        var form = FormWith(("statusLabel", "Label"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.statusLabel.ForeColor = Color.Red;
+            this.panel1.BackColor = SystemColors.Control;
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                "statusLabel.Foreground = new SolidColorBrush(Color.Parse(\"#FFFF0000\"));",
+                "panel1.Background = new SolidColorBrush(Color.Parse(\"#FFF0F0F0\"));",
+            ],
+            result.MigratedStatements);
+        Assert.Contains("Avalonia.Media", result.RequiredUsings);
+    }
+
+    /// <summary>
+    /// Gated on the element, through the same table AxamlEmitter consults: a Panel has a
+    /// Background but no Foreground, and writing one that is not there is a compile error in the
+    /// generated project.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ForeColorOnAPanel_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView("this.panel1.ForeColor = Color.Red;", FormWith(("panel1", "Panel")));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A PictureBox maps to an Image, which carries no styling at all.</summary>
+    [Fact]
+    public void RewriteForView_ColorOnAnElementWithNoStyling_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "this.pictureBox1.BackColor = Color.Red;", FormWith(("pictureBox1", "PictureBox")));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A fallback control gets no styling anywhere in this converter - its bundled template need
+    /// not expose the property - and that has to hold for a handler body too.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ColorOnAFallbackControl_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "this.notesRichTextBox.BackColor = Color.Red;", FormWith(("notesRichTextBox", "RichTextBox")));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A colour the evaluator cannot resolve to a literal is refused, as in the AXAML.</summary>
+    [Fact]
+    public void RewriteForView_ComputedColor_IsNotMigrated()
+    {
+        var form = FormWith(("panel1", "Panel"), ("other", "Panel"));
+
+        var result = Rewriter.RewriteForView("this.panel1.BackColor = this.other.BackColor;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

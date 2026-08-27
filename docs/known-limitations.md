@@ -256,6 +256,16 @@ rule itself; what follows is what the rule does *not* cover yet.
   - **`if`/`else`** (and a bare `return;`), when the condition *and every branch* translate.
     Braces are always emitted, even where the original had none, so a rewritten branch can never
     change what an `else` binds to; `else if` keeps its shape rather than becoming a nested block;
+  - **`control.BackColor` / `ForeColor`** → a `Background`/`Foreground` **brush**
+    (`new SolidColorBrush(Color.Parse("#AARRGGBB"))`). The colour goes through the same
+    `ExpressionEvaluator` + `PropertyValueFormatters.AsBrush` pair the designer path uses, so a
+    colour written in a handler and the same colour written in the designer cannot come out
+    differently - and anything they cannot resolve to a literal (a computed colour, another
+    control's `BackColor`) is refused rather than guessed at, exactly as in the AXAML. Gated on the
+    *element* through `AvaloniaStylePropertySupport`, the same table `AxamlEmitter` consults: a
+    `Panel` has a Background but no Foreground, an `Image` has neither, and a **fallback** control
+    gets no styling at all. `Font` is deliberately absent - one WinForms value becomes three
+    Avalonia properties, which is a different shape of problem;
   - **`errorProvider1.SetError(control, "message")`** → `ErrorProviderFallback.SetError(control, "message")`.
     The one translation whose result is a *static* call on a bundled fallback: everywhere else a
     fallback is something the AXAML instantiates and the handler then talks to, but a WinForms
