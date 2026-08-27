@@ -162,11 +162,12 @@ public sealed record FormMigrationPlan(
     IReadOnlyList<FileDialogPlan> FileDialogs,
     IReadOnlyList<PromotedFieldPlan> PromotedFields,
     IReadOnlyList<PromotedHelperPlan> PromotedHelpers,
+    IReadOnlyList<PromotedHelperPlan> ViewModelHelpers,
     IReadOnlyList<HelperMemberModel> PreservedMembers,
     IReadOnlyList<string> ConstructorExtraStatements,
     IReadOnlyList<string> Warnings)
 {
-    public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], [], [], []);
+    public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], [], [], [], []);
 
     /// <summary>Every body rewrite in this plan - both the code-behind and the ViewModel side.</summary>
     private IEnumerable<RewrittenBody> Rewrites =>
@@ -181,7 +182,7 @@ public sealed record FormMigrationPlan(
     /// counting them would quietly change what the migration rate means.
     /// </summary>
     private IEnumerable<RewrittenBody> AllEmittedRewrites =>
-        Rewrites.Concat(PromotedHelpers.Select(h => h.Rewrite));
+        Rewrites.Concat(PromotedHelpers.Select(h => h.Rewrite)).Concat(ViewModelHelpers.Select(h => h.Rewrite));
 
     /// <summary>Extra `using`s the translated statements need, beyond a generated View's usual set.</summary>
     public IReadOnlyList<string> RequiredUsings =>

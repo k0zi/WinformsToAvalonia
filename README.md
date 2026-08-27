@@ -42,7 +42,7 @@ source project is never modified.
 | 📐 **Pixel-accurate layout** | Absolute `Canvas` positioning preserves the original design exactly; `Anchor`/`Dock` are recorded, never guessed at. |
 | ⚡ **Always-compiling output** | `dotnet build && dotnet run` works on the generated project immediately — warning-free. |
 | ✍️ **Handler bodies translated** | Bindable property access, control flow and loops, `Close()`/`Focus()`, window properties, `MessageBox.Show`, opening another Form (with its `DialogResult` contract), file dialogs, the clipboard, `sender`, non-visual .NET components and your own helper methods become real Avalonia code; the report says how much came across. |
-| 🎯 **Conservative MVVM** | Handlers are promoted to `[RelayCommand]` only when a Roslyn analysis *proves* it is safe — everything else stays event-driven. A handler that only kept a button's `Enabled` in sync becomes that command's `CanExecute` guard. |
+| 🎯 **Conservative MVVM** | Handlers are promoted to `[RelayCommand]` only when a Roslyn analysis *proves* it is safe — everything else stays event-driven. A private helper the handler calls moves with it when it can. A handler that only kept a button's `Enabled` in sync becomes that command's `CanExecute` guard. |
 | 📦 **Zero extra dependencies** | Fallback controls are copied into the generated project as source; only the ones actually used. |
 | 🧪 **Verified end-to-end** | Integration tests convert real WinForms fixture projects, `dotnet build` the result, and **start** it on Avalonia's headless platform — because building alone never catches a converted app that throws before its first window. |
 
@@ -200,7 +200,9 @@ A handler becomes a `[RelayCommand]` (plus `Command="{Binding …}"` on its cont
 2. it is wired to exactly one control (a shared handler needs `sender`);
 3. its body uses neither `sender` nor the `EventArgs`;
 4. it drives no Form member (`Close()`, `Hide()`, `DialogResult`, …) and opens no other Form;
-5. it calls no code-behind helper method;
+5. every code-behind helper it calls could move to the ViewModel too — the helper's own
+   requirements are merged into the handler's and checked by these same conditions, so the pair
+   is promoted together or not at all;
 6. every control member it touches is a two-way bindable value property (`Text`, `Checked`,
    `Value`, `SelectedItem`, `Enabled`, `Visible`) on a directly-mapped control.
 

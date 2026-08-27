@@ -108,7 +108,11 @@ public sealed class CodeBehindAnalyzer
                         method.Identifier.ValueText,
                         HelperMemberKind.Method,
                         GetSourceTextWithIndent(method),
-                        DescribeHelperMethod(method)));
+                        DescribeHelperMethod(method),
+                        // The same body analysis a handler gets. A handler that calls this helper
+                        // has to answer for what the helper touches as if it were inlined - which
+                        // is what lets the pair move to a ViewModel together.
+                        Facts: AnalyzeHandler(method, controlFields, declaredMethodNames, handlerNames, hasEventSignature: false)));
                     break;
 
                 case PropertyDeclarationSyntax property:
@@ -197,16 +201,23 @@ public sealed class CodeBehindAnalyzer
         return subscriptions;
     }
 
+    /// <param name="hasEventSignature">
+    /// True for a real handler, whose first two parameters are <c>sender</c> and the EventArgs.
+    /// False when the same analysis is run over a *helper* method: its parameters are ordinary
+    /// values, and reading the first one as `sender` would report every `SetBusy(bool busy)` as
+    /// using a sender it does not have.
+    /// </param>
     private static HandlerMethodModel AnalyzeHandler(
         MethodDeclarationSyntax method,
         HashSet<string> controlFields,
         HashSet<string> declaredMethodNames,
-        HashSet<string> handlerNames)
+        HashSet<string> handlerNames,
+        bool hasEventSignature = true)
     {
         var parameters = method.ParameterList.Parameters;
-        var senderParameter = parameters.Count > 0 ? parameters[0].Identifier.ValueText : null;
-        var eventArgsParameter = parameters.Count > 1 ? parameters[1].Identifier.ValueText : null;
-        var eventArgsTypeName = parameters.Count > 1 && parameters[1].Type is { } type
+        var senderParameter = hasEventSignature && parameters.Count > 0 ? parameters[0].Identifier.ValueText : null;
+        var eventArgsParameter = hasEventSignature && parameters.Count > 1 ? parameters[1].Identifier.ValueText : null;
+        var eventArgsTypeName = hasEventSignature && parameters.Count > 1 && parameters[1].Type is { } type
             ? RoslynTypeNameHelper.GetSimpleTypeName(StripNullable(type))
             : "EventArgs";
 

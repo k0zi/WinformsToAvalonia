@@ -460,8 +460,32 @@ rule itself; what follows is what the rule does *not* cover yet.
   where this converter refuses to await; and properties, nested types and everything else
   non-handler, which stay a comment as before.
 
-  A handler that calls a helper is still **never promoted to a ViewModel**, translated helper or
-  not: the helper lives on the View, and moving it as well is a separate decision.
+  A handler that calls a helper **can** be promoted to a ViewModel now, and the helper moves with
+  it. Promotion condition 5 used to refuse any helper call outright; it now asks whether the helper
+  could live there too, by merging the helper's own requirements into the caller's - transitively,
+  cycle-guarded - and running the same six conditions over the union. The pair moves together or
+  not at all.
+
+  That merge is what makes it work at all rather than just makes it stricter. A `Log(string)`
+  helper writing `logTextBox.Text` is often the *only* thing that touches that control, so under a
+  rule that let a helper use only already-bound properties nothing would ever start: the property
+  becomes bindable precisely because the helper's access is counted as the caller's. The same step
+  is what lets `logTextBox.AppendText(x)` qualify - `ControlMethodCatalog` says the Avalonia member
+  it touches is `Text`, which *is* bindable, so the call survives as a property write on the
+  ViewModel while `Focus()` correctly does not.
+
+  Two limits worth knowing:
+  - a helper the analysis cannot read - recursive, expression-bodied, generic, or with a
+    `ref`/`out` parameter - still blocks its caller, now with that as the stated reason;
+  - a helper whose **name** is one the generated class already inherits (`Tag`, `Refresh`,
+    `Close`, ...) is not emitted on either target and blocks its caller too. It would be a CS0108
+    "hides inherited member" warning in the generated project, which this converter's own build
+    cannot see - so `Mapping/ReservedMemberNames` refuses the name instead. Hand-maintained and
+    conservative, like every table here: the tool has no Avalonia reference to reflect over.
+
+  A helper can end up on **both** sides - the View for the handlers that stayed event-driven, the
+  ViewModel for the commands - because the two address the same control differently: a field there,
+  a bound property here.
 - **Promotion is single-control only.** A handler wired to more than one control needs
   `sender` to tell them apart, so it always stays in code-behind - and when the controls'
   Avalonia events have different signatures (a `Button`'s real `Click` vs. a `Label`'s

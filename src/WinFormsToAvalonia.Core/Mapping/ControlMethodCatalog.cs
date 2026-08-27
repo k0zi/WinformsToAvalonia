@@ -1,11 +1,17 @@
 namespace WinFormsToAvalonia.Core.Mapping;
 
 /// <param name="StatementFormat">
-/// The translated statement, as a format string where <c>{0}</c> is the control's field name and
-/// <c>{1}</c>... are the call's translated arguments. A full statement rather than just a call,
-/// because some WinForms methods become a property assignment in Avalonia (<c>Hide()</c> is
-/// <c>IsVisible = false</c>).
+/// The translated statement, as a format string where <c>{0}</c> is the <em>resolved access</em>
+/// to <see cref="AvaloniaMemberName"/> and <c>{1}</c>... are the call's translated arguments. A
+/// full statement rather than just a call, because some WinForms methods become a property
+/// assignment in Avalonia (<c>Hide()</c> is <c>IsVisible = false</c>).
 /// </param>
+/// <remarks>
+/// <c>{0}</c> is the resolved access rather than the field name so that the same entry works
+/// against both targets: on a View it is <c>logTextBox.Text</c>, on a ViewModel the generated
+/// <c>LogTextBoxText</c>. That is only possible for entries whose Avalonia member is a bindable
+/// property; <c>Focus()</c> has no ViewModel form and correctly refuses there.
+/// </remarks>
 /// <param name="AvaloniaMemberName">
 /// The Avalonia member the translation actually touches, which is not always the one the WinForms
 /// method is named after - <c>AppendText</c> reaches <c>Text</c>. This is what decides whether a
@@ -43,31 +49,31 @@ public static class ControlMethodCatalog
     private static readonly IReadOnlyDictionary<string, ControlMethod> UniversalMethods =
         new Dictionary<string, ControlMethod>(StringComparer.Ordinal)
         {
-            ["Focus"] = new("{0}.Focus();", "Focus"),
+            ["Focus"] = new("{0}();", "Focus"),
 
             // WinForms' Select() moves keyboard focus, which is what Focus() does in Avalonia.
-            ["Select"] = new("{0}.Focus();", "Focus"),
+            ["Select"] = new("{0}();", "Focus"),
 
             // Both ask for a repaint; Avalonia spells that InvalidateVisual.
-            ["Invalidate"] = new("{0}.InvalidateVisual();", "InvalidateVisual"),
-            ["Refresh"] = new("{0}.InvalidateVisual();", "InvalidateVisual"),
+            ["Invalidate"] = new("{0}();", "InvalidateVisual"),
+            ["Refresh"] = new("{0}();", "InvalidateVisual"),
 
             // Visibility is a property in Avalonia, not a pair of methods.
-            ["Hide"] = new("{0}.IsVisible = false;", "IsVisible"),
+            ["Hide"] = new("{0} = false;", "IsVisible"),
         };
 
     /// <remarks>Declared before <c>ByControlType</c>: static initializers run in source order.</remarks>
     private static IReadOnlyDictionary<string, ControlMethod> TextBoxMethods { get; } =
         new Dictionary<string, ControlMethod>(StringComparer.Ordinal)
         {
-            ["Clear"] = new("{0}.Clear();", "Clear"),
-            ["SelectAll"] = new("{0}.SelectAll();", "SelectAll"),
+            ["Clear"] = new("{0}();", "Clear"),
+            ["SelectAll"] = new("{0}();", "SelectAll"),
 
             // Avalonia has no AppendText, but appending to the Text property is exactly what it
             // does to the control's contents. The one thing it does not reproduce is the side
             // effect on the caret - WinForms' AppendText also moves it to the end - so this is an
             // equivalence of content rather than of everything the method did.
-            ["AppendText"] = new("{0}.Text += {1};", "Text", ArgumentCount: 1),
+            ["AppendText"] = new("{0} += {1};", "Text", ArgumentCount: 1),
         };
 
     private static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, ControlMethod>> ByControlType =

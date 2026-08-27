@@ -96,4 +96,39 @@ public static class BindablePropertyCatalog
 
         return UniversalProperties.TryGetValue(propertyName, out property);
     }
+
+    /// <summary>
+    /// The same lookup from the other end: is *this Avalonia property* one this catalog considers
+    /// bindable on this control? Needed because a control method can translate into a property
+    /// write (<c>AppendText</c> into <c>Text</c>), and what decides whether that survives on a
+    /// ViewModel is the property, not the method it came from.
+    /// </summary>
+    /// <param name="winFormsPropertyName">
+    /// The WinForms property this entry is keyed under - <c>Visible</c> for Avalonia's
+    /// <c>IsVisible</c>. Needed because a designer value is stored under the WinForms name.
+    /// </param>
+    public static bool TryGetByAvaloniaName(
+        string winFormsControlTypeName,
+        string avaloniaPropertyName,
+        out BindableProperty property,
+        out string winFormsPropertyName)
+    {
+        var candidates = ByControlType.TryGetValue(winFormsControlTypeName, out var typeProperties)
+            ? typeProperties.Concat(UniversalProperties)
+            : UniversalProperties;
+
+        foreach (var (name, candidate) in candidates)
+        {
+            if (candidate.AvaloniaPropertyName == avaloniaPropertyName)
+            {
+                property = candidate;
+                winFormsPropertyName = name;
+                return true;
+            }
+        }
+
+        property = default;
+        winFormsPropertyName = "";
+        return false;
+    }
 }

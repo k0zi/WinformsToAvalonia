@@ -30,8 +30,13 @@ dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
 ./samples/convert.sh
 ```
 
-Integration tests shell out to `dotnet build` on generated output in a temp dir, so they are
-slow and need the SDK on `PATH`; `dotnet test` on the solution runs them.
+Integration tests shell out to `dotnet build` - and, for the startup smoke tests, `dotnet run` -
+on generated output in a temp dir, so they are slow and need the SDK on `PATH`; `dotnet test` on
+the solution runs them. Their assembly caps xUnit at two parallel threads on purpose: those child
+processes share one NuGet cache and MSBuild node pool, and at full parallelism they fight
+(MSB3026/MSB4018) and fail at random. **Never diagnose this suite with `-v q`** - it hides the
+build output the assertions put in their failure message, which is the only evidence of what
+actually broke.
 
 ## Architecture
 

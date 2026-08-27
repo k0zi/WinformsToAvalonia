@@ -20,6 +20,8 @@ namespace HelperMethodApp
             this.saveButton = new System.Windows.Forms.Button();
             this.statusLabel = new System.Windows.Forms.Label();
             this.itemsTreeView = new System.Windows.Forms.TreeView();
+            this.tagButton = new System.Windows.Forms.Button();
+            this.tagLabel = new System.Windows.Forms.Label();
             this.SuspendLayout();
             //
             // startButton
@@ -71,7 +73,18 @@ namespace HelperMethodApp
             this.Controls.Add(this.warnButton);
             this.Controls.Add(this.saveButton);
             this.Controls.Add(this.statusLabel);
+            this.tagButton.Location = new System.Drawing.Point(300, 12);
+            this.tagButton.Name = "tagButton";
+            this.tagButton.Size = new System.Drawing.Size(90, 28);
+            this.tagButton.Text = "Tag";
+            this.tagButton.Click += new System.EventHandler(this.tagButton_Click);
+            this.tagLabel.Location = new System.Drawing.Point(300, 48);
+            this.tagLabel.Name = "tagLabel";
+            this.tagLabel.Size = new System.Drawing.Size(120, 23);
+            this.tagLabel.Text = "untagged";
             this.Controls.Add(this.itemsTreeView);
+            this.Controls.Add(this.tagButton);
+            this.Controls.Add(this.tagLabel);
             this.Name = "MainForm";
             this.Text = "Helper methods";
             this.ResumeLayout(false);
@@ -82,5 +95,7 @@ namespace HelperMethodApp
         private System.Windows.Forms.Button saveButton;
         private System.Windows.Forms.Label statusLabel;
         private System.Windows.Forms.TreeView itemsTreeView;
+        private System.Windows.Forms.Button tagButton;
+        private System.Windows.Forms.Label tagLabel;
     }
 }

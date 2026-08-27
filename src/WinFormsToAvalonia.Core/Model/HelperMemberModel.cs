@@ -19,12 +19,17 @@ public enum HelperMemberKind
 /// each as written. Null for every other member kind - and for a method whose shape puts it out
 /// of reach before anything is even attempted (generic, or with ref/out parameters).
 /// </param>
+/// <param name="Facts">
+/// For a method, what its body touches - the same analysis a handler's body gets, so a handler
+/// that calls it can answer for the helper's requirements as if they were its own.
+/// </param>
 public sealed record HelperMemberModel(
     string Name,
     HelperMemberKind Kind,
     string SourceText,
     HelperMethodSignature? Signature = null,
-    HelperFieldInfo? Field = null);
+    HelperFieldInfo? Field = null,
+    HandlerMethodModel? Facts = null);
 
 /// <summary>
 /// A private backing field of the original Form. Null unless the field's shape is one the

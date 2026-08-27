@@ -30,7 +30,20 @@ namespace HelperMethodApp
             this.statusLabel.Text = "Saved";
         }
 
+        // Everything this pair touches is bindable, so the handler and its helper move to the
+        // ViewModel together - the relaxed promotion condition 5.
+        private void tagButton_Click(object sender, EventArgs e)
+        {
+            Announce("done");
+        }
+
         // ---- helpers -------------------------------------------------------------------
+
+        private void Announce(string what)
+        {
+            this.tagLabel.Text = what;
+        }
+
 
         // The classic pair: a helper maintaining a private flag. Without the field carried over,
         // the helper could not translate - and neither could any handler that calls it.

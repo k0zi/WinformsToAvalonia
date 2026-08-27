@@ -149,8 +149,32 @@ public sealed class HandlerBodyRewriter
     /// has already been proved bindable and planned as an [ObservableProperty].
     /// </summary>
     public RewrittenBody RewriteForViewModel(
-        string body, FormModel formModel, IReadOnlyList<BoundPropertyPlan> boundProperties) =>
-        Rewrite(body, new ViewModelTarget(boundProperties, formModel));
+        string body,
+        FormModel formModel,
+        IReadOnlyList<BoundPropertyPlan> boundProperties,
+        IReadOnlyDictionary<string, HelperCallInfo>? promotedHelpers = null) =>
+        Rewrite(body, new ViewModelTarget(
+            boundProperties, formModel, promotedHelpers ?? new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal)));
+
+    /// <summary>
+    /// A helper method's body against a ViewModel - the shape needed when a promoted command
+    /// calls it, since the helper has to move there too.
+    /// </summary>
+    public RewrittenBody RewriteForViewModelHelper(
+        HelperMethodSignature signature,
+        FormModel formModel,
+        IReadOnlyList<BoundPropertyPlan> boundProperties,
+        IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers)
+    {
+        var target = new ViewModelTarget(boundProperties, formModel, promotedHelpers);
+
+        foreach (var parameterName in signature.ParameterNames)
+        {
+            target.Locals.Declare(parameterName, LocalKind.Value);
+        }
+
+        return Rewrite(signature.BodyText, target);
+    }
 
     /// <summary>
     /// Translates a single *expression* against a ViewModel's properties - what a derived
@@ -170,7 +194,10 @@ public sealed class HandlerBodyRewriter
             return false;
         }
 
-        return TryRewriteExpression(expression, new ViewModelTarget(boundProperties, formModel), out rewritten);
+        return TryRewriteExpression(
+            expression,
+            new ViewModelTarget(boundProperties, formModel, new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal)),
+            out rewritten);
     }
 
     private static RewrittenBody Rewrite(string body, IRewriteTarget target)
@@ -2590,7 +2617,11 @@ public sealed class HandlerBodyRewriter
                 return false;
             }
 
-            statement = string.Format(method.StatementFormat, [fieldName, .. arguments]);
+            // The resolved access, not the field: `logTextBox.Text` here, the generated
+            // `LogTextBoxText` on a ViewModel. Built directly rather than through
+            // TryResolveProperty, because a compound assignment needs an assignable left-hand
+            // side and the read path null-guards.
+            statement = string.Format(method.StatementFormat, [$"{fieldName}.{method.AvaloniaMemberName}", .. arguments]);
             return true;
         }
 
@@ -2610,7 +2641,9 @@ public sealed class HandlerBodyRewriter
     }
 
     private sealed class ViewModelTarget(
-        IReadOnlyList<BoundPropertyPlan> boundProperties, FormModel formModel) : IRewriteTarget
+        IReadOnlyList<BoundPropertyPlan> boundProperties,
+        FormModel formModel,
+        IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers) : IRewriteTarget
     {
         public LocalScope Locals { get; } = new();
 
@@ -2629,12 +2662,33 @@ public sealed class HandlerBodyRewriter
             return false;
         }
 
-        /// <summary>There is no control here to call anything on.</summary>
+        /// <summary>
+        /// Only the entries whose Avalonia member is a property this plan actually bound.
+        /// <c>AppendText</c> qualifies - it is a write to <c>Text</c> wearing a method's clothes -
+        /// while <c>Focus()</c> has no ViewModel form at all and refuses.
+        /// </summary>
         public bool TryResolveControlMethod(
             string fieldName, string methodName, IReadOnlyList<string> arguments, out string statement)
         {
             statement = "";
-            return false;
+
+            if (!formModel.Controls.TryGetValue(fieldName, out var control)
+                || !ControlMethodCatalog.TryGet(control.ClrTypeName, methodName, out var method)
+                || method.ArgumentCount != arguments.Count)
+            {
+                return false;
+            }
+
+            var bound = boundProperties.FirstOrDefault(p =>
+                p.ControlFieldName == fieldName && p.AvaloniaPropertyName == method.AvaloniaMemberName);
+
+            if (bound is null)
+            {
+                return false;
+            }
+
+            statement = string.Format(method.StatementFormat, [bound.ViewModelPropertyName, .. arguments]);
+            return true;
         }
 
         /// <summary>StorageProvider hangs off the TopLevel, which a ViewModel is not.</summary>
@@ -2670,14 +2724,12 @@ public sealed class HandlerBodyRewriter
         public bool SupportsStyleProperty(string fieldName, AvaloniaStyleProperties property) => false;
 
         /// <summary>
-        /// Helpers stay on the View. A handler that calls one is not promoted in the first place,
-        /// so this is unreachable rather than merely unsupported.
+        /// A helper that moved to the ViewModel along with the command that calls it - which is
+        /// only ever the case when the promotion analysis already proved the helper's whole body
+        /// is expressible here.
         /// </summary>
-        public bool TryResolveHelperCall(string methodName, int argumentCount, out HelperCallInfo helper)
-        {
-            helper = null!;
-            return false;
-        }
+        public bool TryResolveHelperCall(string methodName, int argumentCount, out HelperCallInfo helper) =>
+            promotedHelpers.TryGetValue(methodName, out helper!) && helper.ParameterCount == argumentCount;
 
         /// <summary>The Form's own fields stay on the View.</summary>
         public bool IsPromotedField(string name) => false;

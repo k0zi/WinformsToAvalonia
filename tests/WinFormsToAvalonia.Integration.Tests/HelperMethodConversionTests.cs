@@ -60,6 +60,27 @@ public class HelperMethodConversionTests
             // un-migrated with a compiling copy sitting above it.
             Assert.DoesNotContain("SetBusy", text.Split("ORIGINAL WINFORMS MEMBERS")[1].Split("ORIGINAL WINFORMS CODE-BEHIND")[0]);
 
+            // Everything this pair touches is bindable, so the handler and its helper moved to
+            // the ViewModel together - and the helper's own control access is what made the
+            // property bindable at all, since nothing in the handler ever names tagLabel.
+            Assert.True(result.Vfs.TryGetText("ViewModels/MainViewModel.cs", out var viewModel));
+            Assert.Contains("public partial string TagLabelText { get; set; }", viewModel);
+            Assert.Contains("private void TagButton()", viewModel);
+            Assert.Contains("Announce(\"done\");", viewModel);
+            Assert.Contains(
+                """
+                    private void Announce(string what)
+                    {
+                        TagLabelText = what;
+                    }
+                """,
+                viewModel.Replace("\r\n", "\n"));
+
+            // SetBusy stays on the View: it writes a private field, which a ViewModel has no
+            // binding for - so its caller stays in code-behind too.
+            Assert.Contains("private void SetBusy(bool busy)", text);
+            Assert.DoesNotContain("SetBusy", viewModel);
+
             var buildResult = await RunDotnetAsync("build", outputDir);
             Assert.True(
                 buildResult.ExitCode == 0,

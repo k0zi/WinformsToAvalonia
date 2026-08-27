@@ -128,9 +128,45 @@ public sealed class ViewModelEmitter
             }
         }
 
+        foreach (var helper in plan.ViewModelHelpers)
+        {
+            if (!isFirstMember)
+            {
+                Line();
+            }
+
+            isFirstMember = false;
+            EmitViewModelHelper(Line, helper);
+        }
+
         Line("}");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// A code-behind helper that moved here with the command that calls it.
+    /// </summary>
+    /// <remarks>
+    /// No <c>MigrationTodo</c> and no preserved comment: a helper is emitted at all only when its
+    /// whole body translated, so there is nothing left to report. The View keeps its own copy for
+    /// the handlers that stayed event-driven - two translations of one method, because the two
+    /// sides address the same control differently (a field here, a bound property there).
+    /// </remarks>
+    private static void EmitViewModelHelper(Action<string> line, PromotedHelperPlan helper)
+    {
+        var asyncModifier = helper.IsAsync ? "async " : "";
+        var returnType = helper.IsAsync ? "Task" : helper.ReturnTypeText;
+
+        line($"    private {asyncModifier}{returnType} {helper.Name}{helper.ParameterListText}");
+        line("    {");
+
+        foreach (var statement in helper.Rewrite.MigratedStatements)
+        {
+            line(Indent(statement, "        "));
+        }
+
+        line("    }");
     }
 
     private static string Indent(string text, string indent) =>

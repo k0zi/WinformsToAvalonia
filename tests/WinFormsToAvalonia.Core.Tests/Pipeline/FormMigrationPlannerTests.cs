@@ -233,19 +233,150 @@ public class FormMigrationPlannerTests
             }
             """);
 
-        // The helper's whole body translates, so it is emitted as real code and disappears from
-        // the preserved comment block - the handler that calls it translates too.
-        Assert.Equal(["SetBusy"], plan.PromotedHelpers.Select(h => h.Name));
-        Assert.Equal(["loginButton.IsEnabled = !busy;"], plan.PromotedHelpers[0].Rewrite.MigratedStatements);
-        Assert.Empty(plan.PreservedMembers);
+        // Everything the helper touches is bindable, so the handler and the helper move to the
+        // ViewModel together - which is what relaxing promotion condition 5 buys.
+        var command = Assert.Single(plan.ViewModelCommands);
+        Assert.Equal(["SetBusy(true);"], command.Rewrite!.MigratedStatements);
 
-        var handler = Assert.Single(plan.CodeBehindHandlers);
-        Assert.Equal(["SetBusy(true);"], handler.Rewrite!.MigratedStatements);
+        var helper = Assert.Single(plan.ViewModelHelpers);
+        Assert.Equal("SetBusy", helper.Name);
+        Assert.Equal(["LoginButtonIsEnabled = !busy;"], helper.Rewrite.MigratedStatements);
 
-        // Promotion to a ViewModel is still refused: the helper lives on the View, and moving it
-        // as well is a separate decision this planner does not make.
+        // The helper's own control access is what made that property bindable at all - nothing in
+        // the handler itself ever names loginButton.
+        Assert.Contains(plan.BoundProperties, p => p.ViewModelPropertyName == "LoginButtonIsEnabled");
+        Assert.Empty(plan.CodeBehindHandlers);
+    }
+
+    /// <summary>
+    /// A helper whose translation is a property write wearing a method's clothes:
+    /// <c>AppendText</c> is a write to <c>Text</c>, so it survives on a ViewModel where
+    /// <c>Focus()</c> would not.
+    /// </summary>
+    [Fact]
+    public void Plan_HelperCallingAControlMethodThatIsReallyAPropertyWrite_MovesToTheViewModel()
+    {
+        var formModel = FormWith(("okButton", "Button"), ("logTextBox", "TextBox"));
+        Wire(formModel, "okButton", "Click", "okButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void okButton_Click(object sender, EventArgs e)
+                    {
+                        Log("clicked");
+                    }
+
+                    private void Log(string message)
+                    {
+                        logTextBox.AppendText(message);
+                    }
+                }
+            }
+            """);
+
+        Assert.Single(plan.ViewModelCommands);
+        var helper = Assert.Single(plan.ViewModelHelpers);
+        Assert.Equal(["LogTextBoxText += message;"], helper.Rewrite.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The relaxed condition 5 is still a condition: a helper reaching something a ViewModel has
+    /// no answer for keeps its caller in code-behind, exactly as before.
+    /// </summary>
+    [Fact]
+    public void Plan_HelperTouchingSomethingUnbindable_StillBlocksItsCaller()
+    {
+        var formModel = FormWith(("okButton", "Button"), ("treeView1", "TreeView"));
+        Wire(formModel, "okButton", "Click", "okButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void okButton_Click(object sender, EventArgs e)
+                    {
+                        Refresh1();
+                    }
+
+                    private void Refresh1()
+                    {
+                        treeView1.Nodes.Clear();
+                    }
+                }
+            }
+            """);
+
         Assert.Empty(plan.ViewModelCommands);
-        Assert.Contains(plan.Warnings, w => w.Contains("SetBusy"));
+        Assert.Empty(plan.ViewModelHelpers);
+        Assert.Contains(plan.Warnings, w => w.Contains("treeView1.Nodes"));
+    }
+
+    /// <summary>
+    /// A helper whose name is already taken by the generated class's base type cannot be emitted
+    /// on either target - so it counts as unanalysable, and its caller stays in code-behind rather
+    /// than being promoted into a call that reaches nothing.
+    /// </summary>
+    [Fact]
+    public void Plan_HelperNamedLikeAnInheritedMember_IsNotPromotedAnywhere()
+    {
+        var formModel = FormWith(("okButton", "Button"), ("statusLabel", "Label"));
+        Wire(formModel, "okButton", "Click", "okButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void okButton_Click(object sender, EventArgs e)
+                    {
+                        Tag("done");
+                    }
+
+                    private void Tag(string what)
+                    {
+                        statusLabel.Text = what;
+                    }
+                }
+            }
+            """);
+
+        Assert.Empty(plan.ViewModelCommands);
+        Assert.Empty(plan.ViewModelHelpers);
+        Assert.Empty(plan.PromotedHelpers);
+        Assert.Equal(["Tag"], plan.PreservedMembers.Select(m => m.Name));
+    }
+
+    /// <summary>A helper driving the Form itself takes its caller down with it.</summary>
+    [Fact]
+    public void Plan_HelperDrivingTheForm_StillBlocksItsCaller()
+    {
+        var formModel = FormWith(("okButton", "Button"));
+        Wire(formModel, "okButton", "Click", "okButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void okButton_Click(object sender, EventArgs e)
+                    {
+                        Finish();
+                    }
+
+                    private void Finish()
+                    {
+                        this.Close();
+                    }
+                }
+            }
+            """);
+
+        Assert.Empty(plan.ViewModelCommands);
+        Assert.Contains(plan.Warnings, w => w.Contains("drives the Form itself"));
     }
 
     /// <summary>

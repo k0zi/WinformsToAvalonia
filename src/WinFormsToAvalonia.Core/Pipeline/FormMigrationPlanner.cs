@@ -65,6 +65,11 @@ public sealed class FormMigrationPlanner
         var boundProperties = new List<BoundPropertyPlan>();
         var seenBoundProperties = new HashSet<(string Control, string Property)>();
 
+        // Helpers that a promoted command reaches. They have to move to the ViewModel with it -
+        // and their control accesses count towards its bound properties, which is what lets a
+        // `Log(...)` helper make `logTextBox.Text` bindable in the first place.
+        var viewModelHelperNames = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var (handlerMethodName, subscriptions) in subscriptionsByHandler)
         {
             var source = codeBehind.FindHandler(handlerMethodName);
@@ -75,10 +80,13 @@ public sealed class FormMigrationPlanner
                     $"'{Path.GetFileName(codeBehind.OriginalFilePath)}' - emitted as an empty stub.");
             }
 
-            if (TryPlanCommand(formModel, handlerMethodName, subscriptions, source, out var command, out var reason))
+            var reachedHelpers = new HashSet<string>(StringComparer.Ordinal);
+            var effective = source is null ? null : Inlined(source, codeBehind, out reachedHelpers);
+            if (TryPlanCommand(formModel, handlerMethodName, subscriptions, source, effective, out var command, out var reason))
             {
                 viewModelCommands.Add(command);
-                AddBoundProperties(formModel, source!, boundProperties, seenBoundProperties);
+                AddBoundProperties(formModel, effective!, boundProperties, seenBoundProperties);
+                viewModelHelperNames.UnionWith(reachedHelpers);
                 continue;
             }
 
@@ -126,6 +134,15 @@ public sealed class FormMigrationPlanner
             h => new HelperCallInfo(CountParameters(h.ParameterListText), h.IsAsync),
             StringComparer.Ordinal);
 
+        // The helpers a promoted command reaches move to the ViewModel with it. Their bodies are
+        // expressible there by construction: the promotion analysis above already merged each
+        // helper's control accesses into the caller's and required every one to be bindable.
+        var viewModelHelpers = PlanViewModelHelpers(codeBehind, formModel, boundProperties, viewModelHelperNames, rewriter);
+        var viewModelHelperCalls = viewModelHelpers.ToDictionary(
+            h => h.Name,
+            h => new HelperCallInfo(CountParameters(h.ParameterListText), h.IsAsync),
+            StringComparer.Ordinal);
+
         var rewrittenHandlers = ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings)
             .Select(h => h.Rewrite is not null
                 // Already synthesized (a designer-set DialogResult) - there is no original body
@@ -148,13 +165,17 @@ public sealed class FormMigrationPlanner
         return new FormMigrationPlan(
             rewrittenHandlers,
             [.. viewModelCommands
-                .Select(c => c with { Rewrite = rewriter.RewriteForViewModel(c.OriginalBody, formModel, boundProperties) })],
+                .Select(c => c with
+                {
+                    Rewrite = rewriter.RewriteForViewModel(c.OriginalBody, formModel, boundProperties, viewModelHelperCalls),
+                })],
             boundProperties,
             timers,
             components,
             PlanFileDialogs(formModel, inlinedDialogFields),
             promotedFields,
             promotedHelpers,
+            viewModelHelpers,
             // A member that became real code must not *also* appear in the preserved comment
             // block: it would read as un-migrated while a compiling copy sits above it.
             [.. codeBehind.HelperMembers.Where(m =>
@@ -248,6 +269,63 @@ public sealed class FormMigrationPlanner
     }
 
     /// <summary>
+    /// The helper methods a promoted command calls, translated against the ViewModel.
+    /// </summary>
+    /// <remarks>
+    /// No fixed point here, unlike the View-side round. The promotion decision already answered
+    /// the hard question - every control member the helper touches was merged into its caller's
+    /// and checked against the bindable catalog - so a helper that reaches this point translates,
+    /// and one that somehow does not simply drops out along with its caller's promotion.
+    /// </remarks>
+    private static List<PromotedHelperPlan> PlanViewModelHelpers(
+        CodeBehindModel codeBehind,
+        FormModel formModel,
+        IReadOnlyList<BoundPropertyPlan> boundProperties,
+        IReadOnlySet<string> names,
+        HandlerBodyRewriter rewriter)
+    {
+        var promoted = new List<PromotedHelperPlan>();
+        var byName = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal);
+
+        // Order-independent within a round, so a helper calling another needs a second pass.
+        var candidates = codeBehind.HelperMembers
+            .Where(m => names.Contains(m.Name)
+                && m.Signature is not null
+                && IsPlainDotNetSignature(m.Signature!)
+                && !ReservedMemberNames.IsReserved(m.Name))
+            .ToList();
+
+        for (var round = 0; round < candidates.Count; round++)
+        {
+            var promotedThisRound = false;
+
+            foreach (var candidate in candidates.Where(c => !byName.ContainsKey(c.Name)).ToList())
+            {
+                var signature = candidate.Signature!;
+                var rewrite = rewriter.RewriteForViewModelHelper(signature, formModel, boundProperties, byName);
+
+                if (rewrite.RemainingBody.Length > 0 || (rewrite.RequiresAsync && signature.ReturnTypeText != "void"))
+                {
+                    continue;
+                }
+
+                promoted.Add(new PromotedHelperPlan(
+                    candidate.Name, signature.ReturnTypeText, signature.ParameterListText, rewrite,
+                    signature.IsAsync || rewrite.RequiresAsync));
+                byName[candidate.Name] = new HelperCallInfo(signature.ParameterNames.Count, signature.IsAsync || rewrite.RequiresAsync);
+                promotedThisRound = true;
+            }
+
+            if (!promotedThisRound)
+            {
+                break;
+            }
+        }
+
+        return promoted;
+    }
+
+    /// <summary>
     /// The Form's own private fields, carried over as real code.
     /// </summary>
     /// <remarks>
@@ -309,6 +387,9 @@ public sealed class FormMigrationPlanner
         var candidates = codeBehind.HelperMembers
             .Where(m => m.Kind == HelperMemberKind.Method && m.Signature is not null)
             .Where(m => IsPlainDotNetSignature(m.Signature!))
+            // A helper called `Tag` or `Refresh` would land beside the member the generated class
+            // already inherits - CS0108 in the generated project, which this build cannot see.
+            .Where(m => !ReservedMemberNames.IsReserved(m.Name))
             .ToList();
 
         var promoted = new List<PromotedHelperPlan>();
@@ -575,11 +656,16 @@ public sealed class FormMigrationPlanner
         return byHandler;
     }
 
+    /// <param name="effective">
+    /// <paramref name="source"/>'s own requirements merged with those of every helper it calls -
+    /// what has to hold for the handler *and* its helpers to live on a ViewModel together.
+    /// </param>
     private bool TryPlanCommand(
         FormModel formModel,
         string handlerMethodName,
         List<EventSubscriptionPlan> subscriptions,
         HandlerMethodModel? source,
+        HandlerMethodModel? effective,
         out ViewModelCommandPlan command,
         out string? reason)
     {
@@ -607,11 +693,15 @@ public sealed class FormMigrationPlanner
             return false;
         }
 
-        if (source is null)
+        if (source is null || effective is null)
         {
             reason = "its body could not be found in the code-behind file, so there is no evidence it is bindable.";
             return false;
         }
+
+        // From here on the question is about the handler *and* every helper it calls, because
+        // they move together or not at all.
+        source = effective;
 
         if (source.UsesSender)
         {
@@ -644,9 +734,13 @@ public sealed class FormMigrationPlanner
             return false;
         }
 
+        // What survives the merge is the helpers whose bodies could not be analysed at all - a
+        // recursive one, or a shape DescribeHelperMethod refuses. Everything else has already
+        // been folded into the facts above.
         if (source.CalledHelperMethods.Count > 0)
         {
-            reason = $"it calls the code-behind helper(s) {string.Join(", ", source.CalledHelperMethods)}.";
+            reason = $"it calls the code-behind helper(s) {string.Join(", ", source.CalledHelperMethods)}, "
+                + "whose bodies this converter cannot analyse.";
             return false;
         }
 
@@ -666,7 +760,7 @@ public sealed class FormMigrationPlanner
 
             foreach (var member in members)
             {
-                if (!BindablePropertyCatalog.TryGet(control.ClrTypeName, member, out _))
+                if (!IsBindableFromAViewModel(control.ClrTypeName, member))
                 {
                     reason = $"it uses '{fieldName}.{member}', which has no bindable Avalonia equivalent.";
                     return false;
@@ -682,6 +776,122 @@ public sealed class FormMigrationPlanner
             source.IsAsync);
 
         return true;
+    }
+
+    /// <summary>
+    /// Whether a member a body names can be expressed against a ViewModel property.
+    /// </summary>
+    /// <remarks>
+    /// Two ways in. Most are bindable properties outright. The rest are the control *methods*
+    /// whose Avalonia counterpart is itself a bindable property - <c>AppendText</c> is a write to
+    /// <c>Text</c> wearing a method's clothes, and <c>Hide()</c> a write to <c>IsVisible</c>.
+    /// <c>Focus()</c> is not, and correctly keeps its handler in code-behind.
+    /// </remarks>
+    private static bool IsBindableFromAViewModel(string controlTypeName, string memberName) =>
+        TryResolveBindable(controlTypeName, memberName, out _, out _);
+
+    /// <param name="winFormsPropertyName">
+    /// The WinForms *property* the member ultimately names, which is what a designer value has to
+    /// be looked up under - `AppendText` has no designer value, `Text` does.
+    /// </param>
+    private static bool TryResolveBindable(
+        string controlTypeName,
+        string memberName,
+        out BindablePropertyCatalog.BindableProperty bindable,
+        out string winFormsPropertyName)
+    {
+        if (BindablePropertyCatalog.TryGet(controlTypeName, memberName, out bindable))
+        {
+            winFormsPropertyName = memberName;
+            return true;
+        }
+
+        if (ControlMethodCatalog.TryGet(controlTypeName, memberName, out var method))
+        {
+            return BindablePropertyCatalog.TryGetByAvaloniaName(
+                controlTypeName, method.AvaloniaMemberName, out bindable, out winFormsPropertyName);
+        }
+
+        winFormsPropertyName = "";
+        return false;
+    }
+
+    /// <summary>
+    /// A handler's own requirements plus those of every helper it calls, transitively.
+    /// </summary>
+    /// <remarks>
+    /// Promotion asks whether a body could live on a ViewModel. A body that calls a helper is
+    /// really asking that of both, since the helper has to move with it - so the helper's facts
+    /// are merged in as if it were inlined. What is left in <c>CalledHelperMethods</c> afterwards
+    /// is exactly the helpers that could not be analysed, which still block. Cycle-guarded, so a
+    /// recursive helper contributes once and then reports itself as unanalysable.
+    /// </remarks>
+    private static HandlerMethodModel Inlined(
+        HandlerMethodModel source, CodeBehindModel codeBehind, out HashSet<string> reachedHelpers)
+    {
+        reachedHelpers = new HashSet<string>(StringComparer.Ordinal);
+
+        var usesSender = source.UsesSender;
+        var usesEventArgs = source.UsesEventArgs;
+        var createsOtherForms = source.CreatesOtherForms;
+        var needsTopLevel = source.NeedsTopLevel;
+        var touchedFormMembers = new SortedSet<string>(source.TouchedFormMembers, StringComparer.Ordinal);
+        var unanalysable = new SortedSet<string>(StringComparer.Ordinal);
+        var accesses = source.ControlMemberAccesses.ToDictionary(
+            kvp => kvp.Key, kvp => new List<string>(kvp.Value), StringComparer.Ordinal);
+
+        var pending = new Queue<string>(source.CalledHelperMethods);
+        while (pending.Count > 0)
+        {
+            var name = pending.Dequeue();
+            if (!reachedHelpers.Add(name))
+            {
+                continue;
+            }
+
+            // A reserved name counts as unanalysable here on purpose: the helper cannot be emitted
+            // on either target, so promoting its caller would leave the call with nothing to reach.
+            if (ReservedMemberNames.IsReserved(name)
+                || codeBehind.HelperMembers.FirstOrDefault(m => m.Name == name) is not { Facts: { } facts, Signature: not null })
+            {
+                unanalysable.Add(name);
+                continue;
+            }
+
+            usesSender |= facts.UsesSender;
+            usesEventArgs |= facts.UsesEventArgs;
+            createsOtherForms |= facts.CreatesOtherForms;
+            needsTopLevel |= facts.NeedsTopLevel;
+            touchedFormMembers.UnionWith(facts.TouchedFormMembers);
+
+            foreach (var (fieldName, members) in facts.ControlMemberAccesses)
+            {
+                if (!accesses.TryGetValue(fieldName, out var merged))
+                {
+                    merged = [];
+                    accesses[fieldName] = merged;
+                }
+
+                merged.AddRange(members.Where(m => !merged.Contains(m, StringComparer.Ordinal)));
+            }
+
+            foreach (var nested in facts.CalledHelperMethods)
+            {
+                pending.Enqueue(nested);
+            }
+        }
+
+        return source with
+        {
+            UsesSender = usesSender,
+            UsesEventArgs = usesEventArgs,
+            CreatesOtherForms = createsOtherForms,
+            NeedsTopLevel = needsTopLevel,
+            TouchedFormMembers = [.. touchedFormMembers],
+            CalledHelperMethods = [.. unanalysable],
+            ControlMemberAccesses = accesses.ToDictionary(
+                kvp => kvp.Key, kvp => (IReadOnlyList<string>)kvp.Value, StringComparer.Ordinal),
+        };
     }
 
     /// <summary>
@@ -917,7 +1127,11 @@ public sealed class FormMigrationPlanner
 
             foreach (var member in members)
             {
-                if (!BindablePropertyCatalog.TryGet(control.ClrTypeName, member, out var bindable)
+                // A member is either a bindable property outright, or a control *method* whose
+                // Avalonia counterpart is one - `AppendText` binds `Text`, `Hide()` binds
+                // `IsVisible`. Both have to produce the same [ObservableProperty], or a helper
+                // that only ever calls the method would leave nothing for its body to name.
+                if (!TryResolveBindable(control.ClrTypeName, member, out var bindable, out var propertyName)
                     || !seen.Add((fieldName, bindable.AvaloniaPropertyName)))
                 {
                     continue;
@@ -928,7 +1142,7 @@ public sealed class FormMigrationPlanner
                     bindable.AvaloniaPropertyName,
                     $"{NamingConventions.Capitalize(fieldName)}{bindable.AvaloniaPropertyName}",
                     bindable.ClrTypeName,
-                    DeriveInitializer(control, member, bindable.DefaultValueSuffix)));
+                    DeriveInitializer(control, propertyName, bindable.DefaultValueSuffix)));
             }
         }
     }
