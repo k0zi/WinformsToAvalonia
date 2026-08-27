@@ -185,9 +185,12 @@ contributors know what to expect and where to look before filing a duplicate iss
   a `Panel` (what every WinForms container maps to) has a Background but no Foreground and no
   font properties, and an `Image` (the `PictureBox` target) has none of them - emitting one
   anyway would be an AVLN2000 in the generated project. Consequences worth knowing:
-  - a **fallback control** gets no styling at all (its template does not necessarily expose
-    those properties - the same reasoning that stops fallback controls being event-wired), and
-    neither does a generated **UserControl** View element;
+  - a **fallback control** gets no styling from the *designer* (a template does not necessarily
+    expose those properties - the same reasoning that stops fallback controls being event-wired),
+    and neither does a generated **UserControl** View element. A translated *handler* is the one
+    exception, and only for what `FallbackControlMemberSupport` says the template really has:
+    that is how a `FontDialog` result reaches a `RichTextBox`, which derives from Avalonia's
+    `TextBox` and so inherits the four font properties for real;
   - a **new mapper target** gets no styling until its element name is added to that table;
   - a value `ExpressionEvaluator` cannot resolve to a literal (a computed color, a resx
     lookup, a `SystemColors` name outside the table) emits **nothing** rather than a guess;
@@ -596,7 +599,8 @@ rule itself; what follows is what the rule does *not* cover yet.
   no event wiring, no item children - because a template need not have the member a mapping
   names. Catalog members are the one safe exception, since these templates ship in this repo:
   `RichTextBoxFallback` and `MaskedTextBoxFallback` derive from Avalonia's `TextBox`, so their
-  `Text`, `Clear()` and `SelectAll()` are known facts. A template absent from that table behaves as before, and a binding
+  `Text`, `Clear()`, `SelectAll()` and the four font properties they inherit from
+  `TemplatedControl` are known facts. A template absent from that table behaves as before, and a binding
   dropped because of it is reported rather than emitted as a broken attribute.
 - **`CanExecute` is derived, but only from the one shape that provably means a guard.** A handler
   whose *entire body* is `someButton.Enabled = <condition>;`, that ignores sender/EventArgs, is

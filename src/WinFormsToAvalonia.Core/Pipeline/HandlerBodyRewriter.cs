@@ -3058,6 +3058,16 @@ public sealed class HandlerBodyRewriter
             }
 
             var mapped = controlMappings.Map(control);
+
+            // A bundled template is not a Direct mapping, but it is *ours*: what it exposes is a
+            // known fact, the same argument that lets a fallback carry a bindable property.
+            if (mapped.Status == MappingStatus.Fallback)
+            {
+                var members = AvaloniaStylePropertySupport.MemberNamesOf(property);
+                return members.Count > 0
+                    && members.All(m => FallbackControlMemberSupport.Exposes(mapped.FallbackTemplateKey, m));
+            }
+
             return mapped.Status == MappingStatus.Direct
                 && AvaloniaStylePropertySupport.Supports(mapped.AvaloniaElementName, property);
         }

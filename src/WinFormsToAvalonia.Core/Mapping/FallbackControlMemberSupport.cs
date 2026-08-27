@@ -6,11 +6,14 @@ namespace WinFormsToAvalonia.Core.Mapping;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Everything else about fallback controls is deliberately conservative - they get no styling, no
+/// Everything else about fallback controls is deliberately conservative - no designer styling, no
 /// event wiring, no item children - because a template does not necessarily have the property a
-/// mapping names, and a wrong attribute is an AVLN error in the generated project. Bindable
-/// properties are the one case where that caution can be lifted safely: these templates are
-/// *ours*, shipped in this repo, so what they expose is a known fact rather than a guess.
+/// mapping names, and a wrong attribute is an AVLN error in the generated project. What a
+/// *translated body* touches is the one case where that caution can be lifted safely: these
+/// templates are ours, shipped in this repo, so what they expose is a known fact rather than a
+/// guess. That covers the style groups too, via
+/// <see cref="AvaloniaStylePropertySupport.MemberNamesOf"/> - a group is writable on a template
+/// only when every member it is made of is listed here.
 /// </para>
 /// <para>
 /// Only the entries below are known. Anything absent behaves exactly as before - the member is
@@ -21,7 +24,14 @@ namespace WinFormsToAvalonia.Core.Mapping;
 public static class FallbackControlMemberSupport
 {
     private static IReadOnlySet<string> TextBoxMembers { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { "Text", "Clear", "SelectAll" };
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Text", "Clear", "SelectAll",
+
+            // Inherited from TemplatedControl by way of TextBox, so a font really can be written
+            // to one of these - which is what lets a FontDialog result reach a RichTextBox.
+            "FontFamily", "FontSize", "FontWeight", "FontStyle",
+        };
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> MembersByTemplateKey =
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)

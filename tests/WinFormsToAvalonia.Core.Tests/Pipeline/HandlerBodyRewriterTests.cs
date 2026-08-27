@@ -2409,28 +2409,6 @@ public class HandlerBodyRewriterTests
         Assert.Contains("FontDialogFallback", result.RequiredFallbackKeys);
     }
 
-    /// <summary>
-    /// A fallback control gets no styling anywhere in this converter, so a font landing on one is
-    /// refused even though the dialog itself translated - and the whole `if` goes with it.
-    /// </summary>
-    [Fact]
-    public void RewriteForView_FontDialogOntoAFallbackControl_IsNotMigrated()
-    {
-        var form = FormWith(("fontDialog1", "FontDialog"), ("notesRichTextBox", "RichTextBox"));
-
-        var result = Rewriter.RewriteForView(
-            """
-            if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
-            {
-                this.notesRichTextBox.Font = this.fontDialog1.Font;
-            }
-            """,
-            form,
-            Navigation());
-
-        Assert.Empty(result.MigratedStatements);
-    }
-
     /// <summary>The selection is a pattern variable, so it cannot outlive its branch.</summary>
     [Fact]
     public void RewriteForView_ColorUsedAfterTheDialogBranch_IsNotMigrated()
@@ -2601,6 +2579,56 @@ public class HandlerBodyRewriterTests
 
         Assert.Equal(["statusLabel.Text = \"closing\";"], result.MigratedStatements);
         Assert.False(result.RequiresAsync);
+    }
+
+    /// <summary>
+    /// A bundled template is not a Direct mapping, but it *is* ours - so what it exposes is a
+    /// known fact rather than a guess, and a RichTextBox (a TextBox-derived fallback) really does
+    /// inherit the four font properties a WinForms Font becomes.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_FontOntoAFallbackControl_IsTranslated()
+    {
+        var form = FormWith(("notesRichTextBox", "RichTextBox"), ("fontDialog1", "FontDialog"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.notesRichTextBox.Font = this.fontDialog1.Font;
+            }
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", SourceControlFieldNames: []));
+
+        var body = Assert.Single(result.MigratedStatements);
+        Assert.Contains("notesRichTextBox.FontFamily = fontDialog1Font.Family;", body);
+        Assert.Contains("notesRichTextBox.FontSize = fontDialog1Font.Size;", body);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>
+    /// A template that does not expose the group keeps refusing - the table is a whitelist, and
+    /// a font written onto an element that has none is an error in the generated project.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_FontOntoAFallbackThatDoesNotExposeIt_IsNotMigrated()
+    {
+        var form = FormWith(("toolStrip1", "ToolStrip"), ("fontDialog1", "FontDialog"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.toolStrip1.Font = this.fontDialog1.Font;
+            }
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", SourceControlFieldNames: []));
+
+        Assert.Empty(result.MigratedStatements);
     }
 
     // ---- Null-conditional and null-coalescing -------------------------------------------------

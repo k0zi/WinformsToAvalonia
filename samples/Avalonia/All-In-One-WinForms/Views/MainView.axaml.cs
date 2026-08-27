@@ -338,15 +338,15 @@ public partial class MainView : Window
         }
     }
 
-    private void fontButton_Click(object? sender, RoutedEventArgs e)
+    private async void fontButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'fontButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
+        if (await FontDialogFallback.ShowAsync(this) is { } fontDialog1Font)
         {
-            this.notesRichTextBox.Font = this.fontDialog1.Font;
+            notesRichTextBox.FontFamily = fontDialog1Font.Family;
+            notesRichTextBox.FontSize = fontDialog1Font.Size;
+            notesRichTextBox.FontWeight = fontDialog1Font.Weight;
+            notesRichTextBox.FontStyle = fontDialog1Font.Style;
         }
-        */
-        MigrationTodo.NotMigrated(nameof(fontButton_Click), "fontButton_Click");
     }
 
     private void printButton_Click(object? sender, RoutedEventArgs e)

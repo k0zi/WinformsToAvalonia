@@ -100,4 +100,21 @@ public static class AvaloniaStylePropertySupport
 
     public static bool Supports(string? avaloniaElementName, AvaloniaStyleProperties property) =>
         For(avaloniaElementName).HasFlag(property);
+
+    /// <summary>
+    /// The Avalonia properties one style group is actually made of - what a *fallback* template
+    /// has to expose for the group to be writable on it, since that table is keyed by member.
+    /// </summary>
+    public static IReadOnlyList<string> MemberNamesOf(AvaloniaStyleProperties property) =>
+        property switch
+        {
+            AvaloniaStyleProperties.Background => ["Background"],
+            AvaloniaStyleProperties.Foreground => ["Foreground"],
+            AvaloniaStyleProperties.Font => ["FontFamily", "FontSize", "FontWeight", "FontStyle"],
+            AvaloniaStyleProperties.Padding => ["Padding"],
+            AvaloniaStyleProperties.TextDecorations => ["TextDecorations"],
+
+            // A combination is not one writable thing, so it names nothing.
+            _ => [],
+        };
 }

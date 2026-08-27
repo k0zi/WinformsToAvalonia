@@ -2,13 +2,13 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**74 of 106 handler statements (70%)** came across as real Avalonia code.
+**75 of 106 handler statements (71%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
 runs while you work through this list.
 
-## Methods to migrate (15)
+## Methods to migrate (14)
 
 ### `Views/MainView.axaml.cs`
 
@@ -16,7 +16,6 @@ runs while you work through this list.
 - [ ] `MainForm_Load` — `this.itemsTreeView.Nodes.Add("Documents");`
 - [ ] `contextPanel_DragDrop` — `var files = (string[])e.Data!.GetData(DataFormats.FileDrop)!;`
 - [ ] `dataGridView1_CellClick` — `this.gridInfoLabel.Text = $"Cell clicked: row {e.RowIndex}, column {e.ColumnIndex}";`
-- [ ] `fontButton_Click` — `if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)`
 - [ ] `linkLabel1_LinkClicked` — `this.linkLabel1.LinkVisited = true;`
 - [ ] `pageSetupButton_Click` — `this.pageSetupDialog1.ShowDialog(this);`
 - [ ] `pictureBox1_Paint` — `e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);`

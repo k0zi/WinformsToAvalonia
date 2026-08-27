@@ -23,7 +23,7 @@ dotnet test --filter "DisplayName~ConvertedFixtureProject_BuildsSuccessfullyWith
 # run the tool
 # --source takes a .csproj, or a .sln/.slnx to convert every WinForms project in it at once
 dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--log-file <p>]
-dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source <app.csproj>
+dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source <app.csproj|app.slnx>
 dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
 
 # end-to-end smoke over the real sample app: converts every samples/WinForms/*.csproj into
