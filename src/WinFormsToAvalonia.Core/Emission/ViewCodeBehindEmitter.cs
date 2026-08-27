@@ -162,8 +162,17 @@ public sealed class ViewCodeBehindEmitter
             Line($"    private bool {HandlerBodyRewriter.CloseGuardFieldName};");
         }
 
+        // Avalonia raises some events while the AXAML is still being populated - a TabControl
+        // selects its first tab as it initializes - and the x:Name fields do not exist until
+        // InitializeComponent returns. WinForms had no such window, so a handler firing this
+        // early is an artifact of the conversion rather than something the original did.
+        if (plan.RequiresInitializationGuard)
+        {
+            Line($"    private bool {InitializationGuardFieldName};");
+        }
+
         if (plan.Timers.Count > 0 || plan.Components.Count > 0 || plan.PromotedFields.Count > 0
-            || plan.RequiresCloseGuard)
+            || plan.RequiresCloseGuard || plan.RequiresInitializationGuard)
         {
             Line();
         }
@@ -213,6 +222,13 @@ public sealed class ViewCodeBehindEmitter
             }
 
             Line("        */");
+        }
+
+        // Last, so everything the constructor does still counts as initialization.
+        if (plan.RequiresInitializationGuard)
+        {
+            Line();
+            Line($"        {InitializationGuardFieldName} = true;");
         }
 
         Line("    }");
@@ -297,6 +313,9 @@ public sealed class ViewCodeBehindEmitter
     /// AvaloniaProjectScaffolder.BuildMigrationTodo, including the switch that restores
     /// throwing.
     /// </remarks>
+    /// <summary>The field a handler reads to know the View has finished initializing.</summary>
+    private const string InitializationGuardFieldName = "w2aInitialized";
+
     private static void EmitHandler(Action<string> line, CodeBehindHandlerPlan handler)
     {
         var rewrite = handler.Rewrite;
@@ -304,6 +323,19 @@ public sealed class ViewCodeBehindEmitter
 
         line($"    private {asyncModifier}void {handler.MethodName}(object? sender, {handler.EventArgsTypeName} e)");
         line("    {");
+
+        // The AXAML attribute is wired before the properties it reacts to are set, so this runs
+        // once inside InitializeComponent - before any x:Name field exists. In WinForms the
+        // designer had assigned every control field before anything could raise, so the faithful
+        // answer is to do nothing.
+        if (handler.NeedsInitializationGuard)
+        {
+            line($"        if (!{InitializationGuardFieldName})");
+            line("        {");
+            line("            return;");
+            line("        }");
+            line("");
+        }
 
         foreach (var statement in rewrite?.MigratedStatements ?? [])
         {

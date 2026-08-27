@@ -46,16 +46,22 @@ public sealed class EventMappingRegistry
     /// Declared before <see cref="ControlTypeOverrides"/>, which names them: static initializers
     /// run in source order, and the other way round every entry below would be null.
     /// </remarks>
-    private static EventMapping TextChanged { get; } = new("TextChanged", "TextChanged", "TextChangedEventArgs");
+    /// <remarks>
+    /// All four are <see cref="EventMapping.RaisedDuringInitialization"/>: each fires when its
+    /// property is set, and XAML sets properties <em>after</em> wiring the handler - so every one
+    /// of them runs inside InitializeComponent, before the View has any fields.
+    /// </remarks>
+    private static EventMapping TextChanged { get; } =
+        new("TextChanged", "TextChanged", "TextChangedEventArgs", RaisedDuringInitialization: true);
 
     private static EventMapping IsCheckedChanged { get; } =
-        new("CheckedChanged", "IsCheckedChanged", "RoutedEventArgs");
+        new("CheckedChanged", "IsCheckedChanged", "RoutedEventArgs", RaisedDuringInitialization: true);
 
     private static EventMapping SelectionChanged { get; } =
-        new("SelectedIndexChanged", "SelectionChanged", "SelectionChangedEventArgs");
+        new("SelectedIndexChanged", "SelectionChanged", "SelectionChangedEventArgs", RaisedDuringInitialization: true);
 
     private static EventMapping RangeValueChanged { get; } =
-        new("ValueChanged", "ValueChanged", "RangeBaseValueChangedEventArgs");
+        new("ValueChanged", "ValueChanged", "RangeBaseValueChangedEventArgs", RaisedDuringInitialization: true);
 
     private static readonly Dictionary<(string ControlType, string EventName), EventMapping> ControlTypeOverrides = new()
     {
@@ -90,11 +96,14 @@ public sealed class EventMappingRegistry
         [("TabControl", "SelectedIndexChanged")] = SelectionChanged,
         [("DataGridView", "SelectionChanged")] = SelectionChanged,
         [("TreeView", "AfterSelect")] = new("AfterSelect", "SelectionChanged", "SelectionChangedEventArgs",
+            RaisedDuringInitialization: true,
             Guidance: "Avalonia's TreeView reports selection through SelectionChanged; the selected node is TreeView.SelectedItem, not TreeViewEventArgs.Node."),
 
         // Two different ValueChanged events, with two different args types: a NumericUpDown has
         // its own, everything range-shaped inherits RangeBase's.
-        [("NumericUpDown", "ValueChanged")] = new("ValueChanged", "ValueChanged", "NumericUpDownValueChangedEventArgs"),
+        [("NumericUpDown", "ValueChanged")] = new(
+            "ValueChanged", "ValueChanged", "NumericUpDownValueChangedEventArgs",
+            RaisedDuringInitialization: true),
         [("TrackBar", "ValueChanged")] = RangeValueChanged,
         [("ProgressBar", "ValueChanged")] = RangeValueChanged,
         [("HScrollBar", "ValueChanged")] = RangeValueChanged,

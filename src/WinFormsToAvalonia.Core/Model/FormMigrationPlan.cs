@@ -41,6 +41,14 @@ public sealed record CodeBehindHandlerPlan(
     public string RemainingBody => Rewrite?.RemainingBody ?? OriginalBody;
 
     /// <summary>
+    /// True when Avalonia can raise this handler <em>during</em> <c>InitializeComponent</c> - see
+    /// <see cref="EventMapping.RaisedDuringInitialization"/>. Such a handler has to return early
+    /// until the View is built, because until then it has no fields to touch.
+    /// </summary>
+    public bool NeedsInitializationGuard =>
+        Subscriptions.Any(s => !s.Suppressed && s.Mapping.RaisedDuringInitialization);
+
+    /// <summary>
     /// True when the generated method still carries a <c>MigrationTodo</c> marker.
     /// </summary>
     /// <remarks>
@@ -229,6 +237,9 @@ public sealed record FormMigrationPlan(
     /// programmatic second <c>Close()</c> falls straight through instead of asking again.
     /// </summary>
     public bool RequiresCloseGuard => AllEmittedRewrites.Any(r => r.RequiresCloseGuard);
+
+    /// <summary>Whether any handler here can be raised before the View has finished initializing.</summary>
+    public bool RequiresInitializationGuard => CodeBehindHandlers.Any(h => h.NeedsInitializationGuard);
 
     /// <summary>Extra `using`s the translated statements need, beyond a generated View's usual set.</summary>
     public IReadOnlyList<string> RequiredUsings =>

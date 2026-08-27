@@ -38,6 +38,7 @@ public partial class MainView : Window
     private ServiceController? _serviceController1;
     private SoundPlayer? _soundPlayer1;
     private bool isBusy;
+    private bool w2aInitialized;
 
     public MainView()
     {
@@ -62,6 +63,8 @@ public partial class MainView : Window
 
         clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         clockTimer.Tick += clockTimer_Tick;
+
+        w2aInitialized = true;
     }
 
     private EventLog eventLog1
@@ -198,6 +201,11 @@ public partial class MainView : Window
 
     private void tabControl1_SelectedIndexChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (!w2aInitialized)
+        {
+            return;
+        }
+
         statusInfoLabel.Text = ((tabControl1.SelectedItem as TabItem)?.Header as string) ?? string.Empty;
     }
 
@@ -235,6 +243,11 @@ public partial class MainView : Window
 
     private void itemsListBox_SelectedIndexChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (!w2aInitialized)
+        {
+            return;
+        }
+
         statusLabel.Text = $"Selected: {itemsListBox.SelectedItem}";
     }
 

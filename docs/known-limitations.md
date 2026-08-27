@@ -628,6 +628,18 @@ rule itself; what follows is what the rule does *not* cover yet.
   type, `Enabled` offered on DataGrid columns that have no `IsEnabled`, and eight value/selection
   events mapped *generically* that only specific elements raise.
 
+  Those value/selection events brought a second problem with them, which only showed up at run
+  time: Avalonia raises them **while the AXAML is still being populated** - a TabControl selects
+  its first tab as it initialises, a CheckBox raises `IsCheckedChanged` when XAML sets
+  `IsChecked` - and the handler attribute is wired *before* those properties are set. So the
+  handler runs inside `InitializeComponent`, before a single `x:Name` field exists, and touching
+  one is a `NullReferenceException` out of the View's constructor. WinForms had no such window:
+  the designer assigned every control field at the top of its own `InitializeComponent`, before
+  anything could raise. So a handler firing that early is an artifact of the conversion, and the
+  generated View guards against it with a `w2aInitialized` flag set at the end of its
+  constructor - only for the handlers whose event can fire that early, which is exactly what
+  `EventMapping.RaisedDuringInitialization` records.
+
   That last one is worth stating plainly, because it changed behaviour: `TextChanged`,
   `CheckedChanged`, `SelectedIndexChanged` and friends exist on every WinForms `Control`, but
   Avalonia raises them on a `TextBox`, a `ToggleButton`, a `SelectingItemsControl`. They are now
