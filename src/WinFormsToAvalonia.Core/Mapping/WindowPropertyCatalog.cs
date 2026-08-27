@@ -61,4 +61,11 @@ public static class WindowPropertyCatalog
 
     public static bool TryGet(string winFormsPropertyName, out WindowProperty property) =>
         Properties.TryGetValue(winFormsPropertyName, out property!);
+
+    /// <summary>
+    /// Every entry, so WinFormsToAvalonia.Mapping.Tests can check each Avalonia name against
+    /// Avalonia's real <c>Window</c> - the converter never references it, so nothing else can.
+    /// </summary>
+    public static IEnumerable<(string WinFormsPropertyName, WindowProperty Property)> AllEntries =>
+        Properties.Select(e => (e.Key, e.Value));
 }

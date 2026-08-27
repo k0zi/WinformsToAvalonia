@@ -11,10 +11,16 @@ namespace WinFormsToAvalonia.Core.Scaffolding;
 /// </summary>
 public sealed class AvaloniaProjectScaffolder
 {
-    private const string AvaloniaVersion = "12.1.1";
+    /// <summary>
+    /// The Avalonia every generated project is written against. Public because it is a contract
+    /// with more than the csproj writer: the mapping tables describe *this* Avalonia's API, and
+    /// WinFormsToAvalonia.Mapping.Tests checks them against exactly this version's assemblies.
+    /// </summary>
+    public const string AvaloniaVersion = "12.1.1";
     private const string CommunityToolkitMvvmVersion = "8.4.2";
 
-    private static readonly IReadOnlyDictionary<string, string> ExtraPackageVersions = new Dictionary<string, string>(StringComparer.Ordinal)
+    /// <summary>The allowlist of extra packages a generated csproj may carry, and at which version.</summary>
+    public static readonly IReadOnlyDictionary<string, string> ExtraPackageVersions = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["Avalonia.Controls.DataGrid"] = "12.1.2",
 

@@ -44,6 +44,25 @@ public sealed class SimplePropertyMapper : IControlMapper
 
     public string WinFormsTypeName { get; }
 
+    /// <summary>The Avalonia element this mapper emits.</summary>
+    /// <remarks>
+    /// Exposed - like <see cref="DeclaredAttributes"/> - so the mapping tables can be checked
+    /// against Avalonia's real API: this converter never references Avalonia, so nothing else in
+    /// this repo can tell whether the name and the attributes below actually exist. See
+    /// WinFormsToAvalonia.Mapping.Tests.
+    /// </remarks>
+    public string AvaloniaElementName => _avaloniaElementName;
+
+    /// <summary>
+    /// Every Avalonia attribute this mapper can emit, with the WinForms property each comes from
+    /// (null for a fixed attribute implied by the type itself).
+    /// </summary>
+    public IReadOnlyList<(string? WinFormsProperty, string AvaloniaAttribute)> DeclaredAttributes =>
+    [
+        .. _fixedAttributes.Select(a => ((string?)null, a.AvaloniaAttribute)),
+        .. _propertyMappings.Select(m => ((string?)m.WinFormsProperty, m.AvaloniaAttribute)),
+    ];
+
     public MappedControl Map(ControlModel control)
     {
         var attributes = new Dictionary<string, string>(StringComparer.Ordinal);

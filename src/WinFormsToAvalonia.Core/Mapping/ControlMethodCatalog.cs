@@ -94,4 +94,16 @@ public static class ControlMethodCatalog
 
         return UniversalMethods.TryGetValue(methodName, out method);
     }
+
+    /// <summary>
+    /// Every entry, as (WinForms type or null for a universal one, WinForms method, translation).
+    /// </summary>
+    /// <remarks>
+    /// Exposed so WinFormsToAvalonia.Mapping.Tests can check each <see cref="ControlMethod.AvaloniaMemberName"/>
+    /// against Avalonia's real API - this converter never references Avalonia, so nothing else
+    /// here can tell whether the member exists.
+    /// </remarks>
+    public static IEnumerable<(string? WinFormsTypeName, string MethodName, ControlMethod Method)> AllEntries =>
+        UniversalMethods.Select(e => ((string?)null, e.Key, e.Value))
+            .Concat(ByControlType.SelectMany(t => t.Value.Select(e => ((string?)t.Key, e.Key, e.Value))));
 }

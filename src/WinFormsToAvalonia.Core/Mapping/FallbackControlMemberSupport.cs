@@ -45,4 +45,15 @@ public static class FallbackControlMemberSupport
         fallbackTemplateKey is not null
         && MembersByTemplateKey.TryGetValue(fallbackTemplateKey, out var members)
         && members.Contains(avaloniaMemberName);
+
+    /// <summary>
+    /// Every claim this table makes, as (template key, Avalonia member).
+    /// </summary>
+    /// <remarks>
+    /// Exposed so WinFormsToAvalonia.Mapping.Tests can check each one against the base class the
+    /// template really derives from - these members are inherited, and "inherited" is a fact about
+    /// Avalonia that this repo cannot otherwise see.
+    /// </remarks>
+    public static IEnumerable<(string TemplateKey, string MemberName)> AllEntries =>
+        MembersByTemplateKey.SelectMany(t => t.Value.Select(m => (t.Key, m)));
 }

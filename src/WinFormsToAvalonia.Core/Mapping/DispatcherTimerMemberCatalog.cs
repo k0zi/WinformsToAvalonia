@@ -29,6 +29,15 @@ public static class DispatcherTimerMemberCatalog
         return avaloniaMethodName.Length > 0;
     }
 
+    /// <summary>
+    /// Every Avalonia member this table names, for the checks in WinFormsToAvalonia.Mapping.Tests:
+    /// the converter never references Avalonia, so nothing else here can tell whether a
+    /// <c>DispatcherTimer</c> really has these.
+    /// </summary>
+    public static IEnumerable<(string MemberName, bool IsMethod)> AllAvaloniaMembers =>
+        Methods.Select(m => (m, true))
+            .Concat([(EnabledProperty, false), ("Interval", false)]);
+
     /// <summary>Reading a timer member. Only <c>Enabled</c>, and see <see cref="TryGetWrite"/> for why.</summary>
     public static bool TryGetRead(string propertyName, out string text)
     {

@@ -1228,8 +1228,11 @@ public sealed class FormMigrationPlanner
     private static HandlerSignature SignatureOf(CodeBehindHandlerPlan handler, CodeBehindModel codeBehind)
     {
         var source = codeBehind.FindHandler(handler.OriginalMethodName);
+        // A null field name is a Form-level subscription, which has no raising control - so it
+        // contributes nothing here rather than a nameless entry.
         var controlFields = handler.Subscriptions
             .Select(s => s.ControlFieldName)
+            .OfType<string>()
             .Distinct(StringComparer.Ordinal)
             .ToList();
 

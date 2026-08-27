@@ -126,6 +126,31 @@ public static class BindablePropertyCatalog
         ["ToolStripProgressBar"] = new(StringComparer.Ordinal) { ["Value"] = new("Value", "double") },
     };
 
+    /// <summary>
+    /// Universal properties that a particular target does <em>not</em> have after all.
+    /// </summary>
+    /// <remarks>
+    /// Every WinForms <c>Control</c> has <c>Enabled</c>, so the universal table offers it for
+    /// everything - but a DataGrid column is not a control. It is a description of a column, it
+    /// lives in <c>DataGrid.Columns</c> rather than in the visual tree, and it has an
+    /// <c>IsVisible</c> but no <c>IsEnabled</c>. Offering one produced a <c>{Binding}</c> against
+    /// a property that does not exist, which is an AVLN2000 in the generated project.
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> UniversalExclusions =
+        new[]
+        {
+            "ColumnHeader",
+            "DataGridViewButtonColumn",
+            "DataGridViewCheckBoxColumn",
+            "DataGridViewComboBoxColumn",
+            "DataGridViewImageColumn",
+            "DataGridViewLinkColumn",
+            "DataGridViewTextBoxColumn",
+        }.ToDictionary(
+            t => t,
+            _ => (IReadOnlySet<string>)new HashSet<string>(StringComparer.Ordinal) { "Enabled" },
+            StringComparer.Ordinal);
+
     public static bool TryGet(string winFormsControlTypeName, string propertyName, out BindableProperty property)
     {
         if (ByControlType.TryGetValue(winFormsControlTypeName, out var typeProperties)
@@ -134,8 +159,32 @@ public static class BindablePropertyCatalog
             return true;
         }
 
+        if (UniversalExclusions.TryGetValue(winFormsControlTypeName, out var excluded)
+            && excluded.Contains(propertyName))
+        {
+            property = default;
+            return false;
+        }
+
         return UniversalProperties.TryGetValue(propertyName, out property);
     }
+
+    /// <summary>
+    /// The type-specific entries, as (WinForms type, WinForms property, mapping).
+    /// </summary>
+    /// <remarks>
+    /// Exposed for WinFormsToAvalonia.Mapping.Tests, which checks both halves of every entry
+    /// against Avalonia: that the property exists on the element the mapper emits, and that
+    /// <see cref="BindableProperty.AvaloniaTypeName"/> is what it really is. Getting the second
+    /// wrong is a CS0266 in the generated project - it happened, more than once, before this was
+    /// checkable.
+    /// </remarks>
+    public static IEnumerable<(string WinFormsTypeName, string PropertyName, BindableProperty Property)> TypeSpecificEntries =>
+        ByControlType.SelectMany(t => t.Value.Select(p => (t.Key, p.Key, p.Value)));
+
+    /// <summary>The entries that apply to every control, whatever its type.</summary>
+    public static IEnumerable<(string PropertyName, BindableProperty Property)> UniversalEntries =>
+        UniversalProperties.Select(e => (e.Key, e.Value));
 
     /// <summary>
     /// The same lookup from the other end: is *this Avalonia property* one this catalog considers

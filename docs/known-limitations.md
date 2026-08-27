@@ -594,6 +594,25 @@ rule itself; what follows is what the rule does *not* cover yet.
   was written for this reason and immediately found one: `LinkLabel.Text` claimed `Text` while
   the mapper emits a `HyperlinkButton`, whose text property is `Content`. Any promoted handler
   touching a LinkLabel produced AVLN2000.
+- **The mapping tables are checked against Avalonia itself.** Everything this converter knows
+  about Avalonia lives in hand-maintained tables, because the tool emits text and never
+  references Avalonia — so a wrong entry used to surface only as a build error in the *generated*
+  project. `WinFormsToAvalonia.Mapping.Tests` reads Avalonia's reference assemblies as metadata
+  and asserts every claim: element names, emitted attributes, property types, events and the args
+  types their handlers are signed with, control methods, style groups, and what a bundled
+  template inherits. Its first run found four live defects — `GotFocusEventArgs` (renamed to
+  `FocusChangedEventArgs` in Avalonia 12), `LostFocus`/`DragLeave` signed with the wrong args
+  type, `Enabled` offered on DataGrid columns that have no `IsEnabled`, and eight value/selection
+  events mapped *generically* that only specific elements raise.
+
+  That last one is worth stating plainly, because it changed behaviour: `TextChanged`,
+  `CheckedChanged`, `SelectedIndexChanged` and friends exist on every WinForms `Control`, but
+  Avalonia raises them on a `TextBox`, a `ToggleButton`, a `SelectingItemsControl`. They are now
+  translated **only for the control types whose Avalonia element really has them**; anywhere else
+  the conversion reports "not on this one" instead of emitting an attribute that would fail at
+  XAML compile time. `NumericUpDown.ValueChanged` and a slider's are two different events with
+  two different args types, and the split gets that right too.
+
 - **Fallback controls expose only what their template demonstrably has**
   (`FallbackControlMemberSupport`). Everything else about them stays conservative - no styling,
   no event wiring, no item children - because a template need not have the member a mapping

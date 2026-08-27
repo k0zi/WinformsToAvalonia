@@ -17,6 +17,7 @@ dotnet test  WinFormsToAvalonia.slnx
 
 # one project / one test
 dotnet test tests/WinFormsToAvalonia.Core.Tests
+dotnet test tests/WinFormsToAvalonia.Mapping.Tests
 dotnet test tests/WinFormsToAvalonia.Integration.Tests --filter "FullyQualifiedName~RealFormConversionBuildTests"
 dotnet test --filter "DisplayName~ConvertedFixtureProject_BuildsSuccessfullyWithDotnetBuild"
 
@@ -104,10 +105,12 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    `ClosesWithSuccess` for synthesizing a designer-declared button, a *partial* `TryGetBool` for
    a hand-written result that has to round-trip. `BindablePropertyCatalog` and the mappers name the same Avalonia property from two
    places — `BindablePropertyCatalogTests` asserts they agree, because a disagreement is a build
-   error in the **generated** project, which this repo's own build cannot catch. The same blind
-   spot covers the *types*: nothing here can see Avalonia, so an entry claiming a non-nullable
-   type for a nullable member is only caught by an integration test that builds
-   (`CodeBehindMigrationTests`). Verify a new entry against the real reference assembly.
+   error in the **generated** project, which this repo's own build cannot catch — so
+   `WinFormsToAvalonia.Mapping.Tests` catches it instead: that project reads Avalonia's reference
+   assemblies as metadata and holds **every** table entry up against them (element names,
+   attributes, property types, events and their args types, control methods, style groups,
+   fallback-template members). Adding a table entry means it will be checked; if it fails there,
+   the table is wrong, not the test.
 3. **Planning** — `FormMigrationPlanner.Plan(formModel, codeBehind)` produces one
    `FormMigrationPlan` per Form, and all three emitters consume that same plan so they cannot
    disagree about where a handler landed. It runs *after* a discovery pass over every artifact:
@@ -189,6 +192,13 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
 
 ## Tests
 
+- `Mapping.Tests` — the **only** project in this repo that references Avalonia, and it never runs
+  a line of it: `AvaloniaMetadata` loads the reference assemblies through `MetadataLoadContext`
+  and every test asserts one mapping-table claim against them. This exists because the converter
+  emits *text*, so a wrong table entry is a build error in the generated project and nowhere
+  else — three such entries were found by hand before this project existed, and four more the
+  first time it ran. Its package versions must equal `AvaloniaProjectScaffolder`'s, which is
+  itself one of the tests.
 - `Core.Tests` — per-stage unit tests mirroring the `Core` folder layout. `Fixtures/DesignerCs`
   holds inert WinForms designer files read as raw text, `Fixtures/ExpectedAxaml` the golden AXAML
   (`AxamlEmitterTests`). `TestSupport/TempProjectFixture` builds synthetic projects on disk.

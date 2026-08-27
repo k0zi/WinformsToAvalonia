@@ -42,6 +42,21 @@ public sealed class EventMappingRegistry
     /// loosening the generic entries preserves the honest "not translatable" answer for every
     /// other control type.
     /// </summary>
+    /// <remarks>
+    /// Declared before <see cref="ControlTypeOverrides"/>, which names them: static initializers
+    /// run in source order, and the other way round every entry below would be null.
+    /// </remarks>
+    private static EventMapping TextChanged { get; } = new("TextChanged", "TextChanged", "TextChangedEventArgs");
+
+    private static EventMapping IsCheckedChanged { get; } =
+        new("CheckedChanged", "IsCheckedChanged", "RoutedEventArgs");
+
+    private static EventMapping SelectionChanged { get; } =
+        new("SelectedIndexChanged", "SelectionChanged", "SelectionChangedEventArgs");
+
+    private static EventMapping RangeValueChanged { get; } =
+        new("ValueChanged", "ValueChanged", "RangeBaseValueChangedEventArgs");
+
     private static readonly Dictionary<(string ControlType, string EventName), EventMapping> ControlTypeOverrides = new()
     {
         [("TrackBar", "Scroll")] = new("Scroll", "ValueChanged", "RangeBaseValueChangedEventArgs",
@@ -52,7 +67,49 @@ public sealed class EventMappingRegistry
             Guidance: "Avalonia's DataGrid reports the cell through DataGridCellPointerPressedEventArgs.Cell/Row, not a ColumnIndex/RowIndex pair."),
         [("LinkLabel", "LinkClicked")] = new("LinkClicked", "Click", "RoutedEventArgs", IsCommandCandidate: true,
             Guidance: "LinkLabel maps to a HyperlinkButton, whose Click replaces LinkClicked; the LinkLabelLinkClickedEventArgs.Link information has no equivalent."),
+
+        // The value/selection events. Every WinForms Control declares them; the Avalonia elements
+        // that raise them are specific types, so each entry below names a WinForms type whose
+        // *mapped element* really has the event. Anything not listed falls through to the generic
+        // table's honest refusal - see NotOnEveryControl.
+        [("TextBox", "TextChanged")] = TextChanged,
+
+        [("CheckBox", "CheckedChanged")] = IsCheckedChanged,
+        [("CheckBox", "CheckStateChanged")] = IsCheckedChanged,
+        [("RadioButton", "CheckedChanged")] = IsCheckedChanged,
+        [("RadioButton", "CheckStateChanged")] = IsCheckedChanged,
+
+        [("ComboBox", "SelectedIndexChanged")] = SelectionChanged,
+        [("ComboBox", "SelectedValueChanged")] = SelectionChanged,
+        [("ComboBox", "SelectionChangeCommitted")] = SelectionChanged,
+        [("ToolStripComboBox", "SelectedIndexChanged")] = SelectionChanged,
+        [("ListBox", "SelectedIndexChanged")] = SelectionChanged,
+        [("ListBox", "SelectedValueChanged")] = SelectionChanged,
+        [("CheckedListBox", "SelectedIndexChanged")] = SelectionChanged,
+        [("ListView", "SelectedIndexChanged")] = SelectionChanged,
+        [("TabControl", "SelectedIndexChanged")] = SelectionChanged,
+        [("DataGridView", "SelectionChanged")] = SelectionChanged,
+        [("TreeView", "AfterSelect")] = new("AfterSelect", "SelectionChanged", "SelectionChangedEventArgs",
+            Guidance: "Avalonia's TreeView reports selection through SelectionChanged; the selected node is TreeView.SelectedItem, not TreeViewEventArgs.Node."),
+
+        // Two different ValueChanged events, with two different args types: a NumericUpDown has
+        // its own, everything range-shaped inherits RangeBase's.
+        [("NumericUpDown", "ValueChanged")] = new("ValueChanged", "ValueChanged", "NumericUpDownValueChangedEventArgs"),
+        [("TrackBar", "ValueChanged")] = RangeValueChanged,
+        [("ProgressBar", "ValueChanged")] = RangeValueChanged,
+        [("HScrollBar", "ValueChanged")] = RangeValueChanged,
+        [("VScrollBar", "ValueChanged")] = RangeValueChanged,
     };
+
+
+    /// <summary>
+    /// Why a value/selection event has no generic answer. Written once, because the reason is the
+    /// same every time and it is the thing a reader of the report needs to know.
+    /// </summary>
+    private static string NotOnEveryControl(string avaloniaEventName, string whatHasIt) =>
+        $"Avalonia raises {avaloniaEventName} on {whatHasIt}, not on every control - so it is only "
+        + "translated for the control types whose Avalonia element really has it. On this one the "
+        + "two-way {Binding} the conversion emits is usually what you want instead.";
 
     private static readonly EventMapping ClickAsCommand =
         new("Click", "Click", "RoutedEventArgs", IsCommandCandidate: true);
@@ -80,28 +137,33 @@ public sealed class EventMappingRegistry
             Guidance: "WinForms KeyPress exposed a char; Avalonia's TextInput exposes the whole inserted string via TextInputEventArgs.Text."),
 
         // Focus.
-        ["Enter"] = new("Enter", "GotFocus", "GotFocusEventArgs"),
-        ["Leave"] = new("Leave", "LostFocus", "RoutedEventArgs"),
-        ["GotFocus"] = new("GotFocus", "GotFocus", "GotFocusEventArgs"),
-        ["LostFocus"] = new("LostFocus", "LostFocus", "RoutedEventArgs"),
+        // Both carry FocusChangedEventArgs in Avalonia 12 - GotFocusEventArgs was its name in 11,
+        // and LostFocus was never a bare RoutedEventArgs. A handler signed with either would not
+        // compile against the event the AXAML attribute binds to.
+        ["Enter"] = new("Enter", "GotFocus", "FocusChangedEventArgs"),
+        ["Leave"] = new("Leave", "LostFocus", "FocusChangedEventArgs"),
+        ["GotFocus"] = new("GotFocus", "GotFocus", "FocusChangedEventArgs"),
+        ["LostFocus"] = new("LostFocus", "LostFocus", "FocusChangedEventArgs"),
 
         // Drag and drop - attached events on Avalonia's DragDrop class, not on Control.
         ["DragEnter"] = new("DragEnter", "DragEnter", "DragEventArgs", AttachedOwnerTypeName: "DragDrop"),
         ["DragOver"] = new("DragOver", "DragOver", "DragEventArgs", AttachedOwnerTypeName: "DragDrop"),
-        ["DragLeave"] = new("DragLeave", "DragLeave", "RoutedEventArgs", AttachedOwnerTypeName: "DragDrop"),
+        ["DragLeave"] = new("DragLeave", "DragLeave", "DragEventArgs", AttachedOwnerTypeName: "DragDrop"),
         ["DragDrop"] = new("DragDrop", "Drop", "DragEventArgs", AttachedOwnerTypeName: "DragDrop"),
 
-        // Value/selection changes. These are the events a two-way {Binding} usually replaces
-        // entirely, but they are still wired as real events so no behaviour is silently lost.
-        ["TextChanged"] = new("TextChanged", "TextChanged", "TextChangedEventArgs"),
-        ["CheckedChanged"] = new("CheckedChanged", "IsCheckedChanged", "RoutedEventArgs"),
-        ["CheckStateChanged"] = new("CheckStateChanged", "IsCheckedChanged", "RoutedEventArgs"),
-        ["SelectedIndexChanged"] = new("SelectedIndexChanged", "SelectionChanged", "SelectionChangedEventArgs"),
-        ["SelectedValueChanged"] = new("SelectedValueChanged", "SelectionChanged", "SelectionChangedEventArgs"),
-        ["SelectionChanged"] = new("SelectionChanged", "SelectionChanged", "SelectionChangedEventArgs"),
-        ["ValueChanged"] = new("ValueChanged", "ValueChanged", "NumericUpDownValueChangedEventArgs"),
-        ["AfterSelect"] = new("AfterSelect", "SelectionChanged", "SelectionChangedEventArgs",
-            Guidance: "Avalonia's TreeView reports selection through SelectionChanged; the selected node is TreeView.SelectedItem, not TreeViewEventArgs.Node."),
+        // Value/selection changes. Every WinForms Control has them; almost no Avalonia element
+        // does - TextChanged is a TextBox's, IsCheckedChanged a ToggleButton's, SelectionChanged a
+        // SelectingItemsControl's. So they live in ControlTypeOverrides above, per control type,
+        // and the generic answer here is an honest "not on this one" rather than an attribute the
+        // element would reject at XAML compile time.
+        ["TextChanged"] = new("TextChanged", null, Guidance: NotOnEveryControl("TextChanged", "a TextBox")),
+        ["CheckedChanged"] = new("CheckedChanged", null, Guidance: NotOnEveryControl("IsCheckedChanged", "a CheckBox or RadioButton")),
+        ["CheckStateChanged"] = new("CheckStateChanged", null, Guidance: NotOnEveryControl("IsCheckedChanged", "a CheckBox or RadioButton")),
+        ["SelectedIndexChanged"] = new("SelectedIndexChanged", null, Guidance: NotOnEveryControl("SelectionChanged", "a list, combo box, tab control, tree or grid")),
+        ["SelectedValueChanged"] = new("SelectedValueChanged", null, Guidance: NotOnEveryControl("SelectionChanged", "a list, combo box, tab control, tree or grid")),
+        ["SelectionChanged"] = new("SelectionChanged", null, Guidance: NotOnEveryControl("SelectionChanged", "a list, combo box, tab control, tree or grid")),
+        ["ValueChanged"] = new("ValueChanged", null, Guidance: NotOnEveryControl("ValueChanged", "a NumericUpDown, slider or progress bar")),
+        ["AfterSelect"] = new("AfterSelect", null, Guidance: NotOnEveryControl("SelectionChanged", "a TreeView")),
         ["ItemCheck"] = new("ItemCheck", null, Guidance: "Avalonia's ListBox has no per-item check event; model the checked state on the item's own view model instead."),
 
         // Layout.
@@ -177,6 +239,23 @@ public sealed class EventMappingRegistry
             : ControlEvents.TryGetValue(eventName, out var controlMapping)
                 ? controlMapping
                 : Unmapped(eventName);
+
+    /// <summary>
+    /// Every WinForms event name this registry can answer for, so WinFormsToAvalonia.Mapping.Tests
+    /// can resolve each one and check the Avalonia event and args type it names really exist.
+    /// </summary>
+    /// <remarks>
+    /// The per-control overrides come with the type they belong to; the generic entries with null,
+    /// meaning "ask whatever control type you like". Component events are excluded: those are
+    /// plain .NET types that survived unchanged, so Avalonia has no opinion about them.
+    /// </remarks>
+    public static IEnumerable<(string? ControlTypeName, string EventName)> ProbableControlEvents =>
+        ControlTypeOverrides.Keys.Select(k => ((string?)k.ControlType, k.EventName))
+            .Concat(ControlEvents.Keys.Select(e => ((string?)null, e)))
+            .Concat(ClickCommandControlTypes.Select(t => ((string?)t, "Click")));
+
+    /// <summary>Every Form-level event name, for the same check against a Window.</summary>
+    public static IEnumerable<string> FormEventNames => FormEvents.Keys;
 
     private static EventMapping Unmapped(string eventName) =>
         new(eventName, null, Guidance: $"No Avalonia equivalent is registered for the WinForms '{eventName}' event.");

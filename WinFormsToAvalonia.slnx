@@ -7,5 +7,6 @@
   <Folder Name="/tests/">
     <Project Path="tests\WinFormsToAvalonia.Core.Tests\WinFormsToAvalonia.Core.Tests.csproj" />
     <Project Path="tests\WinFormsToAvalonia.Integration.Tests\WinFormsToAvalonia.Integration.Tests.csproj" />
+    <Project Path="tests\WinFormsToAvalonia.Mapping.Tests\WinFormsToAvalonia.Mapping.Tests.csproj" />
   </Folder>
 </Solution>

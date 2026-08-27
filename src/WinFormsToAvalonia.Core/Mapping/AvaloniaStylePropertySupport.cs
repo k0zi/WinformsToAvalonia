@@ -102,6 +102,15 @@ public static class AvaloniaStylePropertySupport
         For(avaloniaElementName).HasFlag(property);
 
     /// <summary>
+    /// Every element this table has an opinion about. Exposed so WinFormsToAvalonia.Mapping.Tests
+    /// can hold each claim up against the real element - the whole reason the table exists is
+    /// that Avalonia spreads these properties across unrelated base types, and nothing in this
+    /// repo can see them.
+    /// </summary>
+    public static IEnumerable<(string AvaloniaElementName, AvaloniaStyleProperties Supported)> AllEntries =>
+        ByElementName.Select(e => (e.Key, e.Value));
+
+    /// <summary>
     /// The Avalonia properties one style group is actually made of - what a *fallback* template
     /// has to expose for the group to be writable on it, since that table is keyed by member.
     /// </summary>

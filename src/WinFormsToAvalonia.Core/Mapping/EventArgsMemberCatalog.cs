@@ -104,4 +104,15 @@ public static class EventArgsMemberCatalog
         member = default;
         return false;
     }
+
+    /// <summary>
+    /// The entries that name an <em>Avalonia</em> args type - what
+    /// WinFormsToAvalonia.Mapping.Tests checks. The <see cref="UnchangedArgsTypes"/> are
+    /// deliberately absent: those are plain .NET types that survived the conversion untouched,
+    /// so there is nothing about them for Avalonia to disagree with.
+    /// </summary>
+    public static IEnumerable<(string ArgsTypeName, string MemberName, EventArgsMember Member)> AvaloniaEntries =>
+        ByArgsTypeAndMember
+            .Where(e => !UnchangedArgsTypes.Contains(e.Key.ArgsType))
+            .Select(e => (e.Key.ArgsType, e.Key.Member, e.Value));
 }
