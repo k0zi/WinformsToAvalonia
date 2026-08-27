@@ -1,5 +1,6 @@
 using System.Text;
 using WinFormsToAvalonia.Core.Emission;
+using WinFormsToAvalonia.Core.Model;
 using WinFormsToAvalonia.Core.Parsing;
 using WinFormsToAvalonia.Core.Scaffolding;
 
@@ -32,6 +33,13 @@ public sealed record SolutionConversionResult(
 /// failing the run: a solution with one non-WinForms project in it is the normal case, not an
 /// error.
 /// </para>
+/// <para>
+/// The one thing it does have to decide up front is what each project's UserControls will be
+/// called once converted, because a Form in one project may host a UserControl from another and
+/// the hosting run has to name a View that does not exist yet. That is the same problem
+/// <c>ConversionPipeline.BuildFormViews</c> solves for Forms within a project, one level up: a
+/// discovery pass over the whole solution before any project is converted.
+/// </para>
 /// </remarks>
 public sealed class SolutionConversionPipeline
 {
@@ -41,6 +49,16 @@ public sealed class SolutionConversionPipeline
         var converted = new List<ConvertedProject>();
         var skipped = new List<SkippedProject>();
 
+        var existingProjects = projectPaths.Where(File.Exists).ToList();
+        var outputDirectories = existingProjects.ToDictionary(
+            p => p,
+            p => Path.Combine(options.OutputDirectory, Path.GetFileNameWithoutExtension(p)),
+            StringComparer.OrdinalIgnoreCase);
+        var userControlsByProject = existingProjects.ToDictionary(
+            p => p,
+            p => DiscoverUserControls(p, outputDirectories[p]),
+            StringComparer.OrdinalIgnoreCase);
+
         foreach (var projectPath in projectPaths)
         {
             if (!File.Exists(projectPath))
@@ -49,15 +67,17 @@ public sealed class SolutionConversionPipeline
                 continue;
             }
 
-            var outputDirectory = Path.Combine(options.OutputDirectory, Path.GetFileNameWithoutExtension(projectPath));
+            var outputDirectory = outputDirectories[projectPath];
 
             try
             {
-                var result = new ConversionPipeline().Run(options with
-                {
-                    SourceProjectPath = projectPath,
-                    OutputDirectory = outputDirectory,
-                });
+                var result = new ConversionPipeline().Run(
+                    options with
+                    {
+                        SourceProjectPath = projectPath,
+                        OutputDirectory = outputDirectory,
+                    },
+                    BuildContext(projectPath, outputDirectory, outputDirectories, userControlsByProject));
 
                 converted.Add(new ConvertedProject(projectPath, outputDirectory, result));
             }
@@ -79,6 +99,88 @@ public sealed class SolutionConversionPipeline
         }
 
         return new SolutionConversionResult(solutionFileName, converted, skipped);
+    }
+
+    /// <summary>
+    /// What the projects <paramref name="projectPath"/> references contribute to its conversion.
+    /// </summary>
+    /// <remarks>
+    /// The reference graph comes from the source csproj, not from the solution: naming every
+    /// other project would both invent build dependencies that were never there and let a
+    /// UserControl resolve in a project that could not actually see it.
+    /// </remarks>
+    private static SolutionConversionContext? BuildContext(
+        string projectPath,
+        string outputDirectory,
+        IReadOnlyDictionary<string, string> outputDirectories,
+        IReadOnlyDictionary<string, IReadOnlyList<ExternalUserControl>> userControlsByProject)
+    {
+        var referenced = new WinFormsProjectLoader().Load(projectPath).ProjectReferences
+            .Where(outputDirectories.ContainsKey)
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToList();
+
+        if (referenced.Count == 0)
+        {
+            return null;
+        }
+
+        var externals = referenced.SelectMany(r => userControlsByProject[r]).ToList();
+        if (externals.Count == 0)
+        {
+            // Nothing here can name anything there, so a ProjectReference would only add an
+            // unused build dependency.
+            return null;
+        }
+
+        var references = referenced
+            .Select(r => RelativeCsprojPath(outputDirectory, outputDirectories[r]))
+            .ToList();
+
+        return new SolutionConversionContext(externals, references);
+    }
+
+    /// <summary>
+    /// The Views a project's UserControls will be emitted as, predicted without converting it.
+    /// </summary>
+    /// <remarks>
+    /// This mirrors <c>ConversionPipeline.BuildUserControlViews</c> and has to keep mirroring it:
+    /// both derive the View name and namespace through <see cref="NamingConventions"/>, which is
+    /// what keeps the prediction and the eventual emission in agreement.
+    /// </remarks>
+    private static IReadOnlyList<ExternalUserControl> DiscoverUserControls(string projectPath, string outputDirectory)
+    {
+        WinFormsProjectModel project;
+        try
+        {
+            project = new WinFormsProjectLoader().Load(projectPath);
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or System.Xml.XmlException)
+        {
+            // A project that will not even load is reported by the conversion attempt below; it
+            // simply contributes no UserControls.
+            return [];
+        }
+
+        var assemblyName = NamingConventions.DeriveProjectName(outputDirectory);
+
+        return new DesignerFileLocator().Locate(project)
+            .Where(p => p.Kind == WinFormsArtifactKind.UserControl && p.DesignerFilePath is not null)
+            .Select(p => new ExternalUserControl(
+                p.ClassName,
+                NamingConventions.DeriveViewName(p.ClassName),
+                NamingConventions.NamespaceOf(
+                    $"{assemblyName}.Views",
+                    ConversionPipeline.GetRelativeFolder(project.ProjectDirectory, p.DesignerFilePath!)),
+                assemblyName))
+            .ToList();
+    }
+
+    private static string RelativeCsprojPath(string fromOutputDirectory, string referencedOutputDirectory)
+    {
+        var name = NamingConventions.DeriveProjectName(referencedOutputDirectory);
+        var relative = Path.GetRelativePath(fromOutputDirectory, referencedOutputDirectory);
+        return $"{relative.Replace(Path.DirectorySeparatorChar, '/')}/{name}.csproj";
     }
 
     /// <summary>

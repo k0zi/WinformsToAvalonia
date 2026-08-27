@@ -599,13 +599,21 @@ failing the run: a solution with non-WinForms projects in it is the normal case.
 parsed as text rather than through MSBuild, so a project path built from an MSBuild property is not
 understood - and is reported rather than guessed at.
 
-What is **not** handled yet is the case that most often motivates a multi-project solution in the
-first place: a Form in one project hosting a **UserControl from another**. The control mappings are
-built per project, so that control has no mapping and is reported as unmapped, exactly as an
-unknown third-party control would be. Fixing it needs three things that do not exist yet -
-discovery across the whole solution, an `assembly=` qualified xmlns for the other project's
-namespace, and `ProjectReference`s between the generated projects - and a library project currently
-converts to an executable with a placeholder window, which would have to change with it.
+A Form in one project hosting a **UserControl from another** works, which is the case that most
+often motivates a multi-project solution in the first place. A pass over the whole solution runs
+before any project is converted and predicts what each project's UserControls will be called once
+they are Views; a project then resolves the UserControls of the projects **its own csproj
+references** - not of every project in the solution, so a control cannot resolve where the C#
+compiler would not have seen it either. The hosting View declares that namespace in the
+`clr-namespace:Widgets.Views;assembly=Widgets` form (Avalonia's shorter `using:` can only name the
+assembly being compiled), and the generated csproj gets a matching `ProjectReference`.
+
+Two edges remain. A project of nothing but UserControls still converts to an **executable** with a
+placeholder `MainWindowView` rather than to a library - harmless, since referencing it works
+either way, but not what you would have written by hand. And the prediction is by name: if the
+referenced project turns out to have no convertible artifacts, or its UserControl is one the
+locator could not classify, the host still emits the element and the generated build is what
+tells you.
 
 ## Re-converting over output you have already migrated
 

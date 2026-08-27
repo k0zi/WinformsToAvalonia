@@ -69,9 +69,9 @@ public sealed class AxamlEmitter
         builder.Attribute("xmlns:controls", $"using:{rootNamespace}.Controls");
         builder.Attribute("xmlns:w2a", $"clr-namespace:{rootNamespace}.Controls.Generated");
 
-        foreach (var (prefix, namespaceName) in DistinctUserControlNamespaces(userControlViews))
+        foreach (var (prefix, xmlnsValue) in DistinctUserControlNamespaces(userControlViews))
         {
-            builder.Attribute($"xmlns:{prefix}", $"using:{namespaceName}");
+            builder.Attribute($"xmlns:{prefix}", xmlnsValue);
         }
 
         builder.Attribute("xmlns:d", "http://schemas.microsoft.com/expression/blend/2008");
@@ -135,11 +135,11 @@ public sealed class AxamlEmitter
     /// pipeline already assigned. Several UserControls in the same folder share one namespace
     /// (and therefore one prefix), and a duplicate xmlns attribute would be a XAML parse error.
     /// </summary>
-    private static IEnumerable<(string Prefix, string Namespace)> DistinctUserControlNamespaces(
+    private static IEnumerable<(string Prefix, string XmlnsValue)> DistinctUserControlNamespaces(
         IReadOnlyList<UserControlViewInfo>? userControlViews) =>
         (userControlViews ?? [])
             .GroupBy(v => v.ViewNamespace, StringComparer.Ordinal)
-            .Select(g => (g.First().XmlnsPrefix, Namespace: g.Key))
+            .Select(g => (g.First().XmlnsPrefix, g.First().XmlnsValue))
             .OrderBy(x => x.XmlnsPrefix, StringComparer.Ordinal);
 
     private void EmitControl(AxamlDocumentBuilder builder, ControlModel control, bool emitFallbackControls, EmissionState state)

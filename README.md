@@ -80,7 +80,7 @@ dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source path/to/Your
 
 | Command | What it does |
 |---|---|
-| `convert --source <csproj\|sln\|slnx> --output <dir>` | Converts a WinForms project into a new Avalonia project — or, given a solution, every WinForms project in it, into one generated solution. |
+| `convert --source <csproj\|sln\|slnx> --output <dir>` | Converts a WinForms project into a new Avalonia project — or, given a solution, every WinForms project in it, into one generated solution, with the `ProjectReference`s between them preserved so a Form can host a UserControl from another project. |
 | `analyze --source <csproj>` | Discovery only (nothing written) — lists the Forms/UserControls/Components that would be converted. |
 | `list-mappings [--filter <substring>]` | Prints the full WinForms → Avalonia control mapping table. |
 

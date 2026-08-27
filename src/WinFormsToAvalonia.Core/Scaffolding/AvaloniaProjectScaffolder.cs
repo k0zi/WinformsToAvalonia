@@ -35,7 +35,7 @@ public sealed class AvaloniaProjectScaffolder
     {
         var vfs = new VirtualFileSystem();
 
-        vfs.AddText($"{projectName}.csproj", BuildCsproj(projectName, new HashSet<string>()));
+        vfs.AddText($"{projectName}.csproj", BuildCsproj(projectName, new HashSet<string>(), []));
         vfs.AddText("app.manifest", AppManifest);
         vfs.AddText("Program.cs", BuildProgram(projectName));
         vfs.AddText("App.axaml", BuildAppAxaml(projectName, notifyIcons ?? []));
@@ -62,12 +62,29 @@ public sealed class AvaloniaProjectScaffolder
     /// construction with that same nested namespace instead of relying on the flat
     /// `using {Project}.Views;` / `using {Project}.ViewModels;` directives.
     /// </remarks>
+    /// <param name="projectReferences">
+    /// Other generated projects this one must reference, relative to its own folder. Only a
+    /// solution-wide conversion produces any: a Form here hosting a UserControl from there.
+    /// </param>
     public VirtualFileSystem BuildProject(
-        string projectName, IReadOnlyList<ConvertedFormOutput> forms, IReadOnlySet<string>? extraNuGetPackages = null, IReadOnlyList<NotifyIconInfo>? notifyIcons = null)
+        string projectName,
+        IReadOnlyList<ConvertedFormOutput> forms,
+        IReadOnlySet<string>? extraNuGetPackages = null,
+        IReadOnlyList<NotifyIconInfo>? notifyIcons = null,
+        IReadOnlyList<string>? projectReferences = null)
     {
+        var packages = extraNuGetPackages ?? (IReadOnlySet<string>)new HashSet<string>();
+        var references = projectReferences ?? [];
+
         if (forms.Count == 0)
         {
-            return BuildEmptySkeleton(projectName, notifyIcons);
+            var skeleton = BuildEmptySkeleton(projectName, notifyIcons);
+            if (references.Count > 0)
+            {
+                skeleton.AddText($"{projectName}.csproj", BuildCsproj(projectName, packages, references));
+            }
+
+            return skeleton;
         }
 
         // Only a Form becomes an Avalonia Window, so only a Form can be the startup window. A
@@ -80,11 +97,11 @@ public sealed class AvaloniaProjectScaffolder
         if (mainForm is null)
         {
             vfs = BuildEmptySkeleton(projectName, notifyIcons);
-            vfs.AddText($"{projectName}.csproj", BuildCsproj(projectName, extraNuGetPackages ?? (IReadOnlySet<string>)new HashSet<string>()));
+            vfs.AddText($"{projectName}.csproj", BuildCsproj(projectName, packages, references));
         }
         else
         {
-            vfs.AddText($"{projectName}.csproj", BuildCsproj(projectName, extraNuGetPackages ?? (IReadOnlySet<string>)new HashSet<string>()));
+            vfs.AddText($"{projectName}.csproj", BuildCsproj(projectName, packages, references));
             vfs.AddText("app.manifest", AppManifest);
             vfs.AddText("Program.cs", BuildProgram(projectName));
             vfs.AddText("App.axaml", BuildAppAxaml(projectName, notifyIcons ?? []));
@@ -112,12 +129,28 @@ public sealed class AvaloniaProjectScaffolder
     private static string CombineFolder(string root, string relativeFolder) =>
         string.IsNullOrEmpty(relativeFolder) ? root : $"{root}/{relativeFolder}";
 
-    private static string BuildCsproj(string projectName, IReadOnlySet<string> extraNuGetPackages)
+    /// <param name="projectReferences">
+    /// Other generated projects this one needs, as paths relative to its own folder. Only ever
+    /// non-empty when a solution is being converted and one project's Form hosts another's
+    /// UserControl.
+    /// </param>
+    private static string BuildCsproj(
+        string projectName,
+        IReadOnlySet<string> extraNuGetPackages,
+        IReadOnlyList<string> projectReferences)
     {
         var extraPackageLines = string.Concat(extraNuGetPackages
             .Where(ExtraPackageVersions.ContainsKey)
             .OrderBy(p => p, StringComparer.Ordinal)
             .Select(p => $"\n    <PackageReference Include=\"{p}\" Version=\"{ExtraPackageVersions[p]}\" />"));
+
+        var projectReferenceGroup = projectReferences.Count == 0
+            ? ""
+            : "\n\n  <ItemGroup>"
+                + string.Concat(projectReferences
+                    .OrderBy(p => p, StringComparer.Ordinal)
+                    .Select(p => $"\n    <ProjectReference Include=\"{p.Replace('/', '\\')}\" />"))
+                + "\n  </ItemGroup>";
 
         return $"""
             <Project Sdk="Microsoft.NET.Sdk">
@@ -142,7 +175,7 @@ public sealed class AvaloniaProjectScaffolder
                 <PackageReference Include="Avalonia.Themes.Simple" Version="{AvaloniaVersion}" />
                 <PackageReference Include="Avalonia.Fonts.Inter" Version="{AvaloniaVersion}" />
                 <PackageReference Include="CommunityToolkit.Mvvm" Version="{CommunityToolkitMvvmVersion}" />{extraPackageLines}
-              </ItemGroup>
+              </ItemGroup>{projectReferenceGroup}
             </Project>
             """;
     }

@@ -32,10 +32,22 @@ public class SolutionConversionTests
             Assert.Contains("Shell/Shell.csproj", solutionText);
             Assert.Contains("Widgets/Widgets.csproj", solutionText);
 
-            // A UserControl from the *other* project has no mapping yet, and says so rather than
-            // being dropped silently.
+            // The hard half: Shell's Form hosts a UserControl that Widgets defines. It has to
+            // resolve to an element - through the assembly-qualified xmlns form, since `using:`
+            // can only name the assembly being compiled - and Shell has to reference Widgets.
             var shell = result.Converted.Single(c => c.SourceProjectPath.EndsWith("Shell.csproj", StringComparison.Ordinal));
-            Assert.Contains(shell.Result.Report.Warnings, w => w.Contains("sharedPanel1") && w.Contains("no Avalonia mapping"));
+            Assert.DoesNotContain(shell.Result.Report.Warnings, w => w.Contains("sharedPanel1"));
+
+            var mainView = await File.ReadAllTextAsync(Path.Combine(shell.OutputDirectory, "Views", "MainView.axaml"));
+            Assert.Contains("xmlns:uc0=\"clr-namespace:Widgets.Views.Controls;assembly=Widgets\"", mainView);
+            Assert.Contains("<uc0:SharedPanelView", mainView);
+
+            var shellCsproj = await File.ReadAllTextAsync(Path.Combine(shell.OutputDirectory, "Shell.csproj"));
+            Assert.Contains("<ProjectReference Include=\"..\\Widgets\\Widgets.csproj\" />", shellCsproj);
+
+            // ...and not the other way round: Widgets names nothing of Shell's.
+            var widgets = result.Converted.Single(c => c.SourceProjectPath.EndsWith("Widgets.csproj", StringComparison.Ordinal));
+            Assert.DoesNotContain("ProjectReference", await File.ReadAllTextAsync(Path.Combine(widgets.OutputDirectory, "Widgets.csproj")));
 
             // The point of the whole thing: `dotnet build` on the *generated solution*.
             var buildResult = await DotnetRunner.RunAsync($"build {result.SolutionFileName}", outputDir);

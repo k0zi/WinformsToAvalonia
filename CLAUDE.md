@@ -46,6 +46,12 @@ output the assertions put in their failure message, which is the only evidence o
 `ConversionPipeline.Run` (`src/WinFormsToAvalonia.Core/Pipeline/ConversionPipeline.cs`) is the
 single orchestrator — read it first, every stage below is a field on it:
 
+`SolutionConversionPipeline` sits one level above it for a `.sln`/`.slnx` source and runs that same
+pipeline once per project, unchanged. The only thing it adds is a `SolutionConversionContext`
+second argument: the UserControls of the projects *this* csproj `ProjectReference`s, predicted
+into their View names before anything is converted, plus the generated `ProjectReference`s to
+match. Options are the user's intent, so this is a parameter, not a field on `ConversionOptions`.
+
 1. **Parsing** (`Core/Parsing`) — `WinFormsProjectLoader` (legacy vs SDK-style csproj) →
    `DesignerFileLocator` (classifies each type as Form/UserControl/Component from its base list,
    followed transitively through the project's *own* classes so `: MyBaseForm` resolves; a base

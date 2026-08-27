@@ -14,7 +14,7 @@ public class DiscoveryTableRendererTests
         console.Profile.Width = 200;
         var project = new WinFormsProjectModel(
             "/src/Demo.csproj", IsLegacyStyle: false, RootNamespace: "Demo", AssemblyName: "Demo",
-            TargetFrameworks: ["net9.0-windows"], CompileFiles: [], ResourceFiles: []);
+            TargetFrameworks: ["net9.0-windows"], CompileFiles: [], ResourceFiles: [], ProjectReferences: []);
 
         var pairings = new[]
         {

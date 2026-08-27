@@ -29,7 +29,11 @@ public sealed class ConversionPipeline
     private readonly AvaloniaProjectScaffolder _scaffolder = new();
     private readonly FallbackControlResolver _fallbackControlResolver = new();
 
-    public ConversionRunResult Run(ConversionOptions options)
+    /// <param name="solutionContext">
+    /// What the rest of the solution contributes, when this project is one of several being
+    /// converted together. Null - the default - is the ordinary single-project run.
+    /// </param>
+    public ConversionRunResult Run(ConversionOptions options, SolutionConversionContext? solutionContext = null)
     {
         var stopwatch = Stopwatch.StartNew();
         var projectName = NamingConventions.DeriveProjectName(options.OutputDirectory);
@@ -64,7 +68,9 @@ public sealed class ConversionPipeline
             .ToDictionary(x => x.Key, x => x.Value);
         var eventMappingRegistry = new EventMappingRegistry(carriedComponentEvents);
 
-        var userControlViews = BuildUserControlViews(project.ProjectDirectory, projectName, pairings);
+        var userControlViews = BuildUserControlViews(
+            project.ProjectDirectory, projectName, pairings,
+            solutionContext?.ExternalUserControls ?? []);
 
         // Every Form resolved to its View up front, before any of them is emitted: a handler that
         // opens another Form has to name a type whose View may not have been converted yet, so
@@ -191,7 +197,9 @@ public sealed class ConversionPipeline
             }
         }
 
-        var vfs = _scaffolder.BuildProject(projectName, convertedForms, allRequiredNuGetPackages, notifyIcons);
+        var vfs = _scaffolder.BuildProject(
+            projectName, convertedForms, allRequiredNuGetPackages, notifyIcons,
+            solutionContext?.ProjectReferences ?? []);
         _fallbackControlResolver.CopyResolvedTemplates(vfs, projectName, allUsedFallbackKeys);
 
         foreach (var (relativePath, text) in carriedComponents.SelectMany(c => c.Files))
@@ -412,25 +420,59 @@ public sealed class ConversionPipeline
     /// rather than derived from the folder name, so they stay valid XML names whatever the
     /// source folders are called, and deterministic for the golden-file snapshot tests.
     /// </summary>
+    /// <param name="externalUserControls">
+    /// UserControls contributed by other projects of the same solution. They share the prefix
+    /// counter with this project's own, since a prefix only has to be unique within the document
+    /// it is declared on; a name this project defines itself wins, exactly as the C# compiler
+    /// would resolve it.
+    /// </param>
     private static IReadOnlyList<UserControlViewInfo> BuildUserControlViews(
-        string projectDirectory, string projectName, IReadOnlyList<DesignerFilePairing> pairings)
+        string projectDirectory,
+        string projectName,
+        IReadOnlyList<DesignerFilePairing> pairings,
+        IReadOnlyList<ExternalUserControl> externalUserControls)
     {
         var prefixesByNamespace = new Dictionary<string, string>(StringComparer.Ordinal);
         var views = new List<UserControlViewInfo>();
+        var claimedTypeNames = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var pairing in pairings.Where(p => p.Kind == WinFormsArtifactKind.UserControl))
+        string PrefixFor(string viewNamespace)
         {
-            var relativeFolder = GetRelativeFolder(projectDirectory, pairing.DesignerFilePath!);
-            var viewNamespace = NamingConventions.NamespaceOf($"{projectName}.Views", relativeFolder);
-
             if (!prefixesByNamespace.TryGetValue(viewNamespace, out var prefix))
             {
                 prefix = $"uc{prefixesByNamespace.Count}";
                 prefixesByNamespace[viewNamespace] = prefix;
             }
 
+            return prefix;
+        }
+
+        foreach (var pairing in pairings.Where(p => p.Kind == WinFormsArtifactKind.UserControl))
+        {
+            var relativeFolder = GetRelativeFolder(projectDirectory, pairing.DesignerFilePath!);
+            var viewNamespace = NamingConventions.NamespaceOf($"{projectName}.Views", relativeFolder);
+
+            claimedTypeNames.Add(pairing.ClassName);
             views.Add(new UserControlViewInfo(
-                pairing.ClassName, NamingConventions.DeriveViewName(pairing.ClassName), viewNamespace, prefix));
+                pairing.ClassName,
+                NamingConventions.DeriveViewName(pairing.ClassName),
+                viewNamespace,
+                PrefixFor(viewNamespace)));
+        }
+
+        foreach (var external in externalUserControls)
+        {
+            if (!claimedTypeNames.Add(external.WinFormsTypeName))
+            {
+                continue;
+            }
+
+            views.Add(new UserControlViewInfo(
+                external.WinFormsTypeName,
+                external.ViewClassName,
+                external.ViewNamespace,
+                PrefixFor(external.ViewNamespace),
+                external.AssemblyName));
         }
 
         return views;
@@ -492,7 +534,7 @@ public sealed class ConversionPipeline
         return new NotifyIconInfo(component.FieldName, null, tooltip);
     }
 
-    private static string GetRelativeFolder(string projectDirectory, string filePath)
+    internal static string GetRelativeFolder(string projectDirectory, string filePath)
     {
         var relativeDirectory = Path.GetDirectoryName(Path.GetRelativePath(projectDirectory, filePath)) ?? "";
         return relativeDirectory == "." ? "" : relativeDirectory.Replace('\\', '/');

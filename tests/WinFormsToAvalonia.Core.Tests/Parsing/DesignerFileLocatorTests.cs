@@ -84,7 +84,8 @@ public class DesignerFileLocatorTests
                 fixture.PathTo("MyTimerComponent.cs"),
                 fixture.PathTo("Helpers.cs"),
             ],
-            ResourceFiles: []);
+            ResourceFiles: [],
+            ProjectReferences: []);
 
         var results = new DesignerFileLocator().Locate(project);
 
@@ -222,7 +223,8 @@ public class DesignerFileLocatorTests
             AssemblyName: "Demo",
             TargetFrameworks: ["net9.0-windows"],
             CompileFiles: relativePaths.Select(fixture.PathTo).ToList(),
-            ResourceFiles: []);
+            ResourceFiles: [],
+            ProjectReferences: []);
 
     [Fact]
     public void Locate_PairsResxFileWhenPresent()
@@ -238,7 +240,8 @@ public class DesignerFileLocatorTests
             AssemblyName: "Demo",
             TargetFrameworks: ["net9.0-windows"],
             CompileFiles: [fixture.PathTo("Form1.cs")],
-            ResourceFiles: [fixture.PathTo("Form1.resx")]);
+            ResourceFiles: [fixture.PathTo("Form1.resx")],
+            ProjectReferences: []);
 
         var results = new DesignerFileLocator().Locate(project);
 

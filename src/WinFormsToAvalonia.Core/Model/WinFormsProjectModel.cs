@@ -11,7 +11,8 @@ public sealed record WinFormsProjectModel(
     string AssemblyName,
     IReadOnlyList<string> TargetFrameworks,
     IReadOnlyList<string> CompileFiles,
-    IReadOnlyList<string> ResourceFiles)
+    IReadOnlyList<string> ResourceFiles,
+    IReadOnlyList<string> ProjectReferences)
 {
     public string ProjectDirectory => Path.GetDirectoryName(ProjectFilePath)!;
 }

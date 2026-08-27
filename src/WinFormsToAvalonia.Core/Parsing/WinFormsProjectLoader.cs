@@ -31,6 +31,13 @@ public sealed class WinFormsProjectLoader
         var assemblyName = ReadProperty(root, ns, "AssemblyName") ?? projectNameFallback;
         var targetFrameworks = ReadTargetFrameworks(root, ns);
 
+        // Which sibling projects this one may name types from. Only ever consulted when a whole
+        // solution is being converted: it is what tells that run which *other* projects'
+        // UserControls a Form here could legally host.
+        var projectReferences = ReadItemIncludePaths(root, ns, "ProjectReference", "Include", projectDirectory)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         List<string> compileFiles;
         List<string> resourceFiles;
 
@@ -62,7 +69,8 @@ public sealed class WinFormsProjectLoader
             assemblyName,
             targetFrameworks,
             compileFiles,
-            resourceFiles);
+            resourceFiles,
+            projectReferences);
     }
 
     private static IReadOnlyList<string> ReadTargetFrameworks(XElement root, XNamespace ns)

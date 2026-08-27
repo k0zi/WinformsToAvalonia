@@ -175,6 +175,35 @@ public class AxamlEmitterTests
         Assert.DoesNotContain("TODO(Winforms2Avalonia)", result.Axaml);
     }
 
+    /// <summary>
+    /// A UserControl that another project of the same solution defines. Avalonia's short
+    /// <c>using:</c> form can only name a namespace in the assembly being compiled, so this is
+    /// the one case that has to spell out <c>clr-namespace:...;assembly=...</c>.
+    /// </summary>
+    [Fact]
+    public void EmitView_FormHostingAUserControlFromAnotherProject_QualifiesTheXmlnsWithItsAssembly()
+    {
+        var userControlViews = new[]
+        {
+            new UserControlViewInfo("OwnControl", "OwnControlView", "Demo.Views", "uc0"),
+            new UserControlViewInfo("SharedPanel", "SharedPanelView", "Widgets.Views", "uc1", AssemblyName: "Widgets"),
+        };
+        var registry = new ControlMappingRegistry(DefaultControlMappers.All
+            .Append(new UserControlMapper("OwnControl", "uc0:OwnControlView"))
+            .Append(new UserControlMapper("SharedPanel", "uc1:SharedPanelView")));
+
+        var formModel = new FormModel { ClassName = "MainForm" };
+        formModel.RootControls.Add(new ControlModel { FieldName = "ownControl1", ClrTypeName = "OwnControl" });
+        formModel.RootControls.Add(new ControlModel { FieldName = "sharedPanel1", ClrTypeName = "SharedPanel" });
+
+        var result = new AxamlEmitter(registry).EmitView(
+            formModel, "Demo", "MainView", "MainViewModel", userControlViews: userControlViews);
+
+        Assert.Contains("xmlns:uc0=\"using:Demo.Views\"", result.Axaml);
+        Assert.Contains("xmlns:uc1=\"clr-namespace:Widgets.Views;assembly=Widgets\"", result.Axaml);
+        Assert.Contains("<uc1:SharedPanelView x:Name=\"sharedPanel1\" />", result.Axaml);
+    }
+
     [Fact]
     public void EmitView_TwoUserControlsInTheSameFolder_DeclaresTheirSharedNamespaceOnlyOnce()
     {
