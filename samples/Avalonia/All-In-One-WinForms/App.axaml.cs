@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using All_In_One_WinForms.ViewModels;
@@ -12,6 +13,7 @@ public partial class App : Application
     {
         AvaloniaXamlLoader.Load(this);
     }
+
 
     public override void OnFrameworkInitializationCompleted()
     {

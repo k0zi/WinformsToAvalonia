@@ -111,7 +111,8 @@ public sealed class AvaloniaProjectScaffolder
             vfs.AddText("app.manifest", AppManifest);
             vfs.AddText("Program.cs", BuildProgram(projectName));
             vfs.AddText("App.axaml", BuildAppAxaml(projectName, notifyIcons ?? []));
-            vfs.AddText("App.axaml.cs", BuildAppAxamlCs(projectName, mainForm.ViewClassName, mainForm.RelativeFolder));
+            vfs.AddText("App.axaml.cs", BuildAppAxamlCs(
+                projectName, mainForm.ViewClassName, mainForm.RelativeFolder, notifyIcons));
             vfs.AddText("ViewLocator.cs", BuildViewLocator(projectName));
             vfs.AddText("ViewModels/ViewModelBase.cs", BuildViewModelBase(projectName));
         }
@@ -300,16 +301,59 @@ public sealed class AvaloniaProjectScaffolder
         return section;
     }
 
+    /// <summary>
+    /// One accessor per emitted tray icon, so a converted handler can name the NotifyIcon it came
+    /// from.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A NotifyIcon is app-level in Avalonia - it lives in App.axaml's <c>TrayIcon.Icons</c>, not
+    /// in any View - so a View has no field for it and <c>notifyIcon1.Visible = false;</c> had
+    /// nowhere to go. These give it one, in the order App.axaml declares them, which is the order
+    /// this same list produced.
+    /// </para>
+    /// <para>
+    /// Only the icons whose file resolved: an unresolved one is emitted commented out (see
+    /// <see cref="BuildTrayIconsSection"/>), so an accessor for it would index past the end of a
+    /// collection that was never populated.
+    /// </para>
+    /// </remarks>
+    private static string BuildTrayIconAccessors(IReadOnlyList<NotifyIconInfo> notifyIcons)
+    {
+        var resolved = notifyIcons.Where(i => i.IconAssetPath is not null).ToList();
+        if (resolved.Count == 0)
+        {
+            return "";
+        }
+
+        return string.Concat(resolved.Select((icon, index) => $"""
+
+                /// <summary>The tray icon converted from the WinForms NotifyIcon '{icon.FieldName}'.</summary>
+                /// <remarks>
+                /// Populated by App.axaml, which Initialize() loads before any View is constructed -
+                /// so this is never null by the time a handler can run.
+                /// </remarks>
+                public static TrayIcon {NamingConventions.Capitalize(icon.FieldName)} =>
+                    TrayIcon.GetIcons(Current!)![{index}];
+
+            """));
+    }
+
     private static string ToolTipAttribute(NotifyIconInfo icon) =>
         icon.TooltipText is null ? "" : $" ToolTipText=\"{icon.TooltipText}\"";
 
-    private static string BuildAppAxamlCs(string projectName, string mainViewClassName, string relativeFolder)
+    private static string BuildAppAxamlCs(
+        string projectName,
+        string mainViewClassName,
+        string relativeFolder,
+        IReadOnlyList<NotifyIconInfo>? notifyIcons = null)
     {
         var mainViewRef = string.IsNullOrEmpty(relativeFolder)
             ? mainViewClassName
             : $"{NamingConventions.NamespaceOf($"{projectName}.Views", relativeFolder)}.{mainViewClassName}";
         return $$"""
             using Avalonia;
+            using Avalonia.Controls;
             using Avalonia.Controls.ApplicationLifetimes;
             using Avalonia.Markup.Xaml;
             using {{projectName}}.ViewModels;
@@ -323,6 +367,7 @@ public sealed class AvaloniaProjectScaffolder
                 {
                     AvaloniaXamlLoader.Load(this);
                 }
+            {{BuildTrayIconAccessors(notifyIcons ?? [])}}
 
                 public override void OnFrameworkInitializationCompleted()
                 {

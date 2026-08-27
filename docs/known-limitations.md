@@ -93,6 +93,14 @@ contributors know what to expect and where to look before filing a duplicate iss
   TODO, because Avalonia resolves `TrayIcon.Icon` at run time: referencing an asset the
   conversion cannot produce builds fine and then throws `FileNotFoundException` out of
   `App.Initialize()`, before any window opens.
+
+  A handler *can* reach it: the generated `App` declares one static accessor per emitted icon,
+  named after the WinForms field (`App.NotifyIcon1`), and `notifyIcon1.Visible` / `.Text`
+  translate to `IsVisible` / `ToolTipText` on it - which is most of what a WinForms app does with
+  a NotifyIcon. Only for an icon that **resolved**: an unresolved one has no live `TrayIcon` and
+  therefore no accessor, so a handler naming it stays a comment rather than pointing at something
+  that is not there. The View needs no `using` for this, because `App` is in the project's root
+  namespace and every View in a child of it.
 - **File dialogs** have `Unsupported` (guidance-only) *mapping* entries, because Avalonia's
   replacement is an async API called from code, not a control - but the feature works. The
   `if (openFileDialog1.ShowDialog(this) == DialogResult.OK) { ... openFileDialog1.FileName ... }`

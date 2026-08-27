@@ -51,6 +51,10 @@ public sealed class FormMigrationPlanner
     /// Decides whether the host View is a Window. Only a Window can own a modal dialog, so a
     /// converted UserControl's handlers cannot translate `ShowDialog`.
     /// </param>
+    /// <param name="trayIconFields">
+    /// NotifyIcon fields this run really emitted into App.axaml - the ones whose icon file
+    /// resolved. Only those have an accessor on the generated App, so only those can be named.
+    /// </param>
     /// <param name="viewSurface">
     /// What the project's converted Views expose to each other, resolved before any body is
     /// translated - including this artifact's own, which the pre-pass already planned.
@@ -61,9 +65,11 @@ public sealed class FormMigrationPlanner
         IReadOnlyDictionary<string, FormViewInfo>? formViews = null,
         WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form,
         IReadOnlyDictionary<string, string>? projectComponentNamespaces = null,
-        ViewSurfaceContext? viewSurface = null)
+        ViewSurfaceContext? viewSurface = null,
+        IReadOnlySet<string>? trayIconFields = null)
     {
         viewSurface ??= ViewSurfaceContext.None;
+        trayIconFields ??= new HashSet<string>(StringComparer.Ordinal);
         var warnings = new List<string>();
         var subscriptionsByHandler = CollectSubscriptions(formModel, codeBehind, warnings);
 
@@ -140,7 +146,7 @@ public sealed class FormMigrationPlanner
         var promotedFieldNames = promotedFields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         var promotedHelpers = PlanHelpers(
             codeBehind, formModel, navigation, timerFields, componentFields, promotedFieldNames, rewriter,
-            viewSurface.ByType);
+            viewSurface.ByType, trayIconFields);
         var helperCalls = promotedHelpers.ToDictionary(
             h => h.Name,
             h => new HelperCallInfo(CountParameters(h.ParameterListText), h.IsAsync),
@@ -164,7 +170,7 @@ public sealed class FormMigrationPlanner
                 {
                     Rewrite = rewriter.RewriteForView(
                         h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields, componentFields,
-                        helperCalls, promotedFieldNames, viewSurface.ByType),
+                        helperCalls, promotedFieldNames, viewSurface.ByType, trayIconFields),
                 })
             .ToList();
 
@@ -491,7 +497,8 @@ public sealed class FormMigrationPlanner
         IReadOnlySet<string> componentFields,
         IReadOnlySet<string> promotedFields,
         HandlerBodyRewriter rewriter,
-        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties)
+        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties,
+        IReadOnlySet<string> trayIconFields)
     {
         var candidates = codeBehind.HelperMembers
             .Where(m => m.Kind == HelperMemberKind.Method && m.Signature is not null)
@@ -514,7 +521,7 @@ public sealed class FormMigrationPlanner
                 var signature = candidate.Signature!;
                 var rewrite = rewriter.RewriteForHelper(
                     signature, formModel, navigation, timerFields, componentFields, byName, promotedFields,
-                    viewProperties);
+                    viewProperties, trayIconFields);
 
                 // An empty body is complete in the sense that matters: there is nothing left over.
                 if (rewrite.RemainingBody.Length > 0)

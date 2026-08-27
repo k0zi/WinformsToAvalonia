@@ -44,6 +44,9 @@ public class GeneratedAppStartupTests
     [InlineData("ComplexApp")]
     // Bundled fallback templates, including one that pulls in a package of its own.
     [InlineData("HandlerMigrationApp")]
+    // An app-level TrayIcon: built by App.axaml during Initialize, before any View exists, and
+    // reached from a handler through the accessor the generated App declares for it.
+    [InlineData("TrayIconApp")]
     public async Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName)
     {
         var sourceProject = Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj");

@@ -165,7 +165,12 @@ public sealed class ConversionPipeline
             // where a handler ended up or which properties are bound.
             var migrationPlan = migrationPlanner.Plan(
                 formModel, codeBehindModel, formViews, pairing.Kind, carriedComponentNamespaces,
-                new ViewSurfaceContext(promotedPropertiesByArtifact[pairing.ClassName], viewPropertiesByType));
+                new ViewSurfaceContext(promotedPropertiesByArtifact[pairing.ClassName], viewPropertiesByType),
+                // Collected just above, in this same iteration: only an icon whose file resolved
+                // reaches App.axaml, and only those get an accessor a handler could name.
+                notifyIcons.Where(i => i.IconAssetPath is not null)
+                    .Select(i => i.FieldName)
+                    .ToHashSet(StringComparer.Ordinal));
             allWarnings.AddRange(migrationPlan.Warnings);
 
             // Unlike every other fallback key, these come from a translated *handler body*

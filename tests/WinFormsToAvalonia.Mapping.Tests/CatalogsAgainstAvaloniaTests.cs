@@ -91,6 +91,19 @@ public class CatalogsAgainstAvaloniaTests
             + "have - and this converter emits that field itself, so nothing else would catch it.");
     }
 
+    [Theory]
+    [MemberData(nameof(TrayIconProperties))]
+    public void TrayIconProperty_ExistsOnTrayIcon(string winFormsPropertyName, string avaloniaPropertyName)
+    {
+        var trayIcon = AvaloniaMetadata.FindElement("TrayIcon");
+        Assert.True(trayIcon is not null, "Avalonia has no TrayIcon type.");
+
+        Assert.True(
+            AvaloniaMetadata.FindProperty(trayIcon!, avaloniaPropertyName) is not null,
+            $"NotifyIcon.{winFormsPropertyName} is translated to TrayIcon.{avaloniaPropertyName}, "
+            + "which does not exist - and this converter emits that accessor itself.");
+    }
+
     /// <summary>
     /// The Avalonia this suite reads has to be the Avalonia the generated projects compile
     /// against, or every check above is measuring the wrong API.
@@ -201,6 +214,18 @@ public class CatalogsAgainstAvaloniaTests
         foreach (var (memberName, isMethod) in DispatcherTimerMemberCatalog.AllAvaloniaMembers.OrderBy(m => m.MemberName, StringComparer.Ordinal))
         {
             data.Add(memberName, isMethod);
+        }
+
+        return data;
+    }
+
+    public static TheoryData<string, string> TrayIconProperties()
+    {
+        var data = new TheoryData<string, string>();
+
+        foreach (var (winFormsName, avaloniaName) in TrayIconMemberCatalog.AllEntries.OrderBy(e => e.WinFormsPropertyName, StringComparer.Ordinal))
+        {
+            data.Add(winFormsName, avaloniaName);
         }
 
         return data;

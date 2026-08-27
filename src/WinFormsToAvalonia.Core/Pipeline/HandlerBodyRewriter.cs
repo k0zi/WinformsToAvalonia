@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using WinFormsToAvalonia.Core.Emission;
 using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 using WinFormsToAvalonia.Core.Parsing;
@@ -100,7 +101,8 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string>? componentFields = null,
         IReadOnlyDictionary<string, HelperCallInfo>? promotedHelpers = null,
         IReadOnlySet<string>? promotedFields = null,
-        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null) =>
+        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null,
+        IReadOnlySet<string>? trayIconFields = null) =>
         Rewrite(
             body,
             new ViewTarget(
@@ -112,7 +114,8 @@ public sealed class HandlerBodyRewriter
                 componentFields ?? new HashSet<string>(StringComparer.Ordinal),
                 promotedHelpers ?? new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal),
                 promotedFields ?? new HashSet<string>(StringComparer.Ordinal),
-                viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal)));
+                viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal),
+                trayIconFields ?? new HashSet<string>(StringComparer.Ordinal)));
 
     /// <summary>
     /// Rewrites the body of a code-behind <em>helper</em> method, against the same View the
@@ -133,12 +136,14 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string> componentFields,
         IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers,
         IReadOnlySet<string> promotedFields,
-        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null)
+        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null,
+        IReadOnlySet<string>? trayIconFields = null)
     {
         var target = new ViewTarget(
             formModel, _controlMappings, navigation, HandlerSignature.None,
             dispatcherTimerFields, componentFields, promotedHelpers, promotedFields,
-            viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal));
+            viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal),
+            trayIconFields ?? new HashSet<string>(StringComparer.Ordinal));
 
         foreach (var parameterName in signature.ParameterNames)
         {
@@ -2623,8 +2628,20 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
-        return target.TryResolveControlField(access.Expression, out var fieldName)
-            && target.TryResolveProperty(fieldName, propertyName, forWrite, out text);
+        if (!target.TryResolveControlField(access.Expression, out var fieldName))
+        {
+            return false;
+        }
+
+        // `notifyIcon1.Visible` - the NotifyIcon has no element of its own, but the App this run
+        // generates exposes the TrayIcon it became. Before the control branch, because the field
+        // is a component rather than a control and the catalog knows nothing about it.
+        if (target.TryResolveTrayIconAccessor(fieldName, propertyName, out text))
+        {
+            return true;
+        }
+
+        return target.TryResolveProperty(fieldName, propertyName, forWrite, out text);
     }
 
     /// <summary>
@@ -2851,6 +2868,12 @@ public sealed class HandlerBodyRewriter
         bool TryResolveControlTypeName(string fieldName, out string winFormsTypeName);
 
         /// <summary>
+        /// A NotifyIcon this run emitted into App.axaml, reached through the accessor the
+        /// generated App declares for it.
+        /// </summary>
+        bool TryResolveTrayIconAccessor(string fieldName, string winFormsPropertyName, out string text);
+
+        /// <summary>
         /// The catalog entry behind a control-property assignment target, when there is one - what
         /// says whether the *value* needs rewriting as well as the name.
         /// </summary>
@@ -2932,7 +2955,8 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string> componentFields,
         IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers,
         IReadOnlySet<string> promotedFields,
-        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties) : IRewriteTarget
+        IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties,
+        IReadOnlySet<string> trayIconFields) : IRewriteTarget
     {
         private readonly Dictionary<string, ControlModel> _senderAliases = new(StringComparer.Ordinal);
 
@@ -3111,6 +3135,25 @@ public sealed class HandlerBodyRewriter
         {
             winFormsTypeName = TryGetControl(fieldName, out var control) ? control.ClrTypeName : "";
             return winFormsTypeName.Length > 0;
+        }
+
+        /// <remarks>
+        /// The generated App is in the project's root namespace and the View in a child of it, so
+        /// `App` resolves through the enclosing-namespace lookup with no using of its own - which
+        /// is why this can be written without knowing what that namespace is called.
+        /// </remarks>
+        public bool TryResolveTrayIconAccessor(string fieldName, string winFormsPropertyName, out string text)
+        {
+            text = "";
+
+            if (!trayIconFields.Contains(fieldName)
+                || !TrayIconMemberCatalog.TryGet(winFormsPropertyName, out var avaloniaName))
+            {
+                return false;
+            }
+
+            text = $"App.{NamingConventions.Capitalize(fieldName)}.{avaloniaName}";
+            return true;
         }
 
         public bool TryResolveComponentTypeName(string fieldName, out string winFormsTypeName)
@@ -3453,6 +3496,13 @@ public sealed class HandlerBodyRewriter
         public bool TryResolveControlTypeName(string fieldName, out string winFormsTypeName)
         {
             winFormsTypeName = "";
+            return false;
+        }
+
+        /// <summary>A ViewModel has no App to reach into - that is what promotion means.</summary>
+        public bool TryResolveTrayIconAccessor(string fieldName, string winFormsPropertyName, out string text)
+        {
+            text = "";
             return false;
         }
 
