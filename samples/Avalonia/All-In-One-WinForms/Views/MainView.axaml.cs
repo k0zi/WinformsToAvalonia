@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.Controls.Primitives;
+using All_In_One_WinForms.Components;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -28,6 +29,7 @@ public partial class MainView : Window
 {
     private readonly DispatcherTimer clockTimer;
     private readonly BackgroundWorker backgroundWorker1 = new();
+    private readonly DemoComponent demoComponent1 = new();
     private readonly FileSystemWatcher fileSystemWatcher1 = new();
     private readonly Process process1 = new();
     private readonly SerialPort serialPort1 = new();
@@ -47,6 +49,9 @@ public partial class MainView : Window
         backgroundWorker1.DoWork += backgroundWorker1_DoWork;
         backgroundWorker1.ProgressChanged += backgroundWorker1_ProgressChanged;
         backgroundWorker1.RunWorkerCompleted += backgroundWorker1_RunWorkerCompleted;
+
+        demoComponent1.Caption = "All-In-One";
+        demoComponent1.Ticked += demoComponent1_Ticked;
 
         fileSystemWatcher1.EnableRaisingEvents = false;
         fileSystemWatcher1.Filter = "*.txt";
@@ -271,11 +276,7 @@ public partial class MainView : Window
     private void clockTimer_Tick(object? sender, EventArgs e)
     {
         clockLabel.Text = DateTime.Now.ToLongTimeString();
-
-        /* REMAINING WINFORMS BODY of 'clockTimer_Tick' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.demoComponent1.Tick();
-        */
-        MigrationTodo.NotMigrated(nameof(clockTimer_Tick), "clockTimer_Tick");
+        demoComponent1.Tick();
     }
 
     private void pictureBox1_Click(object? sender, PointerPressedEventArgs e)
@@ -539,10 +540,7 @@ public partial class MainView : Window
 
     private void demoComponent1_Ticked(object? sender, EventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'demoComponent1_Ticked' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.advancedInfoLabel.Text = $"DemoComponent ticks: {this.demoComponent1.TickCount}";
-        */
-        MigrationTodo.NotMigrated(nameof(demoComponent1_Ticked), "demoComponent1_Ticked");
+        advancedInfoLabel.Text = $"DemoComponent ticks: {demoComponent1.TickCount}";
     }
 
     private void SetBusy(bool busy)

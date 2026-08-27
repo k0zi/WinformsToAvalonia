@@ -32,7 +32,9 @@ public class GeneratedAppStartupTests
     private const string HeadlessPackageVersion = "12.1.1";
 
     [Theory]
-    // The regression this test exists for: Windows-only components on a non-Windows host.
+    // The regression this test exists for: Windows-only components on a non-Windows host - and
+    // now also a project-defined component whose source this run copied in, whose constructor
+    // runs at startup like any other field initializer.
     [InlineData("ComponentFieldApp")]
     // A DispatcherTimer wired in the constructor, plus a second Window the first one opens.
     [InlineData("DialogContractApp")]

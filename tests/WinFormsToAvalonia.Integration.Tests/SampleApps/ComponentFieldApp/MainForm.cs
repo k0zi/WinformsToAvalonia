@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.IO;
 using System.Windows.Forms;
+using ComponentFieldApp.Components;
 
 namespace ComponentFieldApp
 {
@@ -46,6 +47,18 @@ namespace ComponentFieldApp
         private void fileSystemWatcher1_Changed(object sender, FileSystemEventArgs e)
         {
             this.statusLabel.Text = e.Name;
+        }
+
+        // A component this project defines: plain .NET, so its source comes across and the field
+        // is real - designer value applied, its own event wired.
+        private void bumpButton_Click(object sender, EventArgs e)
+        {
+            this.counterComponent1.Bump();
+        }
+
+        private void counterComponent1_Counted(object sender, EventArgs e)
+        {
+            this.statusLabel.Text = this.counterComponent1.Count.ToString();
         }
 
         // Windows-only: the field is still declared, the platform analyser silenced for the file,

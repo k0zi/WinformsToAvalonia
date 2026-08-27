@@ -13,6 +13,16 @@ namespace WinFormsToAvalonia.Core.Mapping;
 public sealed class EventMappingRegistry
 {
     /// <summary>
+    /// Events declared by the *source project's own* Components, when this run carries their
+    /// source over. Per-run rather than in a static table, because nothing outside that project
+    /// knows they exist - which is why this is the one registry built with data.
+    /// </summary>
+    private readonly IReadOnlyDictionary<(string Type, string Event), string> _projectComponentEvents;
+
+    public EventMappingRegistry(IReadOnlyDictionary<(string Type, string Event), string>? projectComponentEvents = null) =>
+        _projectComponentEvents = projectComponentEvents ?? new Dictionary<(string, string), string>();
+
+    /// <summary>
     /// Control types whose Click is a genuine "the user invoked this" action AND whose Avalonia
     /// target (Button / MenuItem / HyperlinkButton) actually has both a Click event and a
     /// Command property. Every other control type falls through to the PointerPressed
@@ -148,6 +158,13 @@ public sealed class EventMappingRegistry
         if (ComponentFieldCatalog.TryGetEvent(winFormsControlTypeName, eventName, out var componentEvent))
         {
             return new EventMapping(eventName, eventName, componentEvent.ArgsTypeName, SubscribeInCode: true);
+        }
+
+        // The same, for a Component this project declares and this run carries over: the type is
+        // unchanged, so the event keeps its name and its own args type.
+        if (_projectComponentEvents.TryGetValue((winFormsControlTypeName, eventName), out var argsTypeName))
+        {
+            return new EventMapping(eventName, eventName, argsTypeName, SubscribeInCode: true);
         }
 
         return ControlEvents.TryGetValue(eventName, out var mapping) ? mapping : Unmapped(eventName);

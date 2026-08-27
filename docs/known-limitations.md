@@ -17,11 +17,24 @@ contributors know what to expect and where to look before filing a duplicate iss
   One consequence of matching on simple names: two same-named classes in different namespaces
   merge their base sets, which can only ever make classification *more* inclusive - it converts
   an artifact that should have been left alone, rather than silently losing one.
-- **Components are not converted.** `Form` and `UserControl` artifacts both go through the
-  conversion pipeline now (a Form becomes a `Window`, a UserControl an Avalonia `UserControl`,
-  and a project's own UserControls are registered as real control mappings so a Form hosting
-  one emits the generated View element). `Component`-kind artifacts are discovered and reported
-  with tailored guidance, but never emitted - they have no visual representation to convert.
+- **Components have no visual form, but their code can come across.** `Form` and `UserControl`
+  artifacts both go through the conversion pipeline (a Form becomes a `Window`, a UserControl an
+  Avalonia `UserControl`, and a project's own UserControls are registered as real control mappings
+  so a Form hosting one emits the generated View element). A `Component` has nothing to render, so
+  it still gets no element - but if its **source names nothing that would not survive**, that
+  source is copied into the generated project and the component gets a real field, exactly like
+  the in-box ones in `ComponentFieldCatalog`. Designer values are applied, and its own events are
+  subscribed: the args type comes from the component's own `event EventHandler`/`EventHandler<T>`
+  declaration, since nothing outside the project knows it.
+
+  `Parsing/ComponentSourceAnalyzer` decides, and it **over-rejects on purpose**. The cost is
+  asymmetric: a component wrongly refused is reported and left alone, exactly as before this
+  existed, while one wrongly accepted breaks the generated build - and there is no semantic model
+  here to be sure with. So every simple name the file mentions is checked, not just those in type
+  position, against the WinForms control registry and against every other class the project
+  declares (which is not carried over with it). A local variable called `Timer` will refuse the
+  component; nobody is harmed by that. A custom delegate event is left unsubscribed for the same
+  reason - its handler signature cannot be written down with confidence.
 
 ## Designer parsing
 

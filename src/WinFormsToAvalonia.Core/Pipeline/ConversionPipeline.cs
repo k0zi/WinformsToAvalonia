@@ -23,7 +23,7 @@ public sealed class ConversionPipeline
     private readonly DesignerSyntaxWalker _designerSyntaxWalker = new();
     private readonly ControlGraphBuilder _controlGraphBuilder = new();
     private readonly ResxReader _resxReader = new();
-    private readonly EventMappingRegistry _eventMappingRegistry = new();
+
     private readonly CodeBehindExtractor _codeBehindExtractor = new();
     private readonly CodeBehindAnalyzer _codeBehindAnalyzer = new();
     private readonly AvaloniaProjectScaffolder _scaffolder = new();
@@ -51,6 +51,19 @@ public sealed class ConversionPipeline
             .Concat(allPairings.Where(p => p.Kind is WinFormsArtifactKind.Form && p.DesignerFilePath is not null))
             .ToList();
 
+        var allWarnings = new List<string>();
+
+        // A Component this project defines is plain .NET when it names nothing that would not
+        // survive - so its source comes across and it gets a real field, instead of the whole
+        // artifact kind being dropped with guidance.
+        var carriedComponents = CarryOverProjectComponents(allPairings, projectName, allWarnings);
+        var carriedComponentNamespaces = carriedComponents.ToDictionary(
+            c => c.ClassName, c => c.TargetNamespace, StringComparer.Ordinal);
+        var carriedComponentEvents = carriedComponents
+            .SelectMany(c => c.Events.Select(e => (Key: (c.ClassName, e.Key), e.Value)))
+            .ToDictionary(x => x.Key, x => x.Value);
+        var eventMappingRegistry = new EventMappingRegistry(carriedComponentEvents);
+
         var userControlViews = BuildUserControlViews(project.ProjectDirectory, projectName, pairings);
 
         // Every Form resolved to its View up front, before any of them is emitted: a handler that
@@ -59,15 +72,14 @@ public sealed class ConversionPipeline
         var formViews = BuildFormViews(project.ProjectDirectory, projectName, pairings);
         var mappingRegistry = new ControlMappingRegistry(DefaultControlMappers.All
             .Concat<IControlMapper>(userControlViews.Select(v => new UserControlMapper(v.WinFormsTypeName, v.ElementName)))
-            .Concat(ProjectComponentMappers(allPairings)));
+            .Concat(ProjectComponentMappers(allPairings, carriedComponentNamespaces.Keys.ToHashSet(StringComparer.Ordinal))));
 
         var axamlEmitter = new AxamlEmitter(mappingRegistry);
-        var migrationPlanner = new FormMigrationPlanner(mappingRegistry, _eventMappingRegistry);
+        var migrationPlanner = new FormMigrationPlanner(mappingRegistry, eventMappingRegistry);
 
         var convertedForms = new List<ConvertedFormOutput>();
         var allUsedFallbackKeys = new HashSet<string>(StringComparer.Ordinal);
         var allRequiredNuGetPackages = new HashSet<string>(StringComparer.Ordinal);
-        var allWarnings = new List<string>();
 
         // A group with a .Designer.cs that still didn't classify is a designer artifact this run
         // is about to skip - almost always a Form deriving from a base class that lives in a
@@ -127,7 +139,8 @@ public sealed class ConversionPipeline
             // One plan per Form, shared by all three emitters, so they can never disagree about
             // where a handler ended up or which properties are bound.
             var codeBehindModel = _codeBehindAnalyzer.Analyze(pairing.PrimaryFilePath, formModel);
-            var migrationPlan = migrationPlanner.Plan(formModel, codeBehindModel, formViews, pairing.Kind);
+            var migrationPlan = migrationPlanner.Plan(
+                formModel, codeBehindModel, formViews, pairing.Kind, carriedComponentNamespaces);
             allWarnings.AddRange(migrationPlan.Warnings);
 
             // Unlike every other fallback key, these come from a translated *handler body*
@@ -176,6 +189,11 @@ public sealed class ConversionPipeline
 
         var vfs = _scaffolder.BuildProject(projectName, convertedForms, allRequiredNuGetPackages, notifyIcons);
         _fallbackControlResolver.CopyResolvedTemplates(vfs, projectName, allUsedFallbackKeys);
+
+        foreach (var (relativePath, text) in carriedComponents.SelectMany(c => c.Files))
+        {
+            vfs.AddText(relativePath, text);
+        }
 
         foreach (var (assetPath, content) in assetsToCopy)
         {
@@ -276,13 +294,51 @@ public sealed class ConversionPipeline
     /// of the registry's generic "no mapping registered for type X" fallback. Components have
     /// no visual representation at all, so unlike UserControls there is nothing to emit.
     /// </summary>
-    private static IEnumerable<IControlMapper> ProjectComponentMappers(IReadOnlyList<DesignerFilePairing> allPairings) =>
+    private static IEnumerable<IControlMapper> ProjectComponentMappers(
+        IReadOnlyList<DesignerFilePairing> allPairings, IReadOnlySet<string> carriedOver) =>
         allPairings
             .Where(p => p.Kind == WinFormsArtifactKind.Component)
             .Select(p => new UnsupportedControlMapper(
                 p.ClassName,
-                $"'{p.ClassName}' is a Component defined by this project - it has no visual representation to convert. " +
-                "Its code is plain .NET and works unchanged; move its construction out of View code-behind into a service/ViewModel."));
+                carriedOver.Contains(p.ClassName)
+                    ? $"'{p.ClassName}' is a Component defined by this project - no visual representation, so no control "
+                        + "mapping. Its source names nothing that would not survive the conversion, so it is copied into "
+                        + "the generated project and a real field is emitted for it."
+                    : $"'{p.ClassName}' is a Component defined by this project - it has no visual representation to convert. "
+                        + "Its code is plain .NET and works unchanged; move its construction out of View code-behind into a service/ViewModel."));
+
+    /// <summary>
+    /// Every project-defined Component whose source can be carried over verbatim, with the reason
+    /// reported for each one that cannot.
+    /// </summary>
+    private static List<CarriedOverComponent> CarryOverProjectComponents(
+        IReadOnlyList<DesignerFilePairing> allPairings, string projectName, List<string> warnings)
+    {
+        var winFormsTypeNames = new ControlMappingRegistry().Mappers.Keys.ToHashSet(StringComparer.Ordinal);
+        var carried = new List<CarriedOverComponent>();
+
+        foreach (var pairing in allPairings.Where(p => p.Kind == WinFormsArtifactKind.Component))
+        {
+            // Another class this project declares is not carried over with it, so naming one would
+            // leave the copied file referring to something that does not exist there.
+            var otherClassNames = allPairings
+                .Where(p => p.ClassName != pairing.ClassName)
+                .Select(p => p.ClassName)
+                .ToHashSet(StringComparer.Ordinal);
+
+            if (ComponentSourceAnalyzer.TryCarryOver(
+                    pairing, $"{projectName}.Components", winFormsTypeNames, otherClassNames, out var component, out var reason))
+            {
+                carried.Add(component);
+            }
+            else
+            {
+                warnings.Add($"Component '{pairing.ClassName}' was not carried over: {reason}.");
+            }
+        }
+
+        return carried;
+    }
 
     /// <summary>
     /// Resolves every discovered Form to the View it will be emitted as, keyed by the original

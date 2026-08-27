@@ -62,6 +62,23 @@ public class ComponentFieldConversionTests
             Assert.DoesNotContain("EventLog", constructorBody);
             Assert.Contains(result.Report.Warnings, w => w.Contains("eventLog1") && w.Contains("Windows-only"));
 
+            // A Component this project defines is plain .NET when it names nothing that would not
+            // survive - so its source is carried across and it gets a real field, designer value
+            // applied and its own event wired.
+            Assert.Contains("Components/CounterComponent.cs", result.Vfs.RelativePaths);
+            Assert.True(result.Vfs.TryGetText("Components/CounterComponent.cs", out var carried));
+            // Repointed at the generated project rather than left in the source project's namespace.
+            Assert.DoesNotContain("namespace ComponentFieldApp.Components", carried);
+            Assert.Matches(@"namespace \w+\.Components", carried);
+            Assert.Contains("private readonly CounterComponent counterComponent1 = new();", codeBehind);
+            Assert.Contains("counterComponent1.Label = \"clicks\";", codeBehind);
+            Assert.Contains("counterComponent1.Counted += counterComponent1_Counted;", codeBehind);
+            Assert.Contains("counterComponent1.Bump();", codeBehind);
+
+            // ...and one that reaches for a WinForms type is refused by name, not silently.
+            Assert.DoesNotContain("Components/BeepComponent.cs", result.Vfs.RelativePaths);
+            Assert.Contains(result.Report.Warnings, w => w.Contains("BeepComponent") && w.Contains("not carried over"));
+
             // The package has to be allowlisted in both places or the csproj silently drops it.
             var csprojPath = Assert.Single(result.Vfs.RelativePaths, p => p.EndsWith(".csproj", StringComparison.Ordinal));
             Assert.True(result.Vfs.TryGetText(csprojPath, out var csproj));

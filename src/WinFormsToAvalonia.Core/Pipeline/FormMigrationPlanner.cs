@@ -55,7 +55,8 @@ public sealed class FormMigrationPlanner
         FormModel formModel,
         CodeBehindModel codeBehind,
         IReadOnlyDictionary<string, FormViewInfo>? formViews = null,
-        WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form)
+        WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form,
+        IReadOnlyDictionary<string, string>? projectComponentNamespaces = null)
     {
         var warnings = new List<string>();
         var subscriptionsByHandler = CollectSubscriptions(formModel, codeBehind, warnings);
@@ -118,7 +119,11 @@ public sealed class FormMigrationPlanner
         // the other way - what to emit for them depends on what the rewrite did.)
         var timers = PlanTimers(formModel);
         var timerFields = timers.Select(t => t.FieldName).ToHashSet(StringComparer.Ordinal);
-        var components = PlanComponents(formModel, codeBehind, warnings);
+        var components = PlanComponents(
+            formModel,
+            codeBehind,
+            projectComponentNamespaces ?? new Dictionary<string, string>(StringComparer.Ordinal),
+            warnings);
         var componentFields = components.Select(c => c.FieldName).ToHashSet(StringComparer.Ordinal);
 
         // Helpers first: a handler body may call one, and whether that call translates depends on
@@ -478,8 +483,16 @@ public sealed class FormMigrationPlanner
     /// the rest would add fields (and NuGet references, and platform constraints) for objects the
     /// converted app never touches.
     /// </remarks>
+    /// <param name="projectComponentNamespaces">
+    /// The project's own Components whose source this run carries over, and the namespace they
+    /// land in. They get a field on exactly the same terms as the in-box ones - the only
+    /// difference is where the type comes from.
+    /// </param>
     private static List<ComponentFieldPlan> PlanComponents(
-        FormModel formModel, CodeBehindModel codeBehind, List<string> warnings)
+        FormModel formModel,
+        CodeBehindModel codeBehind,
+        IReadOnlyDictionary<string, string> projectComponentNamespaces,
+        List<string> warnings)
     {
         var referenced = codeBehind.HandlerMethods
             .SelectMany(h => h.ReferencedControlFields)
@@ -489,14 +502,24 @@ public sealed class FormMigrationPlanner
 
         foreach (var component in formModel.Controls.Values.OrderBy(c => c.FieldName, StringComparer.Ordinal))
         {
+            var isProjectComponent = false;
             if (!ComponentFieldCatalog.TryGet(component.ClrTypeName, out var kind))
             {
-                continue;
+                if (!projectComponentNamespaces.TryGetValue(component.ClrTypeName, out var ownNamespace))
+                {
+                    continue;
+                }
+
+                kind = new ComponentFieldKind(ownNamespace);
+                isProjectComponent = true;
             }
 
+            // A designer-wired event is subscribed when *something* can name its args type - the
+            // catalog for an in-box component, the component's own declaration for a carried one.
             var subscriptions = component.Events
                 .Where(e => e.HandlerMethodName is not null
-                    && ComponentFieldCatalog.TryGetEvent(component.ClrTypeName, e.EventName, out _))
+                    && (ComponentFieldCatalog.TryGetEvent(component.ClrTypeName, e.EventName, out _)
+                        || isProjectComponent))
                 .Select(e => (e.EventName, e.HandlerMethodName!))
                 .ToList();
 

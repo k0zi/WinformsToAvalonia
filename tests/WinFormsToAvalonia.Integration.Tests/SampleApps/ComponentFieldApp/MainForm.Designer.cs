@@ -27,6 +27,8 @@ namespace ComponentFieldApp
             this.fileSystemWatcher1 = new System.IO.FileSystemWatcher();
             this.eventLog1 = new System.Diagnostics.EventLog();
             this.unusedWatcher = new System.IO.FileSystemWatcher();
+            this.counterComponent1 = new ComponentFieldApp.Components.CounterComponent();
+            this.bumpButton = new System.Windows.Forms.Button();
             this.SuspendLayout();
             //
             // startButton
@@ -104,7 +106,15 @@ namespace ComponentFieldApp
             // MainForm
             //
             this.ClientSize = new System.Drawing.Size(402, 116);
+            this.counterComponent1.Label = "clicks";
+            this.counterComponent1.Counted += new System.EventHandler(this.counterComponent1_Counted);
+            this.bumpButton.Location = new System.Drawing.Point(396, 12);
+            this.bumpButton.Name = "bumpButton";
+            this.bumpButton.Size = new System.Drawing.Size(90, 28);
+            this.bumpButton.Text = "Bump";
+            this.bumpButton.Click += new System.EventHandler(this.bumpButton_Click);
             this.Controls.Add(this.startButton);
+            this.Controls.Add(this.bumpButton);
             this.Controls.Add(this.launchButton);
             this.Controls.Add(this.watchButton);
             this.Controls.Add(this.logButton);
@@ -126,5 +136,7 @@ namespace ComponentFieldApp
         private System.IO.FileSystemWatcher fileSystemWatcher1;
         private System.Diagnostics.EventLog eventLog1;
         private System.IO.FileSystemWatcher unusedWatcher;
+        private ComponentFieldApp.Components.CounterComponent counterComponent1;
+        private System.Windows.Forms.Button bumpButton;
     }
 }
