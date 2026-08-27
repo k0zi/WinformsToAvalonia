@@ -12,6 +12,7 @@ using System.Media;
 using System.ServiceProcess;
 using All_In_One_WinForms.Views.Forms;
 using Avalonia.Input.Platform;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using All_In_One_WinForms.Controls;
 using All_In_One_WinForms.Generated;
@@ -331,15 +332,12 @@ public partial class MainView : Window
         }
     }
 
-    private void colorButton_Click(object? sender, RoutedEventArgs e)
+    private async void colorButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'colorButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
+        if (await ColorDialogFallback.ShowAsync(this) is { } colorDialog1Color)
         {
-            this.plainPanel.BackColor = this.colorDialog1.Color;
+            plainPanel.Background = new SolidColorBrush(colorDialog1Color);
         }
-        */
-        MigrationTodo.NotMigrated(nameof(colorButton_Click), "colorButton_Click");
     }
 
     private void fontButton_Click(object? sender, RoutedEventArgs e)

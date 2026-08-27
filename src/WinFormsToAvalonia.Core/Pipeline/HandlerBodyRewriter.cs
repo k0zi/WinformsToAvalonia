@@ -505,9 +505,104 @@ public sealed class HandlerBodyRewriter
         }
     }
 
+    /// <summary>
+    /// The two WinForms dialogs Avalonia has nothing at all for, and the bundled window this
+    /// converter ships in their place. Kept here rather than in a Mapping table because exactly
+    /// one call shape consults it - the same reason <c>DataFormatNames</c> lives here.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, (string TemplateKey, string ResultMember)> VisualDialogs =
+        new Dictionary<string, (string, string)>(StringComparer.Ordinal)
+        {
+            ["ColorDialog"] = ("ColorDialogFallback", "Color"),
+            ["FontDialog"] = ("FontDialogFallback", "Font"),
+        };
+
+    /// <summary>
+    /// <c>if (colorDialog1.ShowDialog(this) == DialogResult.OK) { … colorDialog1.Color … }</c>,
+    /// translated **inline** onto a bundled dialog - the same shape as the file dialogs, and for
+    /// the same reason: the Avalonia replacement returns the choice instead of being an object you
+    /// ask afterwards.
+    /// </summary>
+    /// <remarks>
+    /// A plain <c>is { }</c> pattern rather than the file dialogs' list pattern, because these
+    /// return one nullable value. The binding is scoped to exactly the branch that used to read
+    /// the dialog's property, which is also the only place the translation can honour - a use
+    /// after the branch has nothing to refer to.
+    /// </remarks>
+    private static bool TryRewriteVisualDialogIf(
+        IfStatementSyntax ifStatement, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!target.AllowsWindowApis
+            || ifStatement.Condition is not BinaryExpressionSyntax comparison
+            || !comparison.IsKind(SyntaxKind.EqualsExpression)
+            || comparison.Right is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "DialogResult" },
+                Name.Identifier.ValueText: "OK",
+            }
+            || comparison.Left is not InvocationExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ShowDialog" } call,
+            } invocation
+            || invocation.ArgumentList.Arguments.Count > 1
+            || !target.TryResolveControlField(call.Expression, out var dialogField)
+            || !target.TryResolveComponentTypeName(dialogField, out var componentType)
+            || !VisualDialogs.TryGetValue(componentType, out var dialog))
+        {
+            return false;
+        }
+
+        var variableName = $"{dialogField}{dialog.ResultMember}";
+        var selectionKey = $"{dialogField}.{dialog.ResultMember}";
+
+        target.DialogSelections[selectionKey] = variableName;
+        try
+        {
+            if (!TryRewriteBranch(ifStatement.Statement, target, out var thenBranch))
+            {
+                return false;
+            }
+
+            var parts = new List<RewrittenStatement> { thenBranch };
+            var text =
+                $"if (await {dialog.TemplateKey}.ShowAsync(this) is {{ }} {variableName})"
+                + $"\n{{\n{Indent(thenBranch.Text)}\n}}";
+
+            if (ifStatement.Else is { } elseClause)
+            {
+                // An `else` runs when the user cancelled; nothing about that needs the selection.
+                target.DialogSelections.Remove(selectionKey);
+                if (!TryRewriteBranch(elseClause.Statement, target, out var elseBranch))
+                {
+                    return false;
+                }
+
+                parts.Add(elseBranch);
+                text += $"\nelse\n{{\n{Indent(elseBranch.Text)}\n}}";
+            }
+
+            target.Requirements.RequiresAsync = true;
+            target.Requirements.InlinedDialogFields.Add(dialogField);
+
+            rewritten = Merge(text, [.. parts, new RewrittenStatement("", RequiredFallbackKeys: [dialog.TemplateKey])]);
+            return true;
+        }
+        finally
+        {
+            target.DialogSelections.Remove(selectionKey);
+        }
+    }
+
     private static bool TryRewriteIf(IfStatementSyntax ifStatement, IRewriteTarget target, out RewrittenStatement rewritten)
     {
         if (TryRewriteFileDialogIf(ifStatement, target, out rewritten))
+        {
+            return true;
+        }
+
+        if (TryRewriteVisualDialogIf(ifStatement, target, out rewritten))
         {
             return true;
         }
@@ -842,6 +937,13 @@ public sealed class HandlerBodyRewriter
     {
         rewritten = default;
 
+        // `this.notesRichTextBox.Font = fontDialog1.Font;` - one WinForms value, four Avalonia
+        // properties.
+        if (TryRewriteFontAssignment(assignment, target, out rewritten))
+        {
+            return true;
+        }
+
         // `this.plainPanel.BackColor = Color.Red;` - a colour, which Avalonia spells as a brush.
         // Checked before the right-hand side is translated, for the same reason the window
         // properties are: `Color.Red` is a System.Drawing name the generic expression path would
@@ -973,6 +1075,48 @@ public sealed class HandlerBodyRewriter
         return true;
     }
 
+    /// <summary>
+    /// <c>control.Font = fontDialog1.Font</c> - the one font assignment this converter takes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One statement becomes four, which is a change of shape rather than of spelling: WinForms'
+    /// <c>Font</c> is a single object where Avalonia has <c>FontFamily</c>, <c>FontSize</c>,
+    /// <c>FontWeight</c> and <c>FontStyle</c>. Faithful because all four are written together, so
+    /// nothing can observe a half-applied font.
+    /// </para>
+    /// <para>
+    /// Only from a font-dialog result, and that restriction is what makes it provable: the value
+    /// comes from <c>FontDialogFallback</c>, a record this repo ships, so its four members are a
+    /// known fact rather than something inferred about an arbitrary WinForms <c>Font</c>
+    /// expression - which would need the family and size resolved to literals first.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteFontAssignment(
+        AssignmentExpressionSyntax assignment, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!assignment.OperatorToken.IsKind(SyntaxKind.EqualsToken)
+            || assignment.Left is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Font" } access
+            || !target.TryResolveControlField(access.Expression, out var fieldName)
+            || !target.SupportsStyleProperty(fieldName, AvaloniaStyleProperties.Font)
+            || assignment.Right is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Font" } picked
+            || !target.TryResolveControlField(picked.Expression, out var dialogField)
+            || !target.DialogSelections.TryGetValue($"{dialogField}.Font", out var chosen))
+        {
+            return false;
+        }
+
+        rewritten = new RewrittenStatement(
+            $"{fieldName}.FontFamily = {chosen}.Family;\n"
+            + $"{fieldName}.FontSize = {chosen}.Size;\n"
+            + $"{fieldName}.FontWeight = {chosen}.Weight;\n"
+            + $"{fieldName}.FontStyle = {chosen}.Style;",
+            RequiredUsings: ["Avalonia.Media"]);
+        return true;
+    }
+
     /// <summary>The two WinForms colour properties, and what each becomes.</summary>
     private static readonly IReadOnlyDictionary<string, (string AvaloniaName, AvaloniaStyleProperties Surface)> StyleColorProperties =
         new Dictionary<string, (string, AvaloniaStyleProperties)>(StringComparer.Ordinal)
@@ -985,6 +1129,16 @@ public sealed class HandlerBodyRewriter
     private static bool TryRewriteColorExpression(ExpressionSyntax expression, IRewriteTarget target, out string brush)
     {
         brush = "";
+
+        // `colorDialog1.Color` inside an inlined colour-picker branch: the pattern variable is
+        // already an Avalonia Color, so it only needs wrapping.
+        if (expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Color" } picked
+            && target.TryResolveControlField(picked.Expression, out var pickerField)
+            && target.DialogSelections.TryGetValue($"{pickerField}.Color", out var chosen))
+        {
+            brush = $"new SolidColorBrush({chosen})";
+            return true;
+        }
 
         // `Color.Red`, `SystemColors.Control`, `Color.FromArgb(...)` - resolved by the same
         // evaluator the designer path uses, so the two agree by construction.
@@ -2176,6 +2330,9 @@ public sealed class HandlerBodyRewriter
         /// <summary>The bundled fallback template a field maps to, when it maps to one.</summary>
         bool TryResolveFallbackTemplate(string fieldName, out string templateKey);
 
+        /// <summary>The field's WinForms type name, for the few rules keyed on the component itself.</summary>
+        bool TryResolveComponentTypeName(string fieldName, out string winFormsTypeName);
+
         /// <summary>
         /// True when the field's *Avalonia* element really carries the given styling surface -
         /// the same question <c>AxamlEmitter</c> asks before emitting a style attribute, and for
@@ -2350,6 +2507,12 @@ public sealed class HandlerBodyRewriter
 
         public bool IsComponentField(string fieldName) => componentFields.Contains(fieldName);
 
+        public bool TryResolveComponentTypeName(string fieldName, out string winFormsTypeName)
+        {
+            winFormsTypeName = formModel.Controls.TryGetValue(fieldName, out var control) ? control.ClrTypeName : "";
+            return winFormsTypeName.Length > 0;
+        }
+
         public bool TryResolveFallbackTemplate(string fieldName, out string templateKey)
         {
             templateKey = "";
@@ -2486,6 +2649,13 @@ public sealed class HandlerBodyRewriter
 
         /// <summary>Component fields live on the View too.</summary>
         public bool IsComponentField(string fieldName) => false;
+
+        /// <summary>A ViewModel names no components at all.</summary>
+        public bool TryResolveComponentTypeName(string fieldName, out string winFormsTypeName)
+        {
+            winFormsTypeName = "";
+            return false;
+        }
 
         /// <summary>A ViewModel has no elements, so nothing here maps to one.</summary>
         public bool TryResolveFallbackTemplate(string fieldName, out string templateKey)

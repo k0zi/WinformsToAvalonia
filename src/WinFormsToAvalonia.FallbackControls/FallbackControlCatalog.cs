@@ -8,11 +8,18 @@ namespace WinFormsToAvalonia.FallbackControls;
 /// instances internally). <see cref="FallbackControlResolver"/> must copy these too even when
 /// no WinForms control was itself mapped to them, or the generated project won't compile.
 /// </param>
+/// <param name="RequiredNuGetPackage">
+/// A package the template's source needs, when it is not one the generated project already
+/// references. Like a mapper's <c>RequiredNuGetPackage</c>, this is only half the story: the
+/// package must *also* appear in <c>AvaloniaProjectScaffolder.ExtraPackageVersions</c>, because
+/// the csproj writer emits only what is listed there.
+/// </param>
 public sealed record FallbackTemplateDefinition(
     string Key,
     string OutputFileName,
     string ResourceLogicalName,
-    IReadOnlyList<string>? DependsOnKeys = null)
+    IReadOnlyList<string>? DependsOnKeys = null,
+    string? RequiredNuGetPackage = null)
 {
     public IReadOnlyList<string> DependsOnKeys { get; } = DependsOnKeys ?? [];
 }
@@ -31,6 +38,14 @@ public static class FallbackControlCatalog
             // The only entry pulled in by a converted handler body rather than by the AXAML -
             // see HandlerBodyRewriter's MessageBox.Show translation.
             ["MessageBoxFallback"] = new("MessageBoxFallback", "MessageBoxFallback.cs", "MessageBoxFallback.cs"),
+
+            // The other two pulled in by a handler body: the dialogs WinForms has and Avalonia
+            // does not. ColorDialogFallback wraps Avalonia's real ColorView, which ships
+            // separately - hence the package.
+            ["ColorDialogFallback"] = new(
+                "ColorDialogFallback", "ColorDialogFallback.cs", "ColorDialogFallback.cs",
+                RequiredNuGetPackage: "Avalonia.Controls.ColorPicker"),
+            ["FontDialogFallback"] = new("FontDialogFallback", "FontDialogFallback.cs", "FontDialogFallback.cs"),
             ["StatusStripFallback"] = new("StatusStripFallback", "StatusStripFallback.cs", "StatusStripFallback.cs"),
             ["ToolStripFallback"] = new("ToolStripFallback", "ToolStripFallback.cs", "ToolStripFallback.cs"),
             ["MaskedTextBoxFallback"] = new("MaskedTextBoxFallback", "MaskedTextBoxFallback.cs", "MaskedTextBoxFallback.cs"),

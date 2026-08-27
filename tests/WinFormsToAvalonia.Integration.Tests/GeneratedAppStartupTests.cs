@@ -38,6 +38,8 @@ public class GeneratedAppStartupTests
     [InlineData("DialogContractApp")]
     // The broadest fixture: many controls, so the most AXAML to parse and lay out.
     [InlineData("ComplexApp")]
+    // Bundled fallback templates, including one that pulls in a package of its own.
+    [InlineData("HandlerMigrationApp")]
     public async Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName)
     {
         var sourceProject = Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj");

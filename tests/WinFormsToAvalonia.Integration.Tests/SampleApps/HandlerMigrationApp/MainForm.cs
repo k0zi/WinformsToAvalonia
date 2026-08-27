@@ -39,6 +39,16 @@ namespace HandlerMigrationApp
             this.statusLabel.Text = "Saved";
         }
 
+        // A dialog WinForms has and Avalonia does not: translated inline onto a bundled window,
+        // whose result is the colour rather than an object to ask afterwards.
+        private void pickColorButton_Click(object sender, EventArgs e)
+        {
+            if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.nameTextBox.BackColor = this.colorDialog1.Color;
+            }
+        }
+
         // Colours: WinForms writes a Color, Avalonia wants a brush - and which of the two
         // properties exists at all depends on the element the control maps to.
         private void colorButton_Click(object sender, EventArgs e)

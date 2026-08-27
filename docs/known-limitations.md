@@ -86,8 +86,11 @@ contributors know what to expect and where to look before filing a duplicate iss
   shape is translated **inline** into the picker call (see the handler-body notes below), and a
   dialog opened that way gets no separate method, since nothing would call it. A dialog the
   conversion could not inline still gets its `Show...Async()` helper to call by hand.
-  `ColorDialog`, `FontDialog` and the print dialogs have no Avalonia built-in equivalent at all
-  and stay guidance-only.
+  `ColorDialog` and `FontDialog` have no Avalonia built-in equivalent either, but they are
+  wrappable: both are translated **inline** onto a bundled dialog this repo ships
+  (`ColorDialogFallback`, built around Avalonia's real `ColorView`; `FontDialogFallback`, listing
+  `FontManager.Current.SystemFonts`). The print dialogs stay guidance-only - Avalonia has no
+  printing API at all, so there is nothing to wrap.
 - **Non-visual components that are really plain .NET types survive unchanged.**
   `BackgroundWorker`, `FileSystemWatcher`, `Process`, `SerialPort`, `EventLog`,
   `PerformanceCounter`, `ServiceController` and `SoundPlayer` are the same classes in an Avalonia
@@ -376,7 +379,26 @@ rule itself; what follows is what the rule does *not* cover yet.
   - `FileNames` (multi-select) - there is no single path to bind, so the whole branch is left;
   - any use of the dialog's properties *after* the branch, since the selection is a pattern
     variable now rather than an object that outlives the call;
-  - `ColorDialog`/`FontDialog`/print dialogs, which have no Avalonia equivalent at all.
+  - print dialogs, which have no Avalonia equivalent at all.
+
+  **The colour and font dialogs** take the same inline route, onto bundled windows rather than a
+  platform API: `if (colorDialog1.ShowDialog(this) == DialogResult.OK)` becomes
+  `if (await ColorDialogFallback.ShowAsync(this) is { } colorDialog1Color)`, and
+  `colorDialog1.Color` inside that branch becomes the pattern variable. `ColorDialogFallback`
+  wraps Avalonia's real `ColorView`, which ships in `Avalonia.Controls.ColorPicker` - the first
+  time a *bundled template* has needed a package, so `FallbackTemplateDefinition` now declares one
+  and it goes through the same double-allowlist as a mapper's. What is not covered:
+  - the dialog opens on its **default** value. WinForms seeds `ColorDialog` from the component's
+    own `Color`, and carrying that across would mean reading a designer value nothing else in the
+    translation needs - the same reason the file pickers open with default options;
+  - `control.Font = fontDialog1.Font` is the *only* font assignment translated, and it becomes
+    four writes (`FontFamily`/`FontSize`/`FontWeight`/`FontStyle`). Provable only because the
+    value comes from a record this repo ships; an arbitrary WinForms `Font` expression would need
+    its family and size resolved to literals first. It also obeys the styling rule, so a font
+    landing on a **fallback** control is refused - which is why the sample's
+    `notesRichTextBox.Font` stays un-migrated;
+  - `FontDialogFallback` offers family, size, bold and italic only. Underline and strikeout are
+    `TextDecorations` in Avalonia rather than part of the font.
 
   A Form constructed with arguments is never translated either (the generated View's constructor
   takes none), and a converted **UserControl** cannot translate `ShowDialog` at all, since

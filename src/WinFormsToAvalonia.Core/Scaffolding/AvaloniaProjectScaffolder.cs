@@ -18,6 +18,9 @@ public sealed class AvaloniaProjectScaffolder
     {
         ["Avalonia.Controls.DataGrid"] = "12.1.2",
 
+        // Avalonia's real ColorView, which ColorDialogFallback wraps.
+        ["Avalonia.Controls.ColorPicker"] = "12.1.1",
+
         // Non-visual components that survive the conversion unchanged but do not ship in-box.
         // Named here *and* in ComponentFieldCatalog: this table is what the csproj writer emits,
         // so a package missing from it is silently dropped and the generated project fails.

@@ -149,8 +149,8 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 | `OpenFileDialog` | ❌ Unsupported | | Now generates an async `[RelayCommand]` ViewModel stub calling `TopLevel.StorageProvider.OpenFilePickerAsync`. See [Implementation plan](#file-dialogs). |
 | `SaveFileDialog` | ❌ Unsupported | | Same as above, calling `SaveFilePickerAsync`. |
 | `FolderBrowserDialog` | ❌ Unsupported | | Same as above, calling `OpenFolderPickerAsync`. |
-| `ColorDialog` | ❌ Unsupported | | No Avalonia built-in — permanently guidance-only. |
-| `FontDialog` | ❌ Unsupported | | No Avalonia built-in — permanently guidance-only. |
+| `ColorDialog` | ❌ Unsupported | | No built-in Avalonia colour picker *dialog*, but there is a real `ColorView` — so a handler's `ShowDialog` is translated inline onto the bundled `ColorDialogFallback`, which wraps it. Needs the `Avalonia.Controls.ColorPicker` package. |
+| `FontDialog` | ❌ Unsupported | | No Avalonia equivalent, so the bundled `FontDialogFallback` provides one, listing `FontManager.Current.SystemFonts`. Family/size/bold/italic only. |
 | `PrintDialog` | ❌ Unsupported | | No Avalonia printing API. |
 | `PageSetupDialog` | ❌ Unsupported | | No Avalonia printing API. |
 | `PrintPreviewDialog` | ❌ Unsupported | | No Avalonia printing API. |

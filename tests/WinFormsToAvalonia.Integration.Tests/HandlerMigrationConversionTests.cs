@@ -96,8 +96,18 @@ public class HandlerMigrationConversionTests
             Assert.Contains("nameTextBox.Background = new SolidColorBrush(Color.Parse(\"#FFFFFFFF\"));", codeBehind);
             Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(colorButton_Click)", codeBehind);
 
-            Assert.Equal(15, result.Report.MigratedStatementCount);
-            Assert.Equal(18, result.Report.HandlerStatementCount);
+            // A dialog WinForms has and Avalonia does not, inlined onto a bundled window whose
+            // result *is* the colour - and the package that window needs must reach the csproj.
+            Assert.Contains("if (await ColorDialogFallback.ShowAsync(this) is { } colorDialog1Color)", codeBehind);
+            Assert.Contains("nameTextBox.Background = new SolidColorBrush(colorDialog1Color);", codeBehind);
+            Assert.Contains("Controls/ColorDialogFallback.cs", result.Vfs.RelativePaths);
+
+            var csprojPath = Assert.Single(result.Vfs.RelativePaths, p => p.EndsWith(".csproj", StringComparison.Ordinal));
+            Assert.True(result.Vfs.TryGetText(csprojPath, out var csproj));
+            Assert.Contains("Avalonia.Controls.ColorPicker", csproj);
+
+            Assert.Equal(16, result.Report.MigratedStatementCount);
+            Assert.Equal(19, result.Report.HandlerStatementCount);
 
             var buildResult = await RunDotnetAsync("build", outputDir);
             Assert.True(

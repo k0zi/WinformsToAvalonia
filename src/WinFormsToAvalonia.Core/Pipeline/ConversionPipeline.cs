@@ -4,6 +4,7 @@ using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 using WinFormsToAvalonia.Core.Parsing;
 using WinFormsToAvalonia.Core.Scaffolding;
+using WinFormsToAvalonia.FallbackControls;
 
 namespace WinFormsToAvalonia.Core.Pipeline;
 
@@ -158,6 +159,19 @@ public sealed class ConversionPipeline
 
             convertedForms.Add(new ConvertedFormOutput(
                 relativeFolder, viewClassName, viewModelClassName, axamlResult.Axaml, viewCodeBehind, viewModel, pairing.Kind));
+        }
+
+        // A bundled template can need a package of its own (ColorDialogFallback wraps Avalonia's
+        // separately-shipped ColorView). Unioned here rather than in the loop because the full set
+        // of used templates is only known once every form has been emitted - and the csproj is
+        // written by the very next call.
+        foreach (var key in allUsedFallbackKeys)
+        {
+            if (FallbackControlCatalog.All.TryGetValue(key, out var template)
+                && template.RequiredNuGetPackage is { } package)
+            {
+                allRequiredNuGetPackages.Add(package);
+            }
         }
 
         var vfs = _scaffolder.BuildProject(projectName, convertedForms, allRequiredNuGetPackages, notifyIcons);

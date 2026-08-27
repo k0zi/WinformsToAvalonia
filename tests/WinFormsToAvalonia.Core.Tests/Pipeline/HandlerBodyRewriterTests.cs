@@ -712,15 +712,19 @@ public class HandlerBodyRewriterTests
         Assert.Contains("statusLabel.Text = \"cancelled\";", statement);
     }
 
-    /// <summary>ColorDialog and friends have no Avalonia equivalent at all.</summary>
+    /// <summary>
+    /// The print dialogs have no Avalonia equivalent at all - Avalonia has no printing API, so
+    /// unlike the colour and font dialogs there is nothing to wrap in a bundled window either.
+    /// </summary>
     [Fact]
     public void RewriteForView_DialogWithNoAvaloniaEquivalent_IsNotMigrated()
     {
-        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+        var form = FormWith(("printDialog1", "PrintDialog"), ("panel1", "Panel"));
 
         var result = Rewriter.RewriteForView(
-            "if (this.colorDialog1.ShowDialog(this) == DialogResult.OK) { this.panel1.Visible = true; }",
-            form);
+            "if (this.printDialog1.ShowDialog(this) == DialogResult.OK) { this.panel1.Visible = true; }",
+            form,
+            Navigation());
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -2253,6 +2257,110 @@ public class HandlerBodyRewriterTests
         var result = Rewriter.RewriteForView("this.panel1.BackColor = this.other.BackColor;", form);
 
         Assert.Empty(result.MigratedStatements);
+    }
+
+    // ---- The dialogs Avalonia has nothing for ------------------------------------------------
+
+    /// <summary>
+    /// Same shape as the file dialogs, for the same reason: the Avalonia replacement returns the
+    /// choice instead of being an object you ask afterwards. A plain `is { }` pattern, because
+    /// these return one nullable value rather than a list.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ColorDialog_IsInlinedAndItsResultBecomesABrush()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.panel1.BackColor = this.colorDialog1.Color;
+            }
+            """,
+            form,
+            Navigation());
+
+        Assert.Equal(
+            """
+            if (await ColorDialogFallback.ShowAsync(this) is { } colorDialog1Color)
+            {
+                panel1.Background = new SolidColorBrush(colorDialog1Color);
+            }
+            """,
+            Assert.Single(result.MigratedStatements).Replace("\r\n", "\n"));
+        Assert.True(result.RequiresAsync);
+        Assert.Contains("ColorDialogFallback", result.RequiredFallbackKeys);
+    }
+
+    /// <summary>
+    /// One WinForms value, four Avalonia properties - a change of shape, and faithful because all
+    /// four are written together so nothing observes a half-applied font.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_FontDialog_SetsAllFourFontProperties()
+    {
+        var form = FormWith(("fontDialog1", "FontDialog"), ("titleLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.titleLabel.Font = this.fontDialog1.Font;
+            }
+            """,
+            form,
+            Navigation());
+
+        var text = Assert.Single(result.MigratedStatements).Replace("\r\n", "\n");
+        Assert.Contains("await FontDialogFallback.ShowAsync(this) is { } fontDialog1Font", text);
+        Assert.Contains("titleLabel.FontFamily = fontDialog1Font.Family;", text);
+        Assert.Contains("titleLabel.FontStyle = fontDialog1Font.Style;", text);
+        Assert.Contains("FontDialogFallback", result.RequiredFallbackKeys);
+    }
+
+    /// <summary>
+    /// A fallback control gets no styling anywhere in this converter, so a font landing on one is
+    /// refused even though the dialog itself translated - and the whole `if` goes with it.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_FontDialogOntoAFallbackControl_IsNotMigrated()
+    {
+        var form = FormWith(("fontDialog1", "FontDialog"), ("notesRichTextBox", "RichTextBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.notesRichTextBox.Font = this.fontDialog1.Font;
+            }
+            """,
+            form,
+            Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>The selection is a pattern variable, so it cannot outlive its branch.</summary>
+    [Fact]
+    public void RewriteForView_ColorUsedAfterTheDialogBranch_IsNotMigrated()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.panel1.BackColor = this.colorDialog1.Color;
+            }
+
+            this.panel1.BackColor = this.colorDialog1.Color;
+            """,
+            form,
+            Navigation());
+
+        Assert.Single(result.MigratedStatements);
+        Assert.Contains("colorDialog1.Color", result.RemainingBody);
     }
 
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
