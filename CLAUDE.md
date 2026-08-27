@@ -221,5 +221,6 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
 
 ## Docs
 
-`docs/Controls.md` (per-type mapping status, hand-maintained — if it disagrees with
-`DefaultControlMappers.cs`, the code wins and the doc gets fixed) and `docs/known-limitations.md`.
+`docs/Controls.md` (per-type mapping status — `ControlsDocumentationTests` now checks it against
+the registry in **both** directions, so a drifting row and a missing one both fail; the code still
+wins when they disagree, it just no longer takes a human to notice) and `docs/known-limitations.md`.

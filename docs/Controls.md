@@ -14,19 +14,22 @@ currently excluded from the conversion pipeline, so it never reaches the mapping
 all. — = base/abstract class, never instantiated directly by designer code, so it has no
 registry entry at all.
 
-**Summary**: 45 Direct, 14 Fallback (59 mapped) · 30 Unsupported (not mapped, guidance-only) ·
+**Summary**: 46 Direct, 14 Fallback (60 mapped) · 34 Unsupported (not mapped, guidance-only) ·
 10 base classes (not applicable) · `Form` and `UserControl` are both conversion roots (a Form
 becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in this table.
+
+These counts are checked against the rows below, which are in turn checked against the registry -
+they were wrong before anything checked them.
 
 > `MessageBoxFallback` is a bundled template too, but deliberately not part of these counts: it
 > is not a control mapping at all. Nothing in the AXAML ever references it — it is pulled in by
 > `HandlerBodyRewriter` when a translated handler body calls `MessageBox.Show(...)`.
 
-> The registry also has three `Unsupported` entries not present in the source list above:
-> `PrintDocument` (same guidance as `PrintDialog`/`PrintPreviewDialog` — no Avalonia printing
-> API), `SerialPort` and `SoundPlayer`. Not in the tables because they weren't part of the
-> requested control list, but both are in `ComponentFieldCatalog` and get a real field like the
-> rest of that family — `SoundPlayer` lazily, being Windows-only.
+> `PrintDocument`, `SerialPort` and `SoundPlayer` were not part of the requested control list, so
+> they used to be named only in this note. They have real rows now: `ControlsDocumentationTests`
+> checks this table against the registry in both directions, and a type the registry maps with no
+> row here is a failure — a table that quietly omits something is worse than one that disagrees,
+> because there is nothing to notice.
 
 ## Controls
 
@@ -35,7 +38,7 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 | WinForms type | Status | Avalonia target | Notes |
 |---|---|---|---|
 | `Control` | — | | Base class, never instantiated directly. |
-| `Form` | — | | Always the conversion root (becomes a View), never looked up in the mapping table. |
+| `Form` | ✅ Converted | `Window` | Always the conversion root (becomes a View), never looked up in the mapping table. |
 | `UserControl` | ✅ Converted | `UserControl` | A conversion root like `Form`, not a table entry. A project's *own* UserControls additionally get a per-run `UserControlMapper`, so a Form hosting one emits the generated View element. See [Implementation plan](#usercontrol-conversion). |
 | `ScrollableControl` | — | | Base class. |
 | `ContainerControl` | — | | Base class. |
@@ -154,6 +157,7 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 | `PrintDialog` | ❌ Unsupported | | No Avalonia printing API. |
 | `PageSetupDialog` | ❌ Unsupported | | No Avalonia printing API. |
 | `PrintPreviewDialog` | ❌ Unsupported | | No Avalonia printing API. |
+| `PrintDocument` | ❌ Unsupported | | No Avalonia printing API, same as the three dialogs above. |
 
 ### Data Binding Components
 
@@ -178,6 +182,8 @@ becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in
 | `EventLog` | ❌ Unsupported | | Real field, but **built lazily** — Windows-only, so eager construction made the converted app unlaunchable elsewhere. Needs the `System.Diagnostics.EventLog` package. |
 | `PerformanceCounter` | ❌ Unsupported | | Real field, built lazily (Windows-only). Needs the `System.Diagnostics.PerformanceCounter` package. |
 | `ServiceController` | ❌ Unsupported | | Real field, built lazily (Windows-only). Needs the `System.ServiceProcess.ServiceController` package. |
+| `SerialPort` | ❌ Unsupported | | Real field, eagerly — it looks Windows-shaped and is not, which was checked against a real build rather than assumed. Needs the `System.IO.Ports` package. |
+| `SoundPlayer` | ❌ Unsupported | | Real field, built lazily (Windows-only). There is no Avalonia audio API either, so a cross-platform library is the eventual answer. |
 
 ### UI Helper Components
 
