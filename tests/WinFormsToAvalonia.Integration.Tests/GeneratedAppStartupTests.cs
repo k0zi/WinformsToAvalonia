@@ -107,10 +107,12 @@ public class GeneratedAppStartupTests
         Assert.False(rootNamespace.Length == 0, "Could not read the generated root namespace from Program.cs.");
 
         File.WriteAllText(programPath, $$"""
+            using System.Reflection;
             using Avalonia;
             using Avalonia.Controls;
             using Avalonia.Controls.ApplicationLifetimes;
             using Avalonia.Headless;
+            using CommunityToolkit.Mvvm.Input;
 
             namespace {{rootNamespace}};
 
@@ -134,8 +136,42 @@ public class GeneratedAppStartupTests
                     lifetime.MainWindow?.Show();
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
+                    ExecutePromotedCommands(lifetime.MainWindow?.DataContext);
+
                     Console.WriteLine("{{SuccessMarker}}");
                     return 0;
+                }
+
+                /// <summary>
+                /// Runs every generated [RelayCommand]. Nothing else in the test suite ever calls
+                /// one, so their translated bodies had never been executed at all.
+                /// </summary>
+                /// <remarks>
+                /// Safe by construction rather than by luck: a handler is only promoted to a
+                /// command when its body touches nothing but two-way-bindable control properties,
+                /// which the ViewModel holds as [ObservableProperty]s. No TopLevel, no dialog,
+                /// no I/O - so there is nothing here that needs a real window to succeed.
+                /// </remarks>
+                private static void ExecutePromotedCommands(object? viewModel)
+                {
+                    if (viewModel is null)
+                    {
+                        return;
+                    }
+
+                    foreach (var property in viewModel.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        if (!typeof(IRelayCommand).IsAssignableFrom(property.PropertyType))
+                        {
+                            continue;
+                        }
+
+                        var command = (IRelayCommand?)property.GetValue(viewModel);
+                        if (command is not null && command.CanExecute(null))
+                        {
+                            command.Execute(null);
+                        }
+                    }
                 }
             }
 
