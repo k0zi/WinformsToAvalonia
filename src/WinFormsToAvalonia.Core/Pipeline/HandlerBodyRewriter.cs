@@ -938,10 +938,10 @@ public sealed class HandlerBodyRewriter
             && StripSuppression(initializer) is CastExpressionSyntax cast
             && StripSuppression(cast.Expression) is IdentifierNameSyntax { Identifier.ValueText: var castOperand }
             && castOperand == "sender"
-            && target.TryResolveSenderCast(cast.Type, out var senderField))
+            && target.TryResolveSenderCast(cast.Type, name, out var senderField, out var senderStatement))
         {
             target.Locals.Declare(name, LocalKind.Control, senderField);
-            rewritten = new RewrittenStatement("");
+            rewritten = new RewrittenStatement(senderStatement);
             return true;
         }
 
@@ -2585,7 +2585,7 @@ public sealed class HandlerBodyRewriter
         /// <summary>
         /// `(Button)sender` in a handler wired to exactly one control - which control that is.
         /// </summary>
-        bool TryResolveSenderCast(TypeSyntax castType, out string fieldName);
+        bool TryResolveSenderCast(TypeSyntax castType, string localName, out string fieldName, out string statement);
 
         /// <summary>
         /// True when the field is a non-visual component this run emits as a real field of the
@@ -2617,6 +2617,8 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string> promotedFields,
         IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties) : IRewriteTarget
     {
+        private readonly Dictionary<string, ControlModel> _senderAliases = new(StringComparer.Ordinal);
+
         public LocalScope Locals { get; } = new();
 
         public RewriteRequirements Requirements { get; } = new();
@@ -2706,7 +2708,7 @@ public sealed class HandlerBodyRewriter
                 _ => "",
             };
 
-            return fieldName.Length > 0 && formModel.Controls.ContainsKey(fieldName);
+            return fieldName.Length > 0 && TryGetControl(fieldName, out _);
         }
 
         /// <summary>
@@ -2718,7 +2720,7 @@ public sealed class HandlerBodyRewriter
         {
             text = "";
 
-            if (!formModel.Controls.TryGetValue(fieldName, out var control))
+            if (!TryGetControl(fieldName, out var control))
             {
                 return false;
             }
@@ -2760,7 +2762,7 @@ public sealed class HandlerBodyRewriter
         {
             kind = null!;
 
-            return formModel.Controls.TryGetValue(fieldName, out var control)
+            return TryGetControl(fieldName, out var control)
                 && FileDialogCatalog.TryGet(control.ClrTypeName, out kind);
         }
 
@@ -2775,7 +2777,7 @@ public sealed class HandlerBodyRewriter
 
         public bool TryResolveComponentTypeName(string fieldName, out string winFormsTypeName)
         {
-            winFormsTypeName = formModel.Controls.TryGetValue(fieldName, out var control) ? control.ClrTypeName : "";
+            winFormsTypeName = TryGetControl(fieldName, out var control) ? control.ClrTypeName : "";
             return winFormsTypeName.Length > 0;
         }
 
@@ -2783,7 +2785,7 @@ public sealed class HandlerBodyRewriter
         {
             templateKey = "";
 
-            if (!formModel.Controls.TryGetValue(fieldName, out var control))
+            if (!TryGetControl(fieldName, out var control))
             {
                 return false;
             }
@@ -2794,7 +2796,7 @@ public sealed class HandlerBodyRewriter
         }
 
         public bool IsMappedElement(string fieldName) =>
-            formModel.Controls.TryGetValue(fieldName, out var control)
+            TryGetControl(fieldName, out var control)
             && controlMappings.Map(control).Status is MappingStatus.Direct or MappingStatus.Fallback;
 
         /// <summary>
@@ -2804,7 +2806,7 @@ public sealed class HandlerBodyRewriter
         /// </summary>
         public bool SupportsStyleProperty(string fieldName, AvaloniaStyleProperties property)
         {
-            if (!formModel.Controls.TryGetValue(fieldName, out var control))
+            if (!TryGetControl(fieldName, out var control))
             {
                 return false;
             }
@@ -2826,23 +2828,78 @@ public sealed class HandlerBodyRewriter
             && (!forWrite || property.HasSetter);
 
         /// <summary>
-        /// The cast has to name the control's own WinForms type. A base type (`(Control)sender`)
-        /// is refused rather than widened: what the body then does with the local is checked
-        /// against the *actual* control either way, so accepting the wider cast would only make
-        /// the translated code claim something the original did not.
+        /// Every control this body may name: the View's own fields, plus any local a
+        /// <c>(Button)sender</c> cast introduced for a handler wired to several of them.
         /// </summary>
-        public bool TryResolveSenderCast(TypeSyntax castType, out string fieldName)
+        /// <remarks>
+        /// A sender alias is a control for every purpose that matters here - which element it is,
+        /// which of its members survive - it just has no field of its own, so the emitted text
+        /// uses the local's name. Routing every lookup through here is what keeps the rest of the
+        /// translation from having to know the difference.
+        /// </remarks>
+        private bool TryGetControl(string name, out ControlModel control) =>
+            _senderAliases.TryGetValue(name, out control!) || formModel.Controls.TryGetValue(name, out control!);
+
+        /// <summary>
+        /// <c>var button = (Button)sender!;</c> resolved to the control the local stands for.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Wired to exactly one control, <c>sender</c> provably *is* that control, so the local
+        /// becomes another name for its field and the declaration disappears entirely.
+        /// </para>
+        /// <para>
+        /// Wired to several - one handler on N buttons, which is how WinForms shares a handler at
+        /// all - there is no single field to alias, so the cast survives, against the *Avalonia*
+        /// element type. It is admissible only when every wired control maps to the same element:
+        /// then the cast is exactly as valid as the original's was, and everything the body goes
+        /// on to say about the local is checked against that one type. Mixed types stay refused -
+        /// telling them apart is the whole reason such a handler reads `sender`.
+        /// </para>
+        /// <para>
+        /// Either way the cast has to name the control's own WinForms type. A base type
+        /// (<c>(Control)sender</c>) is refused rather than widened: the body is checked against
+        /// the actual control regardless, so accepting the wider cast would only let the
+        /// translated code claim something the original did not.
+        /// </para>
+        /// </remarks>
+        public bool TryResolveSenderCast(TypeSyntax castType, string localName, out string fieldName, out string statement)
         {
             fieldName = "";
+            statement = "";
 
-            if (signature.SourceControlFieldName is not { } sourceField
-                || !formModel.Controls.TryGetValue(sourceField, out var control)
-                || RoslynTypeNameHelper.GetSimpleTypeName(castType) != control.ClrTypeName)
+            var castTypeName = RoslynTypeNameHelper.GetSimpleTypeName(castType);
+            var sources = signature.SourceControlFieldNames
+                .Select(f => TryGetControl(f, out var c) ? c : null)
+                .OfType<ControlModel>()
+                .ToList();
+
+            if (sources.Count != signature.SourceControlFieldNames.Count
+                || sources.Count == 0
+                || sources.Any(c => c.ClrTypeName != castTypeName))
             {
                 return false;
             }
 
-            fieldName = sourceField;
+            if (sources is [{ } single])
+            {
+                fieldName = single.FieldName;
+                return true;
+            }
+
+            var elements = sources.Select(controlMappings.Map).ToList();
+            if (elements.Any(m => m.Status != MappingStatus.Direct)
+                || elements.Select(m => m.AvaloniaElementName).Distinct(StringComparer.Ordinal).Count() != 1)
+            {
+                return false;
+            }
+
+            _senderAliases[localName] = sources[0];
+            fieldName = localName;
+
+            // `sender` is an `object?` on the Avalonia side, and the generated project enables
+            // nullable - the null-forgiving operator is what keeps the cast warning-free.
+            statement = $"var {localName} = ({elements[0].AvaloniaElementName})sender!;";
             return true;
         }
 
@@ -2851,7 +2908,7 @@ public sealed class HandlerBodyRewriter
         {
             statement = "";
 
-            if (!formModel.Controls.TryGetValue(fieldName, out var control)
+            if (!TryGetControl(fieldName, out var control)
                 || !ControlMethodCatalog.TryGet(control.ClrTypeName, methodName, out var method)
                 || method.ArgumentCount != arguments.Count
                 // The member the *translation* touches, not the WinForms method it came from:
@@ -3002,9 +3059,10 @@ public sealed class HandlerBodyRewriter
         public bool IsPromotedField(string name) => false;
 
         /// <summary>A promoted handler has no sender - that is one of the promotion conditions.</summary>
-        public bool TryResolveSenderCast(TypeSyntax castType, out string fieldName)
+        public bool TryResolveSenderCast(TypeSyntax castType, string localName, out string fieldName, out string statement)
         {
             fieldName = "";
+            statement = "";
             return false;
         }
 

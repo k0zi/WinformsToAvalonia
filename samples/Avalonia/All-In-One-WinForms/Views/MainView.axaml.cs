@@ -223,11 +223,8 @@ public partial class MainView : Window
 
     private void sharedButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'sharedButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         var button = (Button)sender!;
-        this.statusLabel.Text = $"{button.Text} pressed";
-        */
-        MigrationTodo.NotMigrated(nameof(sharedButton_Click), "sharedButton_Click");
+        statusLabel.Text = $"{(button.Content as string ?? string.Empty)} pressed";
     }
 
     private void validateButton_Click(object? sender, RoutedEventArgs e)

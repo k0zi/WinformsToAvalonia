@@ -918,7 +918,7 @@ public class HandlerBodyRewriterTests
             $"this.statusLabel.Text = e.{member}.ToString();",
             form,
             navigation: null,
-            new HandlerSignature("e", argsType, "trackBar1"));
+            new HandlerSignature("e", argsType, ["trackBar1"]));
 
         Assert.Equal([$"statusLabel.Text = e.{member}.ToString();"], result.MigratedStatements);
     }
@@ -936,7 +936,7 @@ public class HandlerBodyRewriterTests
             "this.statusLabel.Text = $\"{e.X},{e.Y}\";",
             form,
             navigation: null,
-            new HandlerSignature("e", "PointerPressedEventArgs", "canvas"));
+            new HandlerSignature("e", "PointerPressedEventArgs", ["canvas"]));
 
         Assert.Equal(
             ["statusLabel.Text = $\"{e.GetPosition(canvas).X},{e.GetPosition(canvas).Y}\";"],
@@ -953,7 +953,7 @@ public class HandlerBodyRewriterTests
             "this.statusLabel.Text = e.X.ToString();",
             form,
             navigation: null,
-            new HandlerSignature("e", "PointerPressedEventArgs", SourceControlFieldName: null));
+            new HandlerSignature("e", "PointerPressedEventArgs", SourceControlFieldNames: []));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -968,7 +968,7 @@ public class HandlerBodyRewriterTests
             "this.statusLabel.Text = e.FullPath;",
             form,
             navigation: null,
-            new HandlerSignature("e", "FileSystemEventArgs", "watcher1"));
+            new HandlerSignature("e", "FileSystemEventArgs", ["watcher1"]));
 
         Assert.Equal(["statusLabel.Text = e.FullPath;"], result.MigratedStatements);
     }
@@ -980,7 +980,7 @@ public class HandlerBodyRewriterTests
             "e.Cancel = true;",
             FormWith(),
             navigation: null,
-            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldName: null));
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));
 
         Assert.Equal(["e.Cancel = true;"], result.MigratedStatements);
     }
@@ -993,7 +993,7 @@ public class HandlerBodyRewriterTests
             "e.X = 5;",
             FormWith(("canvas", "Panel")),
             navigation: null,
-            new HandlerSignature("e", "PointerPressedEventArgs", "canvas"));
+            new HandlerSignature("e", "PointerPressedEventArgs", ["canvas"]));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -1011,7 +1011,7 @@ public class HandlerBodyRewriterTests
             "this.statusLabel.Text = e.RowIndex.ToString();",
             form,
             navigation: null,
-            new HandlerSignature("e", "DataGridCellPointerPressedEventArgs", "grid1"));
+            new HandlerSignature("e", "DataGridCellPointerPressedEventArgs", ["grid1"]));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -1031,7 +1031,7 @@ public class HandlerBodyRewriterTests
             "this.statusLabel.Text = e.ProgressPercentage.ToString();",
             form,
             navigation: null,
-            new HandlerSignature("e", "EventArgs", "worker1"));
+            new HandlerSignature("e", "EventArgs", ["worker1"]));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -1750,7 +1750,7 @@ public class HandlerBodyRewriterTests
             """,
             form,
             Navigation(),
-            new HandlerSignature("e", "RoutedEventArgs", "okButton"));
+            new HandlerSignature("e", "RoutedEventArgs", ["okButton"]));
 
         Assert.Equal(
             ["okButton.Content = \"Clicked\";", "okButton.IsEnabled = false;"],
@@ -1758,9 +1758,61 @@ public class HandlerBodyRewriterTests
         Assert.True(result.IsComplete);
     }
 
-    /// <summary>A handler shared by two controls has no single answer for what `sender` is.</summary>
+    /// <summary>
+    /// One handler on N buttons - how WinForms shares a handler at all. There is no single field
+    /// to alias, so the cast survives against the *Avalonia* element type, and the local stands
+    /// for a control of that type: everything the body says about it is checked against the one
+    /// type all the wired controls share.
+    /// </summary>
     [Fact]
-    public void RewriteForView_SenderCastOnASharedHandler_IsNotMigrated()
+    public void RewriteForView_SenderCastOnAHandlerSharedBySameTypedControls_CastsToTheAvaloniaElement()
+    {
+        var form = FormWith(("okButton", "Button"), ("cancelButton", "Button"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var button = (Button)sender!;
+            button.Text = "Clicked";
+            button.Enabled = false;
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", ["okButton", "cancelButton"]));
+
+        Assert.Equal(
+            [
+                "var button = (Button)sender!;",
+                "button.Content = \"Clicked\";",
+                "button.IsEnabled = false;",
+            ],
+            result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>
+    /// Mixed types stay refused - telling them apart is the whole reason such a handler reads
+    /// `sender`, and no single cast is valid for both.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SenderCastOnAHandlerSharedByDifferentTypes_IsNotMigrated()
+    {
+        var form = FormWith(("okButton", "Button"), ("agreeCheckBox", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var button = (Button)sender!;
+            button.Text = "Clicked";
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", ["okButton", "agreeCheckBox"]));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A Form-level event has no raising control at all, so there is nothing to cast to.</summary>
+    [Fact]
+    public void RewriteForView_SenderCastOnAFormLevelHandler_IsNotMigrated()
     {
         var form = FormWith(("okButton", "Button"));
 
@@ -1771,7 +1823,7 @@ public class HandlerBodyRewriterTests
             """,
             form,
             Navigation(),
-            new HandlerSignature("e", "RoutedEventArgs", SourceControlFieldName: null));
+            new HandlerSignature("e", "RoutedEventArgs", SourceControlFieldNames: []));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -1793,7 +1845,7 @@ public class HandlerBodyRewriterTests
             """,
             form,
             Navigation(),
-            new HandlerSignature("e", "RoutedEventArgs", "okButton"));
+            new HandlerSignature("e", "RoutedEventArgs", ["okButton"]));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -1824,7 +1876,7 @@ public class HandlerBodyRewriterTests
             """,
             form,
             Navigation(),
-            new HandlerSignature("e", "DragEventArgs", "dropPanel"));
+            new HandlerSignature("e", "DragEventArgs", ["dropPanel"]));
 
         Assert.Equal(
             ["e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;"],
@@ -1844,7 +1896,7 @@ public class HandlerBodyRewriterTests
             "var files = (string[])e.Data!.GetData(DataFormats.FileDrop)!;",
             form,
             Navigation(),
-            new HandlerSignature("e", "DragEventArgs", "dropPanel"));
+            new HandlerSignature("e", "DragEventArgs", ["dropPanel"]));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -1862,7 +1914,7 @@ public class HandlerBodyRewriterTests
             "e.Effect = DragDropEffects.Scroll;",
             form,
             Navigation(),
-            new HandlerSignature("e", "DragEventArgs", "dropPanel"));
+            new HandlerSignature("e", "DragEventArgs", ["dropPanel"]));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -2451,7 +2503,7 @@ public class HandlerBodyRewriterTests
             "e.Cancel = MessageBox.Show(\"Sure?\", \"Demo\", MessageBoxButtons.YesNo) == DialogResult.No;",
             FormWith(),
             Navigation(),
-            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldName: null));
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -2469,7 +2521,7 @@ public class HandlerBodyRewriterTests
             """,
             form,
             Navigation(),
-            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldName: null));
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));
 
         Assert.Equal(["statusLabel.Text = \"closing\";"], result.MigratedStatements);
         Assert.False(result.RequiresAsync);

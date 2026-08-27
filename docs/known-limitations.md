@@ -242,6 +242,14 @@ rule itself; what follows is what the rule does *not* cover yet.
     rather than the WinForms method it came from - `AppendText` reaches `Text`, which a fallback
     template exposes even though it has no `AppendText` of its own, so a `RichTextBox` can carry
     the call too. An overload with a different arity is a different method and is not translated;
+  - `var button = (Button)sender!;`. Wired to exactly one control, `sender` provably *is* that
+    control, so the local becomes another name for its field and the declaration disappears.
+    Wired to **several** - one handler on N buttons, which is how WinForms shares a handler at
+    all - there is no field to alias, so the cast survives against the *Avalonia* element type,
+    and the local stands for a control of the type they share. That needs every wired control to
+    map to the same element; mixed types stay refused, since telling them apart is the whole
+    reason such a handler reads `sender`. Either way the cast has to name the control's own
+    WinForms type - a base-type cast (`(Control)sender`) is refused rather than widened;
   - the Form's own properties that a `Window` spells differently or not at all
     (`Mapping/WindowPropertyCatalog`): `Text` → `Title`, `TopMost` → `Topmost`, `WindowState`
     (with `FormWindowState.Maximized` → `WindowState.Maximized`), `ShowInTaskbar`, `Opacity` -

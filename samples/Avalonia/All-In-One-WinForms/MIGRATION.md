@@ -2,13 +2,13 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**72 of 106 handler statements (68%)** came across as real Avalonia code.
+**74 of 106 handler statements (70%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
 runs while you work through this list.
 
-## Methods to migrate (16)
+## Methods to migrate (15)
 
 ### `Views/MainView.axaml.cs`
 
@@ -24,7 +24,6 @@ runs while you work through this list.
 - [ ] `printDocument1_PrintPage` — `e.Graphics!.DrawString(`
 - [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
 - [ ] `refreshButton_Click` — `this.itemsTreeView.Nodes.Clear();`
-- [ ] `sharedButton_Click` — `var button = (Button)sender!;`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 - [ ] `tabControl1_SelectedIndexChanged` — `this.statusInfoLabel.Text = this.tabControl1.SelectedTab?.Text ?? string.Empty;`
 - [ ] `wordWrapMenuItem_Click` — `this.notesRichTextBox.WordWrap = this.wordWrapMenuItem.Checked;`

@@ -19,7 +19,9 @@ namespace SenderAndDragApp
             button.Enabled = false;
         }
 
-        // Two controls share this one, so there is no single answer for what `sender` is.
+        // Two controls share this one - how WinForms shares a handler at all. They are the same
+        // type, so the cast is exactly as valid as it was: it survives, against the Avalonia
+        // element, and the local stands for a control of that one type.
         private void sharedClick(object sender, EventArgs e)
         {
             var button = (Button)sender;

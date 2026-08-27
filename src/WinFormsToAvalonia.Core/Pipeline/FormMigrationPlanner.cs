@@ -1236,7 +1236,7 @@ public sealed class FormMigrationPlanner
         return new HandlerSignature(
             source?.EventArgsParameterName,
             handler.EventArgsTypeName,
-            controlFields is [{ } single] ? single : null);
+            controlFields);
     }
 
 

@@ -34,8 +34,19 @@ public class SenderAndDragConversionTests
                 """,
                 codeBehind.Replace("\r\n", "\n"));
 
-            // Two controls share this one, so there is no single answer for what `sender` is.
-            Assert.Contains("MigrationTodo.NotMigrated(nameof(sharedClick)", codeBehind);
+            // Two same-typed controls share this one. There is no field to alias, so the cast
+            // survives - against the *Avalonia* element type, since that is what `sender` is on
+            // this side - and the local stands for a control of the one type they share.
+            Assert.Contains(
+                """
+                    private void sharedClick(object? sender, RoutedEventArgs e)
+                    {
+                        var button = (Button)sender!;
+                        button.Content = "Shared";
+                    }
+                """,
+                codeBehind.Replace("\r\n", "\n"));
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(sharedClick)", codeBehind);
 
             // The clipboard hangs off the TopLevel and is async, so the handler turns async -
             // and the handler must stay in code-behind for that to be possible at all.
