@@ -224,6 +224,12 @@ public sealed record FormMigrationPlan(
             .Concat(ViewModelHelpers.Select(h => h.Rewrite))
             .Concat(PromotedProperties.SelectMany(p => new[] { p.Getter, p.Setter }).OfType<RewrittenBody>());
 
+    /// <summary>
+    /// Whether the View declares the field the close-confirmation rewrite reads, so a
+    /// programmatic second <c>Close()</c> falls straight through instead of asking again.
+    /// </summary>
+    public bool RequiresCloseGuard => AllEmittedRewrites.Any(r => r.RequiresCloseGuard);
+
     /// <summary>Extra `using`s the translated statements need, beyond a generated View's usual set.</summary>
     public IReadOnlyList<string> RequiredUsings =>
         [.. AllEmittedRewrites.SelectMany(r => r.RequiredUsings).Distinct(StringComparer.Ordinal).OrderBy(u => u, StringComparer.Ordinal)];

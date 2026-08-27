@@ -1,6 +1,7 @@
 using System.Text;
 using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
+using WinFormsToAvalonia.Core.Pipeline;
 
 namespace WinFormsToAvalonia.Core.Emission;
 
@@ -154,7 +155,15 @@ public sealed class ViewCodeBehindEmitter
             Line($"    private {modifiers}{field.TypeText} {field.Name}{initializer};");
         }
 
-        if (plan.Timers.Count > 0 || plan.Components.Count > 0 || plan.PromotedFields.Count > 0)
+        // Set by the close-confirmation rewrite before it closes the window itself, and read on
+        // the way back in so the second pass does not ask again.
+        if (plan.RequiresCloseGuard)
+        {
+            Line($"    private bool {HandlerBodyRewriter.CloseGuardFieldName};");
+        }
+
+        if (plan.Timers.Count > 0 || plan.Components.Count > 0 || plan.PromotedFields.Count > 0
+            || plan.RequiresCloseGuard)
         {
             Line();
         }

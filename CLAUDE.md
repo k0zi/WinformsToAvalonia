@@ -122,7 +122,10 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    promoted body may name is only settled once every handler is classified. It has two targets
    (a View still has control fields; a ViewModel has only `[ObservableProperty]`s) and stops at
    the first statement it cannot prove equivalent, so the emitted code is always a faithful
-   *prefix* of the original. Two things are planned **before** that rewrite rather than after,
+   *prefix* of the original. The one exception — `TryMatchCloseConfirmation`, the confirm-on-close
+   `FormClosing` handler — is a **whole-body** rewrite rather than a prefix, because Avalonia has
+   no synchronous message box and therefore no statement-level answer. Matched before the
+   statement loop, all-or-nothing, and it is meant to stay the only one. Two things are planned **before** that rewrite rather than after,
    because a body may *name* them: the `DispatcherTimer`/component fields, and the code-behind
    helpers — `PlanHelpers` translates helper bodies to a fixed point (a call to a not-yet-promoted
    helper simply refuses, which is also what makes recursion and `async` propagation settle by

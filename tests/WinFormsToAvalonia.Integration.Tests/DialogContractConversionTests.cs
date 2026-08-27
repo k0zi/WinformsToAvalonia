@@ -59,6 +59,15 @@ public class DialogContractConversionTests
             Assert.Contains("clockTimer.Interval = TimeSpan.FromMilliseconds(500);", main);
             Assert.Contains("clockTimer.Stop();", main);
 
+            // Confirm-on-close: the whole handler is rewritten, because Avalonia reads e.Cancel
+            // when it first awaits and there is nothing synchronous to ask before then. The guard
+            // field is what makes the programmatic second Close() fall straight through.
+            Assert.Contains("private bool w2aForceClose;", main);
+            Assert.Contains("private async void MainForm_FormClosing(object? sender, WindowClosingEventArgs e)", main);
+            Assert.Contains("e.Cancel = true;", main);
+            Assert.Contains("var w2aClosing = await MessageBoxFallback.ShowYesNoAsync(this, \"Discard your changes?\", \"Dialog contract\");", main);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(MainForm_FormClosing)", main);
+
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
             Assert.True(
                 buildResult.ExitCode == 0,

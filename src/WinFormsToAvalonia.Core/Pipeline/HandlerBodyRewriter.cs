@@ -219,6 +219,14 @@ public sealed class HandlerBodyRewriter
         }
 
         var statements = block.Statements;
+
+        // The confirm-on-close handler is a whole-body shape rather than a sequence of
+        // statements, so it is matched before the loop that would otherwise refuse it.
+        if (TryMatchCloseConfirmation(statements, target, out var confirmation))
+        {
+            return confirmation;
+        }
+
         var migrated = new List<string>();
         var usings = new HashSet<string>(StringComparer.Ordinal);
         var fallbackKeys = new HashSet<string>(StringComparer.Ordinal);
@@ -303,6 +311,244 @@ public sealed class HandlerBodyRewriter
             [.. migrated.Where(text => text.Length > 0)],
             remaining, statements.Count, usings, fallbackKeys, requiresAsync,
             target.Requirements.InlinedDialogFields);
+    }
+
+    /// <summary>The field name the close-confirmation template declares and reads.</summary>
+    internal const string CloseGuardFieldName = "w2aForceClose";
+
+    /// <summary>
+    /// <c>e.Cancel = MessageBox.Show(..., YesNo) == DialogResult.No;</c> - the canonical WinForms
+    /// confirm-on-close - rewritten into the Avalonia shape for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the one place the converter restructures a handler instead of translating it
+    /// statement by statement, and it does so because there is no statement-level answer: Avalonia
+    /// reads <c>e.Cancel</c> when the synchronous part of the handler returns - that is, at the
+    /// first <c>await</c> - and there is no synchronous message box to ask before then. So the
+    /// close is cancelled, the answer awaited, and on "yes" the window closed again from code,
+    /// guarded by a field so the second pass falls straight through.
+    /// </para>
+    /// <para>
+    /// What that changes is *when* the window closes - one turn of the loop later. What it does
+    /// not change is anything else, and the shape is narrow enough to say so: the guard returns
+    /// immediately on the second pass, so the statements around the confirmation still run exactly
+    /// once per close attempt, in their original order, whether the user confirms or cancels.
+    /// </para>
+    /// <para>
+    /// Recognised: any prefix of statements that translate without awaiting, then
+    /// <c>e.Cancel = &lt;expr&gt;</c> - bare or as the single statement of an <c>if</c> with no
+    /// <c>else</c> - whose expression translates and does await, then any tail that translates
+    /// without awaiting. Anything else is not this shape and keeps refusing, which is what the
+    /// narrowness buys: a handler that merely happens to await stays a comment rather than being
+    /// restructured into something it never said.
+    /// </para>
+    /// </remarks>
+    private static bool TryMatchCloseConfirmation(
+        SyntaxList<StatementSyntax> statements, IRewriteTarget target, out RewrittenBody rewritten)
+    {
+        rewritten = null!;
+
+        // Only where turning the handler async is what blocked it in the first place.
+        if (target.AllowsAsync || statements.Count == 0)
+        {
+            return false;
+        }
+
+        var snapshot = target.Requirements.Snapshot();
+        var usings = new HashSet<string>(StringComparer.Ordinal);
+        var fallbackKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        // The confirmation is whichever statement is a cancel assignment; everything before it is
+        // the prefix and everything after the tail.
+        var index = 0;
+        while (index < statements.Count && !IsCancelAssignment(statements[index], target))
+        {
+            index++;
+        }
+
+        if (index == statements.Count
+            || !TryTranslatePlainStatements(statements.Take(index), target, usings, fallbackKeys, out var prefix))
+        {
+            target.Requirements.Restore(snapshot);
+            return false;
+        }
+
+        var (condition, assignment) = statements[index] switch
+        {
+            IfStatementSyntax { Else: null, Statement: var branch } ifStatement
+                => (ifStatement.Condition, SingleStatementOf(branch)),
+            var plain => (null, plain),
+        };
+
+        if (assignment is not ExpressionStatementSyntax
+            {
+                Expression: AssignmentExpressionSyntax { Left: MemberAccessExpressionSyntax cancelTarget } cancel,
+            }
+            || !target.TryResolveEventArgsParameter(
+                cancelTarget.Expression, "WindowClosingEventArgs", out var argsParameterName))
+        {
+            target.Requirements.Restore(snapshot);
+            return false;
+        }
+
+        var conditionText = "";
+        if (condition is not null && !TryRewriteExpression(condition, target, out conditionText))
+        {
+            target.Requirements.Restore(snapshot);
+            return false;
+        }
+
+        var beforeCancel = target.Requirements.Snapshot();
+        if (!TryRewriteExpression(cancel.Right, target, out var cancelText)
+            || !target.Requirements.RequiresAsync)
+        {
+            // Nothing awaited: the ordinary statement loop handles this body perfectly well, and
+            // restructuring it would only add a guard field nobody needs.
+            target.Requirements.Restore(snapshot);
+            return false;
+        }
+
+        _ = beforeCancel;
+
+        if (!TryTranslatePlainStatements(
+                statements.Skip(index + 1), target, usings, fallbackKeys, out var tail))
+        {
+            target.Requirements.Restore(snapshot);
+            return false;
+        }
+
+        usings.UnionWith(target.Requirements.RequiredUsings);
+        fallbackKeys.UnionWith(target.Requirements.RequiredFallbackKeys);
+
+        var body = new List<string>
+        {
+            $"// The confirmation was synchronous in WinForms. Avalonia reads e.Cancel when this",
+            $"// method first awaits, so the close is cancelled, the answer awaited, and the window",
+            $"// closed again from code - one turn of the loop later, and only if you said yes.",
+            $"if ({CloseGuardFieldName})",
+            "{",
+            "    return;",
+            "}",
+            "",
+        };
+
+        body.AddRange(prefix);
+
+        var confirmed = new List<string>
+        {
+            $"{argsParameterName}.Cancel = true;",
+            $"var w2aClosing = {Negate(cancelText)};",
+        };
+        confirmed.AddRange(tail);
+        confirmed.Add("if (w2aClosing)");
+        confirmed.Add("{");
+        confirmed.Add($"    {CloseGuardFieldName} = true;");
+        confirmed.Add("    Close();");
+        confirmed.Add("}");
+
+        if (condition is null)
+        {
+            body.AddRange(confirmed);
+        }
+        else
+        {
+            body.Add($"if ({conditionText})");
+            body.Add("{");
+            body.AddRange(confirmed.Select(line => "    " + line));
+            body.Add("");
+            body.Add("    return;");
+            body.Add("}");
+            body.Add("");
+            body.AddRange(tail);
+        }
+
+        // One entry standing for the whole body, so the emitter indents it as the block it is -
+        // and an explicit count, since the original's statements all came across.
+        rewritten = new RewrittenBody(
+            [string.Join("\n", body)], "", statements.Count, usings, fallbackKeys, RequiresAsync: true,
+            RequiresCloseGuard: true, MigratedStatementCountOverride: statements.Count);
+        return true;
+    }
+
+    /// <summary>
+    /// The translated cancel expression says whether to *stay*; the template needs whether to
+    /// close. An expression that is already a negation loses it rather than gaining a second one.
+    /// </summary>
+    private static string Negate(string expression) =>
+        SyntaxFactory.ParseExpression(expression) is PrefixUnaryExpressionSyntax
+        {
+            RawKind: (int)SyntaxKind.LogicalNotExpression,
+            Operand: var operand,
+        }
+            ? operand.ToString()
+            : $"!({expression})";
+
+    /// <summary>`e.Cancel = ...` on the handler's own EventArgs parameter.</summary>
+    private static bool IsCancelAssignment(StatementSyntax statement, IRewriteTarget target)
+    {
+        var inner = statement switch
+        {
+            IfStatementSyntax { Else: null, Statement: var branch } => SingleStatementOf(branch),
+            var plain => plain,
+        };
+
+        return inner is ExpressionStatementSyntax
+            {
+                Expression: AssignmentExpressionSyntax
+                {
+                    RawKind: (int)SyntaxKind.SimpleAssignmentExpression,
+                    Left: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Cancel" } left,
+                },
+            }
+            && target.TryResolveEventArgsParameter(left.Expression, "WindowClosingEventArgs", out _);
+    }
+
+    private static StatementSyntax? SingleStatementOf(StatementSyntax statement) =>
+        statement switch
+        {
+            BlockSyntax { Statements: [var only] } => only,
+            BlockSyntax => null,
+            var single => single,
+        };
+
+    /// <summary>
+    /// Statements that translate and do <em>not</em> await - what may sit either side of the
+    /// confirmation without changing when anything happens.
+    /// </summary>
+    private static bool TryTranslatePlainStatements(
+        IEnumerable<StatementSyntax> statements,
+        IRewriteTarget target,
+        HashSet<string> usings,
+        HashSet<string> fallbackKeys,
+        out List<string> translated)
+    {
+        translated = [];
+
+        foreach (var statement in statements)
+        {
+            // Requirements accumulate across the whole body, so "did *this* statement await?" is
+            // the difference across it - not the flag's absolute value, which the confirmation
+            // itself has already set by the time the tail is translated.
+            var snapshot = target.Requirements.Snapshot();
+            var wasAsync = target.Requirements.RequiresAsync;
+            if (!TryRewriteStatement(statement, target, out var rewritten)
+                || rewritten.RequiresAsync
+                || (target.Requirements.RequiresAsync && !wasAsync))
+            {
+                target.Requirements.Restore(snapshot);
+                return false;
+            }
+
+            usings.UnionWith(rewritten.RequiredUsings);
+            fallbackKeys.UnionWith(rewritten.RequiredFallbackKeys);
+            if (rewritten.Text.Length > 0)
+            {
+                translated.Add(rewritten.Text);
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

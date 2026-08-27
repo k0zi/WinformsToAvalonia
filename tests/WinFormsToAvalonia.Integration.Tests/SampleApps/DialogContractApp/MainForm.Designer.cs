@@ -93,6 +93,7 @@ namespace DialogContractApp
             this.Controls.Add(this.stopClockButton);
             this.Controls.Add(this.statusLabel);
             this.Name = "MainForm";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.MainForm_FormClosing);
             this.Text = "Dialog contract";
             this.ResumeLayout(false);
         }

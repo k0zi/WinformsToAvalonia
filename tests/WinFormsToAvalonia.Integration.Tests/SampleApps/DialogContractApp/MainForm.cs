@@ -6,6 +6,8 @@ namespace DialogContractApp
 {
     public partial class MainForm : Form
     {
+        private bool hasUnsavedChanges = true;
+
         public MainForm()
         {
             InitializeComponent();
@@ -58,6 +60,22 @@ namespace DialogContractApp
         private void stopClockButton_Click(object sender, EventArgs e)
         {
             this.clockTimer.Stop();
+        }
+
+        // Confirm-on-close, the canonical WinForms shape. There is no statement-level answer for
+        // it: Avalonia reads e.Cancel when the handler first awaits, and nothing to ask before
+        // then is synchronous - so the whole handler is rewritten into the Avalonia idiom.
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (this.hasUnsavedChanges)
+            {
+                e.Cancel = MessageBox.Show(
+                    "Discard your changes?",
+                    "Dialog contract",
+                    MessageBoxButtons.YesNo) == DialogResult.No;
+            }
+
+            this.statusLabel.Text = "Closing";
         }
     }
 }

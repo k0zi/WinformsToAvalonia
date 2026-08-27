@@ -2492,15 +2492,91 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// The one that matters most. A cancellable event is read the moment the handler returns, and
-    /// an `async void` handler returns at its first await - so `e.Cancel = await …` would compile,
-    /// look right, and never cancel anything.
+    /// Confirm-on-close, the canonical WinForms shape. There is no statement-level translation of
+    /// it - Avalonia reads `e.Cancel` when the handler first awaits, and nothing to ask before
+    /// then is synchronous - so the whole body is rewritten into the Avalonia idiom: cancel,
+    /// await, and on "yes" close again from code, guarded so the second pass falls through.
     /// </summary>
     [Fact]
-    public void RewriteForView_AsyncInsideAClosingHandler_IsNotMigrated()
+    public void RewriteForView_CloseConfirmation_IsRewrittenIntoTheAvaloniaIdiom()
     {
         var result = Rewriter.RewriteForView(
             "e.Cancel = MessageBox.Show(\"Sure?\", \"Demo\", MessageBoxButtons.YesNo) == DialogResult.No;",
+            FormWith(),
+            Navigation(),
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));
+
+        var body = Assert.Single(result.MigratedStatements);
+        Assert.Contains("if (w2aForceClose)", body);
+        Assert.Contains("e.Cancel = true;", body);
+        Assert.Contains("var w2aClosing = await MessageBoxFallback.ShowYesNoAsync(this, \"Sure?\", \"Demo\");", body);
+        Assert.Contains("w2aForceClose = true;", body);
+        Assert.Contains("Close();", body);
+        Assert.True(result.RequiresAsync);
+        Assert.True(result.RequiresCloseGuard);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>
+    /// The statements around the confirmation still run exactly once per close attempt, in their
+    /// original order - the guard returns immediately on the second pass, so the tail inside the
+    /// branch is not a second copy of the one outside it, it is the other path through the same
+    /// attempt.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_CloseConfirmationWithATail_RunsTheTailOnBothPaths()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.statusLabel.Text == "busy")
+            {
+                e.Cancel = MessageBox.Show("Sure?", "Demo", MessageBoxButtons.YesNo) == DialogResult.No;
+            }
+
+            this.statusLabel.Text = "bye";
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));
+
+        var body = Assert.Single(result.MigratedStatements);
+        Assert.Equal(2, body.Split("statusLabel.Text = \"bye\";").Length - 1);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>
+    /// A tail that cannot be translated takes the whole shape with it. Emitting the confirmation
+    /// without it would drop work the original did on every close attempt.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_CloseConfirmationWithAnUntranslatableTail_IsNotMigrated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            e.Cancel = MessageBox.Show("Sure?", "Demo", MessageBoxButtons.YesNo) == DialogResult.No;
+            this.statusLabel.SomethingElse();
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Only the shape this converter can vouch for. A closing handler that awaits something which
+    /// is *not* the cancel decision keeps refusing: rewriting it would invent control flow the
+    /// original never had.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ClosingHandlerAwaitingSomethingElse_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "MessageBox.Show(\"Bye\");",
             FormWith(),
             Navigation(),
             new HandlerSignature("e", "WindowClosingEventArgs", SourceControlFieldNames: []));

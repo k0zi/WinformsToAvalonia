@@ -36,7 +36,9 @@ public class GeneratedAppStartupTests
     // now also a project-defined component whose source this run copied in, whose constructor
     // runs at startup like any other field initializer.
     [InlineData("ComponentFieldApp")]
-    // A DispatcherTimer wired in the constructor, plus a second Window the first one opens.
+    // A DispatcherTimer wired in the constructor, plus a second Window the first one opens -
+    // and the close-confirmation rewrite, whose guard field and `async void` closing handler are
+    // wired to the Window's own Closing event as it is constructed.
     [InlineData("DialogContractApp")]
     // The broadest fixture: many controls, so the most AXAML to parse and lay out.
     [InlineData("ComplexApp")]

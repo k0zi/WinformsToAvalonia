@@ -462,15 +462,30 @@ rule itself; what follows is what the rule does *not* cover yet.
   consequence is that one un-translatable call in a branch rejects the entire `if`, which is why
   control-flow support helps validation-shaped handlers far more than WinForms-API-shaped ones.
 
-  **Nothing that needs `await` is translated inside a `Closing` handler**, whatever it is. A
-  cancellable event is read the moment the handler returns, and an `async void` handler returns at
-  its first `await` - so `e.Cancel = await ...` would compile, look right, and never cancel
-  anything, because the window is gone by the time the await resumes. WinForms got away with this
-  only because its dialogs block. Emitting Avalonia's pattern for it instead (cancel first, await,
-  close again if confirmed) would restructure the handler into something the original never said,
-  which this converter does not do - so the statement is refused and the prefix before it still
-  comes across. This is the one place where a *correct* translation of a statement is still
-  rejected because of where it sits.
+  **Nothing that needs `await` is translated inside a `Closing` handler**, whatever it is, with
+  one named exception. A cancellable event is read the moment the handler returns, and an
+  `async void` handler returns at its first `await` - so `e.Cancel = await ...` would compile,
+  look right, and never cancel anything, because the window is gone by the time the await resumes.
+  WinForms got away with this only because its dialogs block. So the statement is refused and the
+  prefix before it still comes across: the one place where a *correct* translation of a statement
+  is still rejected because of where it sits.
+
+  The exception is **confirm-on-close**, `e.Cancel = MessageBox.Show(..., YesNo) == DialogResult.No;`,
+  which is the shape that motivates almost every `FormClosing` handler ever written. There is no
+  statement-level answer for it, so the whole body is rewritten into Avalonia's idiom instead:
+  cancel the close, await the answer, and on "yes" close again from code, guarded by a
+  `w2aForceClose` field so the second pass returns immediately. That changes **when** the window
+  closes - one turn of the loop later - and nothing else: because the guard returns straight away,
+  the statements around the confirmation still run exactly once per close attempt, in their
+  original order, whether you confirm or cancel. The generated code says so in a comment.
+
+  This is the only whole-body rewrite in the converter, and it is deliberately narrow: any prefix
+  that translates without awaiting, then `e.Cancel = <expr>` (bare, or as the single statement of
+  an `if` with no `else`) whose expression awaits, then any tail that translates without awaiting.
+  A tail that does *not* translate takes the whole shape with it, since emitting the confirmation
+  without it would drop work the original did on every attempt - which is why the all-in-one
+  sample's own closing handler still does not convert: it ends in `notifyIcon1.Visible = false`,
+  and a `NotifyIcon` has no per-View element to write to.
 
   Reads of string properties are emitted as `(control.Text ?? string.Empty)`: WinForms' string
   properties never return null while Avalonia's are `string?`, so this is both the faithful

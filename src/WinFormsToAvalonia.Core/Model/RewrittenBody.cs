@@ -12,8 +12,16 @@ public sealed record RewrittenBody(
     IReadOnlySet<string> RequiredUsings,
     IReadOnlySet<string> RequiredFallbackKeys,
     bool RequiresAsync,
-    IReadOnlySet<string>? InlinedDialogFields = null)
+    IReadOnlySet<string>? InlinedDialogFields = null,
+    bool RequiresCloseGuard = false,
+    int? MigratedStatementCountOverride = null)
 {
+    /// <summary>
+    /// Whether the View has to declare the <c>w2aForceClose</c> field this body's close
+    /// confirmation reads - see <c>HandlerBodyRewriter.TryMatchCloseConfirmation</c>.
+    /// </summary>
+    public bool RequiresCloseGuard { get; } = RequiresCloseGuard;
+
     /// <summary>File dialogs this body opens inline, so no separate method is generated for them.</summary>
     public IReadOnlySet<string> InlinedDialogFields { get; } = InlinedDialogFields ?? EmptySet;
 
@@ -30,7 +38,12 @@ public sealed record RewrittenBody(
 
     private static readonly IReadOnlySet<string> EmptySet = new HashSet<string>(StringComparer.Ordinal);
 
-    public int MigratedStatementCount => MigratedStatements.Count;
+    /// <summary>
+    /// How many of the original's statements came across. Normally one entry per statement - but
+    /// a body rewritten as a *whole* (the close confirmation) is one entry standing for all of
+    /// them, and counting entries there would report a migration rate that means nothing.
+    /// </summary>
+    public int MigratedStatementCount => MigratedStatementCountOverride ?? MigratedStatements.Count;
 
     /// <summary>True when nothing is left to migrate by hand - the method needs no TODO marker.</summary>
     public bool IsComplete => RemainingBody.Length == 0 && TotalStatementCount > 0;
