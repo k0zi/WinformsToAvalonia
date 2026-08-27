@@ -44,6 +44,10 @@ public class ItemsAndCanExecuteConversionTests
             Assert.DoesNotContain("IsEnabled=\"{Binding", axaml);
             Assert.DoesNotContain("SubmitButtonIsEnabled", viewModel);
 
+            // A ComboBox really does raise DropDownOpened - one of the few type-specific events
+            // with an exact counterpart, and the only kind of new mapping that gets added at all.
+            Assert.Contains("DropDownOpened=\"categoryComboBox_DropDown\"", axaml);
+
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
             Assert.True(
                 buildResult.ExitCode == 0,

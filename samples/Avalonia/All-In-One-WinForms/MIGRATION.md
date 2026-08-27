@@ -8,6 +8,11 @@ Everything below is preserved in the generated project as a comment, inside a me
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
 runs while you work through this list.
 
+**The wiring is already done.** Each method below exists on the generated View with the
+right Avalonia signature, and its event is subscribed - the AXAML carries the attribute, or
+the constructor the subscription. What is left is the body: the statement named beside each
+one is the first the conversion could not prove equivalent.
+
 ## Methods to migrate (12)
 
 ### `Views/MainView.axaml.cs`

@@ -16,6 +16,13 @@ namespace ItemsAndCanExecuteApp
             this.resultLabel.Text = this.nameTextBox.Text;
         }
 
+        // One of the few type-specific events with a real Avalonia counterpart: a ComboBox does
+        // raise DropDownOpened.
+        private void categoryComboBox_DropDown(object sender, EventArgs e)
+        {
+            this.resultLabel.Text = "Choosing";
+        }
+
         // Its whole job is keeping the button's enabled state in sync - a CanExecute guard.
         private void nameTextBox_TextChanged(object sender, EventArgs e)
         {

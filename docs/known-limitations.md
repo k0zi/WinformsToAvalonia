@@ -617,6 +617,26 @@ rule itself; what follows is what the rule does *not* cover yet.
   was written for this reason and immediately found one: `LinkLabel.Text` claimed `Text` while
   the mapper emits a `HyperlinkButton`, whose text property is `Content`. Any promoted handler
   touching a LinkLabel produced AVLN2000.
+- **Every event a `Control` or a `Form` declares is classified.** WinForms' `Control` declares 71
+  events and `Form` another 30 - the ones a designer can wire on anything - and the registry used
+  to know about 25 of them by name. The rest got a generic "no Avalonia equivalent is registered",
+  which is true, explains nothing, and left no way to tell which events had been thought about.
+  All of them now have either a real mapping or a specific sentence saying why there is none, and
+  `EventCoverageTests` reads WinForms' own reference assembly to make sure none is missed - the
+  same technique the Avalonia side uses, pointed the other way.
+
+  Most of them are the `XxxChanged` family, and they share one answer: Avalonia raises nothing
+  when a property changes, so you observe the property or bind to it. Three real pairs came out of
+  the sweep that had been missing: `Form.Move`/`LocationChanged` → `Window.PositionChanged`,
+  `Form.DpiChanged` → `TopLevel.ScalingChanged`, and the obsolete `Form.Closing`/`Closed`
+  spellings, which plenty of older designer files still use and which mean exactly what
+  `FormClosing`/`FormClosed` do.
+
+  **Type-specific events are deliberately not in that guarantee.** `DataGridView` alone declares
+  126 - more than `Control` and `Form` together - and Avalonia's DataGrid is a different shape
+  almost throughout. Those get mappings one at a time, when a real counterpart can be proven
+  against the reference assembly; `ComboBox.DropDown` → `DropDownOpened` is the first.
+
 - **The mapping tables are checked against Avalonia itself.** Everything this converter knows
   about Avalonia lives in hand-maintained tables, because the tool emits text and never
   references Avalonia — so a wrong entry used to surface only as a build error in the *generated*

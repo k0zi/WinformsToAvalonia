@@ -88,6 +88,13 @@ public sealed class EventMappingRegistry
         [("ComboBox", "SelectedIndexChanged")] = SelectionChanged,
         [("ComboBox", "SelectedValueChanged")] = SelectionChanged,
         [("ComboBox", "SelectionChangeCommitted")] = SelectionChanged,
+
+        // The drop-down's own lifecycle, which Avalonia's ComboBox really does raise - one of the
+        // few type-specific pairs that survived being checked against the real API.
+        [("ComboBox", "DropDown")] = new("DropDown", "DropDownOpened"),
+        [("ComboBox", "DropDownClosed")] = new("DropDownClosed", "DropDownClosed"),
+        [("ToolStripComboBox", "DropDown")] = new("DropDown", "DropDownOpened"),
+        [("ToolStripComboBox", "DropDownClosed")] = new("DropDownClosed", "DropDownClosed"),
         [("ToolStripComboBox", "SelectedIndexChanged")] = SelectionChanged,
         [("ListBox", "SelectedIndexChanged")] = SelectionChanged,
         [("ListBox", "SelectedValueChanged")] = SelectionChanged,
@@ -180,6 +187,84 @@ public sealed class EventMappingRegistry
         ["SizeChanged"] = new("SizeChanged", "SizeChanged", "SizeChangedEventArgs"),
         ["VisibleChanged"] = new("VisibleChanged", null, Guidance: "Avalonia has no VisibleChanged event; observe the IsVisible property instead."),
 
+        // Property-change notifications. WinForms raises one per property; Avalonia has none at
+        // all - a property is observed or bound, not subscribed to. One shared sentence, because
+        // the answer really is the same for every one of them.
+        ["AutoSizeChanged"] = PropertyChangeNotification("AutoSize", "the layout properties"),
+        ["BackColorChanged"] = PropertyChangeNotification("BackColor", "Background"),
+        ["BackgroundImageChanged"] = PropertyChangeNotification("BackgroundImage", "Background"),
+        ["BackgroundImageLayoutChanged"] = PropertyChangeNotification("BackgroundImageLayout", "Background"),
+        ["BindingContextChanged"] = PropertyChangeNotification("BindingContext", "DataContext"),
+        ["CausesValidationChanged"] = PropertyChangeNotification("CausesValidation", "the validation properties"),
+        ["ClientSizeChanged"] = PropertyChangeNotification("ClientSize", "Bounds"),
+        ["ContextMenuChanged"] = PropertyChangeNotification("ContextMenu", "ContextMenu"),
+        ["ContextMenuStripChanged"] = PropertyChangeNotification("ContextMenuStrip", "ContextMenu"),
+        ["CursorChanged"] = PropertyChangeNotification("Cursor", "Cursor"),
+        ["DataContextChanged"] = PropertyChangeNotification("DataContext", "DataContext"),
+        ["DockChanged"] = PropertyChangeNotification("Dock", "the layout properties"),
+        ["EnabledChanged"] = PropertyChangeNotification("Enabled", "IsEnabled"),
+        ["FontChanged"] = PropertyChangeNotification("Font", "the font properties"),
+        ["ForeColorChanged"] = PropertyChangeNotification("ForeColor", "Foreground"),
+        ["ImeModeChanged"] = PropertyChangeNotification("ImeMode", "the input-method properties"),
+        ["MarginChanged"] = PropertyChangeNotification("Margin", "Margin"),
+        ["MouseCaptureChanged"] = PropertyChangeNotification("Capture", "the pointer-capture events"),
+        ["PaddingChanged"] = PropertyChangeNotification("Padding", "Padding"),
+        ["ParentChanged"] = PropertyChangeNotification("Parent", "Parent"),
+        ["RegionChanged"] = PropertyChangeNotification("Region", "Clip"),
+        ["RightToLeftChanged"] = PropertyChangeNotification("RightToLeft", "FlowDirection"),
+        ["StyleChanged"] = PropertyChangeNotification("the control style flags", "the styling system"),
+        ["SystemColorsChanged"] = PropertyChangeNotification("the system colours", "the theme resources"),
+        ["TabIndexChanged"] = PropertyChangeNotification("TabIndex", "TabIndex"),
+        ["TabStopChanged"] = PropertyChangeNotification("TabStop", "IsTabStop"),
+
+        // A control's position is set by the layout in both frameworks; only a *window* has one
+        // of its own, which is why Move and LocationChanged have a real answer on a Form (see
+        // FormEvents) and none here.
+        ["Move"] = new("Move", null, Guidance: MovedInsideItsParent),
+        ["LocationChanged"] = new("LocationChanged", null, Guidance: MovedInsideItsParent),
+
+        // Pointer and keyboard shapes Avalonia does not have.
+        ["MouseClick"] = new("MouseClick", null,
+            Guidance: "Avalonia has no MouseClick: a Button-like control raises Click, and anything else "
+                + "raises PointerReleased - which fires on release wherever the press began, so it is not "
+                + "the same event and is not substituted automatically."),
+        ["MouseHover"] = new("MouseHover", null,
+            Guidance: "Avalonia has no hover-dwell event. PointerEntered fires on entry rather than after "
+                + "the hover delay; a ToolTip is usually what this was for."),
+        ["PreviewKeyDown"] = new("PreviewKeyDown", null,
+            Guidance: "Avalonia has no separate preview event - the same KeyDown is routed, so subscribe it "
+                + "with AddHandler(InputElement.KeyDownEvent, handler, RoutingStrategies.Tunnel) from code."),
+        ["ChangeUICues"] = new("ChangeUICues", null,
+            Guidance: "Avalonia has no focus/keyboard-cue notification; focus adorners are styled through "
+                + "the :focus-visible pseudo-class instead."),
+        ["QueryAccessibilityHelp"] = new("QueryAccessibilityHelp", null,
+            Guidance: "Avalonia's accessibility goes through AutomationProperties attached properties, not "
+                + "through an event."),
+        ["HelpRequested"] = new("HelpRequested", null,
+            Guidance: "Avalonia has no F1/help routing - handle KeyDown for F1 yourself if the app needs it."),
+
+        // Drag and drop, the two halves Avalonia does not model.
+        ["GiveFeedback"] = new("GiveFeedback", null,
+            Guidance: "Avalonia's drag-and-drop has no source-side feedback event; the drag cursor is decided "
+                + "by the DragDropEffects the target returns."),
+        ["QueryContinueDrag"] = new("QueryContinueDrag", null,
+            Guidance: "Avalonia has no source-side cancel hook - DragDrop.DoDragDrop runs to completion and "
+                + "reports the effect it ended with."),
+
+        // Lifecycle and layout internals with no counterpart at all.
+        ["ControlAdded"] = new("ControlAdded", null, Guidance: ChildrenAreACollection),
+        ["ControlRemoved"] = new("ControlRemoved", null, Guidance: ChildrenAreACollection),
+        ["HandleCreated"] = new("HandleCreated", null, Guidance: NoNativeHandle),
+        ["HandleDestroyed"] = new("HandleDestroyed", null, Guidance: NoNativeHandle),
+        ["Invalidated"] = new("Invalidated", null,
+            Guidance: "Avalonia has no invalidation notification; rendering is driven by the compositor, and "
+                + "a control redraws itself by overriding Render(DrawingContext)."),
+        ["Layout"] = new("Layout", null,
+            Guidance: "Avalonia has no Layout event - a panel participates in layout by overriding "
+                + "MeasureOverride/ArrangeOverride, and SizeChanged reports the result."),
+        ["DpiChangedAfterParent"] = new("DpiChangedAfterParent", null, Guidance: ScalingIsTopLevel),
+        ["DpiChangedBeforeParent"] = new("DpiChangedBeforeParent", null, Guidance: ScalingIsTopLevel),
+
         // No Avalonia equivalent.
         ["Paint"] = new("Paint", null, Guidance: "Avalonia has no Paint event - override Control.Render(DrawingContext) on a custom control, or use a Path/Shape."),
         ["Validating"] = new("Validating", null, Guidance: "Avalonia has no Validating event - use INotifyDataErrorInfo / DataAnnotations validation on the bound view model property."),
@@ -196,7 +281,84 @@ public sealed class EventMappingRegistry
         ["Activated"] = new("Activated", "Activated"),
         ["Deactivate"] = new("Deactivate", "Deactivated"),
         ["Resize"] = new("Resize", "SizeChanged", "SizeChangedEventArgs"),
+
+        // The obsolete spellings, which plenty of older designer files still use. They mean the
+        // same thing as the Form* pair, so they map to the same place rather than being refused
+        // for being out of fashion.
+        ["Closing"] = new("Closing", "Closing", "WindowClosingEventArgs"),
+        ["Closed"] = new("Closed", "Closed"),
+
+        // A window really does have a position of its own - which a child control does not, hence
+        // the guidance in ControlEvents for the same two names.
+        ["Move"] = new("Move", "PositionChanged", "PixelPointEventArgs"),
+        ["LocationChanged"] = new("LocationChanged", "PositionChanged", "PixelPointEventArgs"),
+
+        ["DpiChanged"] = new("DpiChanged", "ScalingChanged"),
+
+        // Form's own, with no counterpart.
+        ["AutoValidateChanged"] = PropertyChangeNotification("AutoValidate", "the validation properties"),
+        ["FormBorderColorChanged"] = PropertyChangeNotification("FormBorderColor", "the window chrome properties"),
+        ["FormCaptionBackColorChanged"] = PropertyChangeNotification("FormCaptionBackColor", "the window chrome properties"),
+        ["FormCaptionTextColorChanged"] = PropertyChangeNotification("FormCaptionTextColor", "the window chrome properties"),
+        ["FormCornerPreferenceChanged"] = PropertyChangeNotification("FormCornerPreference", "the window chrome properties"),
+        ["MaximizedBoundsChanged"] = PropertyChangeNotification("MaximizedBounds", "the window sizing properties"),
+        ["MaximumSizeChanged"] = PropertyChangeNotification("MaximumSize", "MaxWidth/MaxHeight"),
+        ["MinimumSizeChanged"] = PropertyChangeNotification("MinimumSize", "MinWidth/MinHeight"),
+        ["RightToLeftLayoutChanged"] = PropertyChangeNotification("RightToLeftLayout", "FlowDirection"),
+
+        ["HelpButtonClicked"] = new("HelpButtonClicked", null,
+            Guidance: "Avalonia's window chrome has no help button, so there is nothing to click - put the "
+                + "action on a control in the window instead."),
+        ["MdiChildActivate"] = new("MdiChildActivate", null,
+            Guidance: "Avalonia has no MDI: a converted MDI parent is an ordinary Window, and its children "
+                + "need a different container (a TabControl, or separate windows)."),
+        ["MenuStart"] = new("MenuStart", null, Guidance: MenuTrackingIsPerMenu),
+        ["MenuComplete"] = new("MenuComplete", null, Guidance: MenuTrackingIsPerMenu),
+        ["InputLanguageChanged"] = new("InputLanguageChanged", null, Guidance: NoInputLanguageEvents),
+        ["InputLanguageChanging"] = new("InputLanguageChanging", null, Guidance: NoInputLanguageEvents),
+        ["ResizeBegin"] = new("ResizeBegin", null, Guidance: NoResizeGestureBoundaries),
+        ["ResizeEnd"] = new("ResizeEnd", null, Guidance: NoResizeGestureBoundaries),
     };
+
+    /// <summary>
+    /// The shared answer for a WinForms <c>XxxChanged</c> event. There are more than forty of
+    /// them across Control and Form, and the answer is the same every time - Avalonia has no
+    /// per-property notification, so you observe the property or bind to it.
+    /// </summary>
+    private static EventMapping PropertyChangeNotification(string winFormsProperty, string avaloniaCounterpart) =>
+        new(
+            winFormsProperty + "Changed",
+            null,
+            Guidance: $"Avalonia raises no event when a property changes. Observe {avaloniaCounterpart} "
+                + $"(control.GetObservable(...)) or bind to it, rather than subscribing to a "
+                + $"{winFormsProperty}Changed of its own.");
+
+    private const string MovedInsideItsParent =
+        "A control's position is decided by its parent's layout in both frameworks, and Avalonia raises "
+        + "nothing when it changes - watch Bounds if you really need it. A *window* does have a position, "
+        + "and Form.Move is mapped to Window.PositionChanged.";
+
+    private const string ChildrenAreACollection =
+        "Avalonia raises no event when a child is added or removed; Panel.Children is an observable "
+        + "collection you can subscribe to instead.";
+
+    private const string NoNativeHandle =
+        "Avalonia controls have no native window handle, so there is nothing to create or destroy - "
+        + "AttachedToVisualTree/DetachedFromVisualTree are the nearest lifecycle points.";
+
+    private const string ScalingIsTopLevel =
+        "Scaling in Avalonia belongs to the TopLevel, not to each control - subscribe TopLevel.ScalingChanged "
+        + "once instead of per control.";
+
+    private const string MenuTrackingIsPerMenu =
+        "Avalonia has no window-level menu tracking; a MenuBase raises its own Opened and Closed.";
+
+    private const string NoInputLanguageEvents =
+        "Avalonia exposes no input-language notification - the text input method is handled by the platform.";
+
+    private const string NoResizeGestureBoundaries =
+        "Avalonia reports the resize itself (SizeChanged / Window.Resized) but not the start and end of the "
+        + "user's drag, so a converted handler cannot tell one from the other.";
 
     /// <summary>Non-visual components whose events are subscribed from code, never as an AXAML attribute.</summary>
     private static readonly Dictionary<string, EventMapping> ComponentEvents = new(StringComparer.Ordinal)
@@ -265,6 +427,24 @@ public sealed class EventMappingRegistry
 
     /// <summary>Every Form-level event name, for the same check against a Window.</summary>
     public static IEnumerable<string> FormEventNames => FormEvents.Keys;
+
+    /// <summary>
+    /// Every WinForms event name some table here answers for <em>by name</em> - as opposed to the
+    /// generic "no equivalent registered" that any unknown name gets.
+    /// </summary>
+    /// <remarks>
+    /// That distinction is the whole point: the generic answer is true but says nothing about why
+    /// or what to do instead, and nothing used to say which events fell into it.
+    /// WinFormsToAvalonia.Mapping.Tests holds this set against the events WinForms really
+    /// declares, so "did we classify them all?" stopped being a question about memory.
+    /// </remarks>
+    public static IEnumerable<string> ClassifiedEventNames =>
+        ControlEvents.Keys
+            .Concat(FormEvents.Keys)
+            .Concat(ControlTypeOverrides.Keys.Select(k => k.EventName))
+            .Concat(ComponentEvents.Keys)
+            .Append("Click")
+            .Distinct(StringComparer.Ordinal);
 
     private static EventMapping Unmapped(string eventName) =>
         new(eventName, null, Guidance: $"No Avalonia equivalent is registered for the WinForms '{eventName}' event.");

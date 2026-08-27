@@ -27,6 +27,7 @@ namespace ItemsAndCanExecuteApp
             this.categoryComboBox.Items.AddRange(new object[] { "Hardware", "Software", "Services" });
             this.categoryComboBox.Location = new System.Drawing.Point(12, 12);
             this.categoryComboBox.Name = "categoryComboBox";
+            this.categoryComboBox.DropDown += new System.EventHandler(this.categoryComboBox_DropDown);
             this.categoryComboBox.Size = new System.Drawing.Size(180, 27);
             this.categoryComboBox.TabIndex = 0;
             //

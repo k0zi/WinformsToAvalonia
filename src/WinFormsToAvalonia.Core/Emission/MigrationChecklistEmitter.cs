@@ -55,6 +55,11 @@ public sealed class MigrationChecklistEmitter
         Line("calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app");
         Line("runs while you work through this list.");
         Line();
+        Line("**The wiring is already done.** Each method below exists on the generated View with the");
+        Line("right Avalonia signature, and its event is subscribed - the AXAML carries the attribute, or");
+        Line("the constructor the subscription. What is left is the body: the statement named beside each");
+        Line("one is the first the conversion could not prove equivalent.");
+        Line();
 
         var unfinished = artifacts.SelectMany(a => a.Unfinished).ToList();
         if (unfinished.Count == 0)

@@ -192,9 +192,12 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
 
 ## Tests
 
-- `Mapping.Tests` — the **only** project in this repo that references Avalonia, and it never runs
-  a line of it: `AvaloniaMetadata` loads the reference assemblies through `MetadataLoadContext`
-  and every test asserts one mapping-table claim against them. This exists because the converter
+- `Mapping.Tests` — the only project that references **either** framework, and it never runs a
+  line of either. `AvaloniaMetadata` reads Avalonia's reference assemblies; `WinFormsMetadata`
+  reads WinForms' (from `Microsoft.WindowsDesktop.App.Ref`, copied beside the test assembly), so
+  "is every event mapped?" is a test rather than a question about memory — every event `Control`
+  and `Form` declare must be classified by name. Every test asserts one mapping-table claim
+  against the real API. This exists because the converter
   emits *text*, so a wrong table entry is a build error in the generated project and nowhere
   else — three such entries were found by hand before this project existed, and four more the
   first time it ran. Its package versions must equal `AvaloniaProjectScaffolder`'s, which is
