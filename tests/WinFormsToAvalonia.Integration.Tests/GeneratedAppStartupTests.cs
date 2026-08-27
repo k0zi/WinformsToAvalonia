@@ -47,9 +47,32 @@ public class GeneratedAppStartupTests
     // An app-level TrayIcon: built by App.axaml during Initialize, before any View exists, and
     // reached from a handler through the accessor the generated App declares for it.
     [InlineData("TrayIconApp")]
-    public async Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName)
+    public Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName) =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj"),
+            sampleAppName);
+
+    /// <summary>
+    /// The all-in-one sample, which is not a fixture at all - it is the app this repo ships to be
+    /// looked at, an order of magnitude broader than any fixture here.
+    /// </summary>
+    /// <remarks>
+    /// It earned its place: a converted handler that Avalonia raised <em>during</em> XAML
+    /// population took the sample down at startup, and every fixture above passed - because none
+    /// of them happened to have a TabControl with a handler on it. Fixture coverage is only ever
+    /// what someone thought to write down; this one is the whole thing.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedAllInOneSample_StartsOnTheHeadlessPlatform() =>
+        AssertStarts(
+            Path.Combine(
+                RepositoryRoot(), "samples", "WinForms", "All-In-One-WinForms", "All-In-One-WinForms.csproj"),
+            "All-In-One-WinForms");
+
+    private static async Task AssertStarts(string sourceProject, string name)
     {
-        var sourceProject = Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj");
+        Assert.True(File.Exists(sourceProject), $"Source project not found: {sourceProject}");
+
         var outputDir = Path.Combine(Path.GetTempPath(), "w2a-smoke-" + Guid.NewGuid());
         try
         {
@@ -60,7 +83,7 @@ public class GeneratedAppStartupTests
 
             Assert.True(
                 run.ExitCode == 0 && run.StdOut.Contains(SuccessMarker, StringComparison.Ordinal),
-                $"The converted '{sampleAppName}' did not start (exit code {run.ExitCode}).\n"
+                $"The converted '{name}' did not start (exit code {run.ExitCode}).\n"
                 + $"--- stdout ---\n{run.StdOut}\n--- stderr ---\n{run.StdErr}");
         }
         finally
@@ -126,6 +149,22 @@ public class GeneratedAppStartupTests
                 csproj,
                 "  </ItemGroup>",
                 $"""    <PackageReference Include="Avalonia.Headless" Version="{HeadlessPackageVersion}" />{Environment.NewLine}  </ItemGroup>"""));
+    }
+
+    /// <summary>
+    /// The repository root, walked up from the test output - the samples are source, not fixtures,
+    /// so they are not copied beside the test assembly.
+    /// </summary>
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "WinFormsToAvalonia.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.True(directory is not null, "Could not find the repository root from the test output directory.");
+        return directory!.FullName;
     }
 
     private static string ReplaceFirst(string text, string search, string replacement)

@@ -206,6 +206,10 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
   and asserts `dotnet build` on the generated output succeeds. Add a `SampleApps` folder + an
   `[InlineData]` row (in `RealFormConversionBuildTests` or the feature-specific test class) when
   adding a feature that changes generated code.
+- `GeneratedAppStartupTests` boots **the all-in-one sample** as well as the fixtures, and that is
+  the row that matters most: a handler Avalonia raised *during* XAML population crashed the sample
+  at startup while every fixture passed, because none happened to have a TabControl with a handler
+  on it. Fixture coverage is only ever what someone thought to write down.
 - `GeneratedAppStartupTests` covers the **other half** of "always builds and runs": it replaces the
   generated `Program.cs` with a harness that boots the same `App` on Avalonia's headless platform,
   so `OnFrameworkInitializationCompleted` really constructs the main View and the AXAML is really
