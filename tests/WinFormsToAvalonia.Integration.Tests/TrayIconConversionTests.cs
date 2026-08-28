@@ -36,6 +36,26 @@ public class TrayIconConversionTests
             Assert.Contains("App.NotifyIcon1.ToolTipText = \"Hidden\";", codeBehind);
             Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(hideButton_Click)", codeBehind);
 
+            // A designer-wired tray event is subscribed from the constructor, since there is no
+            // element to put an attribute on. This used to be emitted as a translated method that
+            // nothing subscribed and nothing reported - alive to read, dead to run.
+            Assert.Contains("App.NotifyIcon1.Clicked += notifyIcon1_Click;", codeBehind);
+
+            // The same Click on the icon that did NOT resolve is suppressed, because App.axaml
+            // emitted its TrayIcon commented out - there is no accessor, so the constructor line
+            // would not compile. This is the case the suppression pass exists for.
+            Assert.DoesNotContain("NotifyIcon2.", codeBehind);
+            Assert.Contains(
+                result.Report.Warnings,
+                w => w.Contains("notifyIcon2", StringComparison.Ordinal)
+                    && w.Contains("icon could not be resolved", StringComparison.Ordinal));
+
+            // ...and an event Avalonia's TrayIcon simply does not have is refused, by name.
+            Assert.Contains(
+                result.Report.Warnings,
+                w => w.Contains("notifyIcon1_DoubleClick", StringComparison.Ordinal)
+                    && w.Contains("never subscribed", StringComparison.Ordinal));
+
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
             Assert.True(
                 buildResult.ExitCode == 0,

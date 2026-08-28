@@ -16,4 +16,32 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!--
+    Packaged as a .NET tool. The command is `wf2a` while the package and assembly keep the full
+    name: the package id is what someone searches for, the command is what they type all day.
+  -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>wf2a</ToolCommandName>
+    <PackageId>WinFormsToAvalonia</PackageId>
+    <Version>0.1.0</Version>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)..\..\artifacts\</PackageOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>David Kozma</Authors>
+    <Description>Reads a WinForms .csproj with Roslyn and generates a new Avalonia MVVM application - one Window View + ViewModel per Form, one UserControl View + ViewModel per UserControl. The source project is read-only input; nothing is converted in place.</Description>
+    <PackageTags>winforms;avalonia;migration;converter;roslyn;mvvm;dotnet-tool</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/k0zi/WinformsToAvalonia</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/k0zi/WinformsToAvalonia.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Packed into the package root, which is where nuget.org looks for it. -->
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
 </Project>

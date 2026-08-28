@@ -58,6 +58,71 @@ public class AxamlEmitterTests
     }
 
     /// <summary>
+    /// A grid column's <c>DataPropertyName</c> becomes the column's binding - but only on the two
+    /// column types Avalonia gives a <c>Binding</c> property to.
+    /// </summary>
+    [Fact]
+    public void EmitView_DataPropertyName_BindsOnlyTheBoundColumnTypes()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var grid = new ControlModel { FieldName = "grid1", ClrTypeName = "DataGridView" };
+
+        foreach (var (field, clrType) in new[]
+                 {
+                     ("nameColumn", "DataGridViewTextBoxColumn"),
+                     ("activeColumn", "DataGridViewCheckBoxColumn"),
+                     ("categoryColumn", "DataGridViewComboBoxColumn"),
+                 })
+        {
+            var column = new ControlModel { FieldName = field, ClrTypeName = clrType };
+            column.Properties["HeaderText"] = new PropertyValue.Literal(field);
+            column.Properties["DataPropertyName"] = new PropertyValue.Literal("Category");
+            grid.Children.Add(column);
+        }
+
+        formModel.RootControls.Add(grid);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<DataGridTextColumn Header=\"nameColumn\" Binding=\"{ReflectionBinding Category}\" />", result.Axaml);
+        Assert.Contains("<DataGridCheckBoxColumn Header=\"activeColumn\" Binding=\"{ReflectionBinding Category}\" />", result.Axaml);
+
+        // DataGridTemplateColumn has no Binding property at all, and which member of the cell the
+        // value belongs to is not decidable - so the name is reported rather than bound.
+        Assert.DoesNotContain("<DataGridTemplateColumn Header=\"categoryColumn\" Binding=", result.Axaml);
+        Assert.Contains("bind this cell to the row model's 'Category'", result.Axaml);
+    }
+
+    /// <summary>
+    /// An extender provider's value lands on the target as an attached property, and only where
+    /// the target can carry one.
+    /// </summary>
+    [Fact]
+    public void EmitView_ExtenderProviderValues_BecomeAttachedPropertiesOnTheTarget()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+
+        var textBox = new ControlModel { FieldName = "notesBox", ClrTypeName = "TextBox" };
+        textBox.Properties["ToolTipText"] = new PropertyValue.Literal("Hover text");
+        textBox.Properties["HelpString"] = new PropertyValue.Literal("F1 text");
+        formModel.RootControls.Add(textBox);
+
+        // A DataGrid column is not a StyledElement, so an attached property on it is an AVLN2000
+        // in the generated project - and nowhere else.
+        var grid = new ControlModel { FieldName = "grid1", ClrTypeName = "DataGridView" };
+        var column = new ControlModel { FieldName = "col1", ClrTypeName = "DataGridViewTextBoxColumn" };
+        column.Properties["ToolTipText"] = new PropertyValue.Literal("never emitted");
+        grid.Children.Add(column);
+        formModel.RootControls.Add(grid);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("ToolTip.Tip=\"Hover text\"", result.Axaml);
+        Assert.Contains("AutomationProperties.HelpText=\"F1 text\"", result.Axaml);
+        Assert.DoesNotContain("never emitted", result.Axaml);
+    }
+
+    /// <summary>
     /// Absolute coordinates only describe a layout if the controls are the size they were told
     /// to be. Avalonia's theme would rather they were bigger.
     /// </summary>

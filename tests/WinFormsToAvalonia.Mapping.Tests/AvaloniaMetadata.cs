@@ -93,6 +93,32 @@ public static class AvaloniaMetadata
     /// and properties are declared as <c>RoutedEvent</c>/<c>AvaloniaProperty</c> fields, so this
     /// is how XAML reaches them.
     /// </summary>
+    /// <summary>
+    /// An attached property, by the member name it is written with in XAML.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Neither <see cref="FindProperty"/> nor <see cref="FindMethod"/> can answer this.
+    /// <c>AutomationProperties.HelpText</c> has no CLR property at all - only a static
+    /// <c>HelpTextProperty</c> field and static <c>Get</c>/<c>Set</c> methods, and
+    /// <see cref="FindMethod"/> binds instance methods only. So the field is the thing to look
+    /// for.
+    /// </para>
+    /// <para>
+    /// The type check is the part that actually proves the claim: a plain <c>StyledProperty</c>
+    /// field would be found by name just as well, and only an <c>AttachedProperty&lt;T&gt;</c> may
+    /// legally be set from XAML on a <em>different</em> element.
+    /// </para>
+    /// </remarks>
+    public static FieldInfo? FindAttachedProperty(Type owner, string memberName)
+    {
+        var field = FindField(owner, memberName + "Property");
+
+        return field?.FieldType.Name.StartsWith("AttachedProperty", StringComparison.Ordinal) == true
+            ? field
+            : null;
+    }
+
     public static FieldInfo? FindField(Type type, string fieldName)
     {
         for (var current = type; current is not null; current = current.BaseType)

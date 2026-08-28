@@ -29,6 +29,29 @@ public static class TrayIconMemberCatalog
             ["Text"] = "ToolTipText",
         };
 
+    /// <summary>
+    /// The NotifyIcon events a generated View's constructor can subscribe on the TrayIcon.
+    /// </summary>
+    /// <remarks>
+    /// Stated here as well as in <c>EventMappingRegistry</c>'s per-type overrides because a
+    /// <c>SubscribeInCode</c> mapping is skipped by every one of the checks in
+    /// <c>EventMappingRegistryAgainstAvaloniaTests</c> - they cannot know what type declares the
+    /// event. This table names the type, so it is the one that can be held up against the real
+    /// <c>TrayIcon</c>. Two tables for one fact, so they come with a test that they agree.
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, string> Events =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Click"] = "Clicked",
+        };
+
+    public static bool TryGetEvent(string winFormsEventName, out string avaloniaEventName) =>
+        Events.TryGetValue(winFormsEventName, out avaloniaEventName!);
+
+    /// <summary>Every event entry, for the same reason as <see cref="AllEntries"/>.</summary>
+    public static IEnumerable<(string WinFormsEventName, string AvaloniaEventName)> AllEventEntries =>
+        Events.Select(e => (e.Key, e.Value));
+
     public static bool TryGet(string winFormsPropertyName, out string avaloniaPropertyName) =>
         Properties.TryGetValue(winFormsPropertyName, out avaloniaPropertyName!);
 

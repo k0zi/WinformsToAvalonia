@@ -17,16 +17,29 @@ namespace ToolStripApp
         {
             this.toolStrip1 = new ToolStrip();
             this.newToolStripButton = new ToolStripButton();
+            this.hostedTrackBar = new TrackBar();
+            this.toolStripControlHost1 = new ToolStripControlHost(this.hostedTrackBar);
             this.SuspendLayout();
             //
             // newToolStripButton
             //
             this.newToolStripButton.Text = "New";
             //
+            // hostedTrackBar
+            //
+            this.hostedTrackBar.Maximum = 100;
+            this.hostedTrackBar.Name = "hostedTrackBar";
+            this.hostedTrackBar.Size = new System.Drawing.Size(100, 22);
+            //
+            // toolStripControlHost1
+            //
+            this.toolStripControlHost1.Name = "toolStripControlHost1";
+            //
             // toolStrip1
             //
             this.toolStrip1.Items.AddRange(new ToolStripItem[] {
-                this.newToolStripButton});
+                this.newToolStripButton,
+                this.toolStripControlHost1});
             this.toolStrip1.Location = new System.Drawing.Point(0, 0);
             this.toolStrip1.Name = "toolStrip1";
             this.toolStrip1.Size = new System.Drawing.Size(240, 25);
@@ -43,5 +56,7 @@ namespace ToolStripApp
 
         private ToolStrip toolStrip1;
         private ToolStripButton newToolStripButton;
+        private TrackBar hostedTrackBar;
+        private ToolStripControlHost toolStripControlHost1;
     }
 }

@@ -76,6 +76,69 @@ public class DesignerSyntaxWalkerTests
         Assert.False(toolTip1.Properties.ContainsKey("ToolTipText"));
     }
 
+    /// <summary>
+    /// The same mechanism, for the provider whose contribution used to disappear entirely.
+    /// </summary>
+    [Fact]
+    public void Walk_SetHelpStringInvocation_StoresTheHelpTextOnTheTargetControl()
+    {
+        const string source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.helpProvider1 = new HelpProvider();
+                        this.notesBox = new TextBox();
+                        this.helpProvider1.SetHelpString(this.notesBox, "Free-form notes.");
+                    }
+                }
+            }
+            """;
+
+        var result = new DesignerSyntaxWalker().Walk(source, "TestForm.Designer.cs", "TestForm", "Demo");
+
+        Assert.Equal(
+            new PropertyValue.Literal("Free-form notes."),
+            result.Form.Controls["notesBox"].Properties["HelpString"]);
+
+        Assert.False(result.Form.Controls["helpProvider1"].Properties.ContainsKey("HelpString"));
+        Assert.Empty(result.Warnings);
+    }
+
+    /// <summary>
+    /// A setter on a recognised provider that has no Avalonia target is named rather than
+    /// dropped - which is what `SetShowHelp` and `HelpNamespace` used to be: silently gone.
+    /// </summary>
+    [Fact]
+    public void Walk_UntranslatableProviderSetter_IsReportedByName()
+    {
+        const string source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.helpProvider1 = new HelpProvider();
+                        this.notesBox = new TextBox();
+                        this.helpProvider1.SetShowHelp(this.notesBox, true);
+                    }
+                }
+            }
+            """;
+
+        var result = new DesignerSyntaxWalker().Walk(source, "TestForm.Designer.cs", "TestForm", "Demo");
+
+        Assert.Contains(
+            result.Warnings,
+            w => w.Contains("helpProvider1", StringComparison.Ordinal)
+                && w.Contains("SetShowHelp", StringComparison.Ordinal));
+
+        Assert.Empty(result.Form.Controls["notesBox"].Properties);
+    }
+
     [Fact]
     public void Walk_ContextMenuStripAssignment_CapturesControlReference()
     {

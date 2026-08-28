@@ -2373,6 +2373,194 @@ public class HandlerBodyRewriterTests
     // ---- The dialogs Avalonia has nothing for ------------------------------------------------
 
     /// <summary>
+    /// Either operand order. `DialogResult.OK == dlg.ShowDialog()` is textually different and
+    /// means exactly the same thing; the form-navigation matcher next door has always read both,
+    /// and the two dialog families accepting only one was forgetfulness rather than a decision.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogResultOnTheLeftOfTheComparison_IsStillMatched()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (DialogResult.OK == this.colorDialog1.ShowDialog(this))
+            {
+                this.panel1.BackColor = this.colorDialog1.Color;
+            }
+            """,
+            form,
+            Navigation());
+
+        Assert.Contains("ColorDialogFallback.ShowAsync(this) is { } colorDialog1Color", Assert.Single(result.MigratedStatements));
+    }
+
+    /// <summary>
+    /// The guard-clause shape, which is the one real widening here.
+    /// </summary>
+    /// <remarks>
+    /// Equivalent because C# definite assignment says so: the then-branch is an unconditional
+    /// return, so the picked value is assigned at every statement the guard falls through to. That
+    /// is why the selection may outlive the branch here and nowhere else in this class.
+    /// </remarks>
+    [Fact]
+    public void RewriteForView_DialogGuardClause_LeavesTheSelectionInScopeForTheRestOfTheBody()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.colorDialog1.ShowDialog(this) != DialogResult.OK)
+            {
+                return;
+            }
+
+            this.panel1.BackColor = this.colorDialog1.Color;
+            """,
+            form,
+            Navigation());
+
+        Assert.Equal(
+            [
+                """
+                if (await ColorDialogFallback.ShowAsync(this) is not { } colorDialog1Color)
+                {
+                    return;
+                }
+                """,
+                "panel1.Background = new SolidColorBrush(colorDialog1Color);",
+            ],
+            result.MigratedStatements.Select(m => m.Replace("\r\n", "\n")));
+
+        Assert.True(result.RequiresAsync);
+        Assert.Contains("ColorDialogFallback", result.RequiredFallbackKeys);
+    }
+
+    /// <summary>The same shape serves the file dialogs, whose pattern is a list rather than a value.</summary>
+    [Fact]
+    public void RewriteForView_FileDialogGuardClause_IsMatchedToo()
+    {
+        var form = FormWith(("openFileDialog1", "OpenFileDialog"), ("pathTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.openFileDialog1.ShowDialog() != DialogResult.OK)
+            {
+                return;
+            }
+
+            this.pathTextBox.Text = this.openFileDialog1.FileName;
+            """,
+            form,
+            Navigation());
+
+        Assert.Contains("is not [var openFileDialog1File, ..]", result.MigratedStatements[0]);
+        Assert.Contains("openFileDialog1File.Path.LocalPath", result.MigratedStatements[1]);
+    }
+
+    /// <summary>
+    /// Inside a nested block the guard would leak its selection into the statements after that
+    /// block, which is not what the original said - so there it refuses and the prefix rule takes
+    /// over.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogGuardInsideANestedBlock_Refuses()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"), ("useDialog", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.useDialog.Checked)
+            {
+                if (this.colorDialog1.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                this.panel1.BackColor = this.colorDialog1.Color;
+            }
+            """,
+            form,
+            Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A branch that does anything besides return is not a guard - it is a branch, and translating
+    /// it would mean translating what it does.
+    /// </summary>
+    [Theory]
+    [InlineData("return false;")]
+    [InlineData("this.panel1.BackColor = System.Drawing.Color.Red; return;")]
+    public void RewriteForView_DialogGuardWhoseBranchIsNotABareReturn_Refuses(string branchBody)
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            $$"""
+            if (this.colorDialog1.ShowDialog(this) != DialogResult.OK)
+            {
+                {{branchBody}}
+            }
+
+            this.panel1.BackColor = this.colorDialog1.Color;
+            """,
+            form,
+            Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// An `else` means the cancel path does something, which the guard shape has nowhere to put.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogGuardWithAnElse_Refuses()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.colorDialog1.ShowDialog(this) != DialogResult.OK)
+            {
+                return;
+            }
+            else
+            {
+                return;
+            }
+            """,
+            form,
+            Navigation());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Reading the dialog after a *normal* if still refuses: the WinForms field keeps the last
+    /// pick even after Cancel, and here there is nothing to keep it.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogReadAfterAPlainIf_StillRefuses()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("panel1", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+            }
+
+            this.panel1.BackColor = this.colorDialog1.Color;
+            """,
+            form,
+            Navigation());
+
+        Assert.Single(result.MigratedStatements);
+    }
+
+    /// <summary>
     /// Same shape as the file dialogs, for the same reason: the Avalonia replacement returns the
     /// choice instead of being an object you ask afterwards. A plain `is { }` pattern, because
     /// these return one nullable value rather than a list.

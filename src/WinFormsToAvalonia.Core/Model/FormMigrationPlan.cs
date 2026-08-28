@@ -273,6 +273,25 @@ public sealed record FormMigrationPlan(
             .Where(s => !s.Suppressed && s.Mapping.XamlAttributeName is not null)
             .Select(s => (s.Mapping.XamlAttributeName!, s.HandlerMethodName));
 
+    /// <summary>
+    /// Tray-icon events the generated View's constructor has to subscribe, because a NotifyIcon
+    /// has no element in this View at all - its TrayIcon lives in App.axaml.
+    /// </summary>
+    /// <remarks>
+    /// Derived rather than stored, like <see cref="XamlEventAttributesFor"/>: it is a different
+    /// question about the same subscriptions, and a second copy could disagree with the first.
+    /// Suppressed ones are excluded, which is what keeps the constructor from naming a TrayIcon
+    /// that App.axaml emitted commented out.
+    /// </remarks>
+    public IEnumerable<(string FieldName, string AvaloniaEventName, string HandlerMethodName)> TrayIconSubscriptions =>
+        CodeBehindHandlers
+            .SelectMany(h => h.Subscriptions)
+            .Where(s => !s.Suppressed
+                && s.ControlClrTypeName == "NotifyIcon"
+                && s.ControlFieldName is not null
+                && s.Mapping is { SubscribeInCode: true, AvaloniaEventName: not null })
+            .Select(s => (s.ControlFieldName!, s.Mapping.AvaloniaEventName!, s.HandlerMethodName));
+
     /// <summary>The ICommand property a control's Command attribute should bind to, if it was promoted.</summary>
     public string? CommandPropertyFor(string controlFieldName) =>
         ViewModelCommands

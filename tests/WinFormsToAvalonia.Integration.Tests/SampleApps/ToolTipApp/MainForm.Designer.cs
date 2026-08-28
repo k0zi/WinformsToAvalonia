@@ -17,6 +17,7 @@ namespace ToolTipApp
         {
             this.components = new System.ComponentModel.Container();
             this.toolTip1 = new ToolTip(this.components);
+            this.helpProvider1 = new HelpProvider();
             this.okButton = new Button();
             this.SuspendLayout();
             //
@@ -32,6 +33,11 @@ namespace ToolTipApp
             //
             this.toolTip1.SetToolTip(this.okButton, "Click to confirm");
             //
+            // helpProvider1
+            //
+            this.helpProvider1.SetHelpString(this.okButton, "Confirms and closes the dialog.");
+            this.helpProvider1.SetShowHelp(this.okButton, true);
+            //
             // MainForm
             //
             this.ClientSize = new System.Drawing.Size(240, 140);
@@ -42,6 +48,7 @@ namespace ToolTipApp
         }
 
         private ToolTip toolTip1;
+        private HelpProvider helpProvider1;
         private Button okButton;
     }
 }

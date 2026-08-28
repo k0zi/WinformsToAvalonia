@@ -128,4 +128,29 @@ public class PropertyValueFormattersTests
 
         Assert.Equal("1,2,3,4", PropertyValueFormatters.AsThickness(value));
     }
+
+    /// <summary>
+    /// A binding path the XAML compiler cannot parse is an error in the *generated* project,
+    /// which this project's own build never sees - so anything but a plain identifier refuses.
+    /// </summary>
+    [Theory]
+    [InlineData("Name", "{ReflectionBinding Name}")]
+    [InlineData("_private", "{ReflectionBinding _private}")]
+    [InlineData("Column2", "{ReflectionBinding Column2}")]
+    public void AsBinding_AcceptsAPlainIdentifier(string dataPropertyName, string expected) =>
+        Assert.Equal(expected, PropertyValueFormatters.AsBinding(new PropertyValue.Literal(dataPropertyName)));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" Name")]
+    [InlineData("2Name")]
+    // Valid Avalonia, but WinForms does not resolve a dotted path either - its binding is against
+    // one property on the row object - so accepting it would invent behaviour.
+    [InlineData("Order.Total")]
+    public void AsBinding_RefusesAnythingElse(string dataPropertyName) =>
+        Assert.Null(PropertyValueFormatters.AsBinding(new PropertyValue.Literal(dataPropertyName)));
+
+    [Fact]
+    public void AsBinding_RefusesANonStringValue() =>
+        Assert.Null(PropertyValueFormatters.AsBinding(new PropertyValue.Literal(42)));
 }

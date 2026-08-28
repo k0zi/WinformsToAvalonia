@@ -91,4 +91,28 @@ public class GuidanceTextTests
             }
         }
     }
+
+    /// <summary>
+    /// A dialog this converter actually handles must not still be telling the reader to go find a
+    /// community package.
+    /// </summary>
+    /// <remarks>
+    /// Both of these were stale for as long as the fallbacks have shipped - the guidance is the
+    /// only thing a user reads about an Unsupported entry, and nothing checked it against what the
+    /// converter had since learnt to do.
+    /// </remarks>
+    [Theory]
+    [InlineData("ColorDialog", "ColorDialogFallback")]
+    [InlineData("FontDialog", "FontDialogFallback")]
+    public void VisualDialogGuidance_NamesTheFallbackItActuallyEmits(string winFormsTypeName, string templateKey)
+    {
+        var guidance = string.Join(
+            " ",
+            new ControlMappingRegistry()
+                .Map(new ControlModel { FieldName = "field1", ClrTypeName = winFormsTypeName })
+                .Warnings);
+
+        Assert.Contains(templateKey, guidance, StringComparison.Ordinal);
+        Assert.DoesNotContain("recommend a community package", guidance, StringComparison.Ordinal);
+    }
 }

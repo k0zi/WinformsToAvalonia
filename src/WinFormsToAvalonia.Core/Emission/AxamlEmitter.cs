@@ -297,13 +297,28 @@ public sealed class AxamlEmitter
         EmitLayoutHintAttributes(builder, control);
         EmitContextMenuIfPresent(builder, control, emitFallbackControls, state);
 
-        // Universal, not gated by WinForms type: `this.toolTip1.SetToolTip(this.control1, ...)`
-        // is resolved onto the target control's own Properties by DesignerSyntaxWalker,
-        // regardless of which ToolTip field made the call - so any control can carry it.
-        if (control.Properties.TryGetValue("ToolTipText", out var toolTipValue)
-            && PropertyValueFormatters.AsText(toolTipValue) is { } toolTipText)
+        // Universal, not gated by WinForms type: an extender provider's
+        // `this.toolTip1.SetToolTip(this.control1, ...)` is resolved onto the *target* control's
+        // own Properties by DesignerSyntaxWalker, regardless of which provider field made the
+        // call - so any control can carry one. Ordered, because attribute order is output order.
+        foreach (var setter in ExtenderProviderCatalog.Setters)
         {
-            builder.Attribute("ToolTip.Tip", toolTipText);
+            // Every one of these is an attached property on StyledElement or Control, and
+            // `SupportsName` is this project's existing flag for "this target is not one" - the
+            // DataGrid column types. Setting one on a DataGridTextColumn is an AVLN2000 in the
+            // generated project and nowhere else.
+            if (!mapped.SupportsName
+                || boundAttributeNames.Contains(setter.AvaloniaAttributeName)
+                || mapped.Attributes.ContainsKey(setter.AvaloniaAttributeName))
+            {
+                continue;
+            }
+
+            if (control.Properties.TryGetValue(setter.PropertyKey, out var providedValue)
+                && setter.Format(providedValue) is { } providedText)
+            {
+                builder.Attribute(setter.AvaloniaAttributeName, providedText);
+            }
         }
 
         // Also universal, and for the same reason: BackColor/ForeColor/Font/Padding exist on

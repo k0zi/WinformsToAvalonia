@@ -101,4 +101,133 @@ public class ControlGraphBuilderTests
         Assert.DoesNotContain(formModel.Components, c => c.FieldName is
             "fileMenuItem" or "exitMenuItem" or "fileSeparator" or "nameColumn" or "activeColumn");
     }
+
+    /// <summary>
+    /// A ToolStripControlHost is plumbing WinForms needs and Avalonia does not, so the control it
+    /// was built around takes its place in the tree.
+    /// </summary>
+    /// <remarks>
+    /// Before this, the hosted control was never added to anything, so it was swept into
+    /// <c>Components</c> and disappeared from the conversion entirely - while the host emitted a
+    /// TODO comment where it should have been.
+    /// </remarks>
+    [Fact]
+    public void Build_HostedControl_TakesTheHostsPlaceAndTheHostIsGone()
+    {
+        var walk = WalkOf("""
+            this.toolStrip1 = new ToolStrip();
+            this.hostedTrackBar = new TrackBar();
+            this.host1 = new ToolStripControlHost(this.hostedTrackBar);
+            this.host1.Size = new System.Drawing.Size(100, 22);
+            this.toolStrip1.Items.Add(this.host1);
+            this.Controls.Add(this.toolStrip1);
+            """);
+
+        var warnings = new List<string>();
+        var formModel = new ControlGraphBuilder().Build(walk, warnings);
+
+        var toolStrip = Assert.Single(formModel.RootControls);
+        var child = Assert.Single(toolStrip.Children);
+        Assert.Equal("hostedTrackBar", child.FieldName);
+
+        Assert.False(formModel.Controls.ContainsKey("host1"));
+        Assert.DoesNotContain(formModel.Components, c => c.FieldName is "host1" or "hostedTrackBar");
+
+        // The host's Size fills a gap the hosted control left - WinForms keeps the two in sync.
+        Assert.Equal(new PropertyValue.SizeValue(100, 22), child.Properties["Size"]);
+        Assert.Empty(warnings);
+    }
+
+    /// <summary>
+    /// One control cannot be in two places: emitting it twice would give the generated project two
+    /// elements with the same x:Name, which is an AVLN1001 its build fails on.
+    /// </summary>
+    [Fact]
+    public void Build_HostedControlThatIsAlsoAddedElsewhere_IsRefusedAndReported()
+    {
+        var walk = WalkOf("""
+            this.toolStrip1 = new ToolStrip();
+            this.panel1 = new Panel();
+            this.hostedTrackBar = new TrackBar();
+            this.host1 = new ToolStripControlHost(this.hostedTrackBar);
+            this.panel1.Controls.Add(this.hostedTrackBar);
+            this.toolStrip1.Items.Add(this.host1);
+            this.Controls.Add(this.panel1);
+            this.Controls.Add(this.toolStrip1);
+            """);
+
+        var warnings = new List<string>();
+        var formModel = new ControlGraphBuilder().Build(walk, warnings);
+
+        var panel = formModel.Controls["panel1"];
+        Assert.Equal("hostedTrackBar", Assert.Single(panel.Children).FieldName);
+
+        Assert.True(formModel.Controls.ContainsKey("host1"));
+        Assert.Contains(warnings, w => w.Contains("hostedTrackBar", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The host's ToolStrip-item settings and its event subscriptions have no counterpart once the
+    /// control is placed directly - and the planner iterates the very collection the host is being
+    /// removed from, so silence here is a handler that never runs.
+    /// </summary>
+    [Fact]
+    public void Build_HostSettingsWithNoCounterpart_AreReportedByName()
+    {
+        var walk = WalkOf("""
+            this.toolStrip1 = new ToolStrip();
+            this.hostedTrackBar = new TrackBar();
+            this.host1 = new ToolStripControlHost(this.hostedTrackBar);
+            this.host1.Alignment = ToolStripItemAlignment.Right;
+            this.host1.Click += new System.EventHandler(this.host1_Click);
+            this.toolStrip1.Items.Add(this.host1);
+            this.Controls.Add(this.toolStrip1);
+            """);
+
+        var warnings = new List<string>();
+        new ControlGraphBuilder().Build(walk, warnings);
+
+        Assert.Contains(warnings, w => w.Contains("Alignment", StringComparison.Ordinal));
+        Assert.Contains(warnings, w => w.Contains("Click", StringComparison.Ordinal));
+    }
+
+    /// <summary>An argument that is not a designer field has nothing to substitute, so nothing happens.</summary>
+    [Fact]
+    public void Build_HostOfAnInlineControl_IsLeftAlone()
+    {
+        var walk = WalkOf("""
+            this.toolStrip1 = new ToolStrip();
+            this.host1 = new ToolStripControlHost(new TrackBar());
+            this.toolStrip1.Items.Add(this.host1);
+            this.Controls.Add(this.toolStrip1);
+            """);
+
+        var warnings = new List<string>();
+        var formModel = new ControlGraphBuilder().Build(walk, warnings);
+
+        Assert.Equal("host1", Assert.Single(formModel.Controls["toolStrip1"].Children).FieldName);
+
+        // No alias was recorded at all, so there is nothing to report either - a warning here
+        // would mean the walker had matched a shape it cannot actually resolve.
+        Assert.Empty(warnings);
+        Assert.Empty(walk.HostedControlAliases);
+    }
+
+    private static DesignerWalkResult WalkOf(string initializeComponentBody)
+    {
+        var source = $$"""
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+            {{initializeComponentBody}}
+                    }
+                }
+            }
+            """;
+
+        return new DesignerSyntaxWalker().Walk(source, "TestForm.Designer.cs", "TestForm", "Demo");
+    }
 }

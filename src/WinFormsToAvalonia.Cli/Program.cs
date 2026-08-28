@@ -5,7 +5,9 @@ var app = new CommandApp();
 
 app.Configure(config =>
 {
-    config.SetApplicationName("WinFormsToAvalonia");
+    // The name the tool is installed under, so every usage line and example in --help reads the
+    // way the user will actually type it.
+    config.SetApplicationName("wf2a");
 
     config.AddCommand<ConvertCommand>("convert")
         .WithDescription("Convert a WinForms project (.csproj) into a new Avalonia application project.")

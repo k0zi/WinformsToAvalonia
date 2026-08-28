@@ -133,6 +133,35 @@ public static class PropertyValueFormatters
             ? "Bold"
             : null;
 
+    /// <summary>
+    /// A WinForms <c>DataPropertyName</c> as the Avalonia binding that displays it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <c>ReflectionBinding</c>, not a <c>Binding</c>, and that is the whole difficulty. The
+    /// generated view carries an <c>x:DataType</c> on its root, which makes Avalonia compile every
+    /// <c>{Binding}</c> inside it against the ViewModel - and a grid column's path names a member
+    /// of the *row* object, which is not the ViewModel and is not carried over at all. A plain
+    /// <c>{Binding Name}</c> therefore failed the generated build outright with AVLN2000, caught
+    /// by the integration test that runs <c>dotnet build</c> on the output. Reflection binding
+    /// says "resolve this at run time", which is exactly the situation: the row type is genuinely
+    /// unknown here.
+    /// </para>
+    /// <para>
+    /// Refuses anything that is not a plain identifier. A dotted path (<c>Order.Total</c>) would
+    /// in fact be valid Avalonia, but WinForms does not resolve one either - its own binding is
+    /// against a single property on the row object - so accepting it would invent behaviour
+    /// rather than carry it over.
+    /// </para>
+    /// </remarks>
+    public static string? AsBinding(PropertyValue value) =>
+        value is PropertyValue.Literal { Value: string path }
+            && path.Length > 0
+            && (char.IsLetter(path[0]) || path[0] == '_')
+            && path.All(c => char.IsLetterOrDigit(c) || c == '_')
+                ? $"{{ReflectionBinding {path}}}"
+                : null;
+
     /// <summary>Only emitted when the designer actually asked for Italic - Avalonia's default is Normal.</summary>
     public static string? AsFontStyle(PropertyValue value) =>
         value is PropertyValue.FontValue font && font.StyleFlags.Contains("Italic", StringComparer.Ordinal)

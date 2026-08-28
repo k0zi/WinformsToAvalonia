@@ -497,6 +497,9 @@ public sealed class ConversionPipeline
             .Where(p => p.Kind == WinFormsArtifactKind.Component)
             .Select(p => new UnsupportedControlMapper(
                 p.ClassName,
+                // A project's own Component: no Avalonia counterpart exists for it as a control,
+                // whether or not its source came across.
+                UnsupportedDisposition.NoAvaloniaApi,
                 carriedOver.Contains(p.ClassName)
                     ? $"'{p.ClassName}' is a Component defined by this project - no visual representation, so no control "
                         + "mapping. Its source names nothing that would not survive the conversion, so it is copied into "
@@ -597,7 +600,11 @@ public sealed class ConversionPipeline
         var resx = _resxReader.Read(pairing.ResxFilePath);
         var walkResult = _designerSyntaxWalker.Walk(
             designerContent, pairing.DesignerFilePath!, pairing.ClassName, pairing.Namespace, resx);
-        var formModel = _controlGraphBuilder.Build(walkResult);
+        // Assembling the tree can drop something the designer set - a hosted control's host
+        // carries ToolStrip item settings nothing else has a place for - so the builder reports
+        // alongside the walker rather than into a void.
+        var graphWarnings = new List<string>();
+        var formModel = _controlGraphBuilder.Build(walkResult, graphWarnings);
 
         return new ParsedArtifact(
             pairing,
@@ -605,7 +612,7 @@ public sealed class ConversionPipeline
             formModel,
             _codeBehindAnalyzer.Analyze(pairing.PrimaryFilePath, formModel),
             resx,
-            walkResult.Warnings);
+            [.. walkResult.Warnings, .. graphWarnings]);
     }
 
     private static IReadOnlyDictionary<string, FormViewInfo> BuildFormViews(

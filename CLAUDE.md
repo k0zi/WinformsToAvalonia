@@ -30,6 +30,10 @@ dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
 # end-to-end smoke over the real sample app: converts every samples/WinForms/*.csproj into
 # samples/Avalonia/<name>/ and adds each to a generated solution
 ./samples/convert.sh
+
+# pack and install it as the .NET tool it ships as (command: wf2a, package: WinFormsToAvalonia)
+dotnet pack src/WinFormsToAvalonia.Cli -c Release            # -> artifacts/*.nupkg (gitignored)
+dotnet tool install --global --add-source ./artifacts WinFormsToAvalonia
 ```
 
 Integration tests shell out to `dotnet build` - and, for the startup smoke tests, `dotnet run` -
@@ -106,6 +110,17 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    control methods with an exact equivalent — the method-level counterpart of
    `BindablePropertyCatalog`) and `EventArgsMemberCatalog` (what a handler's `e.X`/`e.Cancel` mean
    on the Avalonia side — the member-level counterpart of `EventMappingRegistry`).
+   `HostedControlCatalog` is a table about the *source* only: which WinForms types are plumbing
+   around another control and which constructor argument names it. `ToolStripControlHost` has no
+   parameterless constructor, so the hosted control is always named there - `ControlGraphBuilder`
+   rewrites the parent/child edge and the host disappears.
+   `ExtenderProviderCatalog` is the one keyed on *neither* side alone: WinForms' extender
+   providers (`ToolTip`, `HelpProvider`) set a property on *another* control through a
+   two-argument call, so one row carries both the walker's question
+   (`(owner type, method) → property key`) and the emitter's (`property key → attached property`).
+   That is why `SetToolTip` became `ToolTip.Tip` and `SetHelpString` becomes
+   `AutomationProperties.HelpText`; a setter on a recognised provider with no row is reported by
+   name rather than dropped.
    `FileDialogCatalog` rounds it out: the three WinForms file dialogs and their `StorageProvider`
    replacements, used both to emit a picker method and to inline one into a handler. Three
    smaller tables cover what the *conversion itself* creates rather than what it maps:
@@ -171,7 +186,13 @@ adding the file *and* a `FallbackControlCatalog.All` entry (with `DependsOnKeys`
 another template) — the only real verification is an integration test that builds the output.
 
 The CLI (`src/WinFormsToAvalonia.Cli`) is Spectre.Console.Cli: one command class + settings class
-per verb, with all output formatting isolated in `Cli/Rendering`.
+per verb, with all output formatting isolated in `Cli/Rendering`. It is packed as a .NET tool -
+`ToolCommandName` is `wf2a` while the `PackageId` stays `WinFormsToAvalonia`, and
+`SetApplicationName("wf2a")` keeps every usage line in `--help` matching what the user types.
+The bundled fallback templates are embedded resources in a *referenced* project, so they travel
+into the tool package automatically - but that is exactly the thing a packaging change can break
+silently, so verify a change here by installing the package and converting the sample with it,
+not by building.
 
 ## Invariants worth not breaking
 
@@ -213,6 +234,12 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
   mapping and xmlns prefix. Forms need more than ordering: `BuildFormViews` resolves **every**
   Form to its View in a separate pass before emission, because a handler body that opens another
   Form must name a View whose Form may not be converted yet — ordering alone cannot fix a cycle.
+- **An `Unsupported` mapping is not an unconverted one.** `MappingStatus.Unsupported` means "emits
+  no AXAML element", which most of the registry's `Unsupported` entries are while being thoroughly
+  converted somewhere else. `UnsupportedControlMapper` therefore takes a **required**
+  `UnsupportedDisposition` - `FeatureElsewhere`, `Unreachable`, `NoAvaloniaApi` - so a new entry
+  cannot be added without saying which. `docs/Controls.md` carries it as a fourth column and
+  `ControlsDocumentationTests` checks every cell against the registry, in both directions.
 - **Extra NuGet packages are allowlisted three times.** A mapper declares `RequiredNuGetPackage` (e.g.
   `Avalonia.Controls.DataGrid`) and `ComponentFieldCatalog` names one per component; both flow
   through the pipeline into `BuildProject`, but the csproj writer emits *only* packages present in

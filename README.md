@@ -56,12 +56,13 @@ The tool itself has **no Avalonia dependency** — you can run it anywhere the S
 
 ## Quick start
 
+It installs as a .NET tool called `wf2a`:
+
 ```bash
-git clone https://github.com/k0zi/WinformsToAvalonia.git
-cd WinformsToAvalonia
+dotnet tool install --global WinFormsToAvalonia
 
 # convert
-dotnet run --project src/WinFormsToAvalonia.Cli -- convert \
+wf2a convert \
   --source path/to/YourWinFormsApp.csproj \
   --output ./YourAvaloniaApp
 
@@ -73,8 +74,29 @@ dotnet build && dotnet run
 Not sure what you're dealing with yet? Start read-only:
 
 ```bash
-dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source path/to/YourWinFormsApp.csproj
+wf2a analyze --source path/to/YourWinFormsApp.csproj
 ```
+
+<details>
+<summary>Running from source instead</summary>
+
+```bash
+git clone https://github.com/k0zi/WinformsToAvalonia.git
+cd WinformsToAvalonia
+
+dotnet run --project src/WinFormsToAvalonia.Cli -- convert \
+  --source path/to/YourWinFormsApp.csproj \
+  --output ./YourAvaloniaApp
+```
+
+Or build and install the tool from your own checkout:
+
+```bash
+dotnet pack src/WinFormsToAvalonia.Cli -c Release
+dotnet tool install --global --add-source ./artifacts WinFormsToAvalonia
+```
+
+</details>
 
 ## Usage
 

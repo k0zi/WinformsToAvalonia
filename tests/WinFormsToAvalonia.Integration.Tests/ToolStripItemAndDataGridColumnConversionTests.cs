@@ -24,6 +24,13 @@ public class ToolStripItemAndDataGridColumnConversionTests
             Assert.Contains("<controls:ToolStripFallback", axaml);
             Assert.Contains("<Button x:Name=\"newToolStripButton\" Content=\"New\" />", axaml);
 
+            // A ToolStripControlHost is plumbing WinForms needs because a ToolStrip only takes
+            // ToolStripItems - the fallback this maps to is an ordinary panel, so the hosted
+            // control goes straight in and the host disappears. It used to be the other way round:
+            // a TODO comment where the host was, and the control nowhere at all.
+            Assert.Contains("<Slider x:Name=\"hostedTrackBar\"", axaml);
+            Assert.DoesNotContain("toolStripControlHost1", axaml);
+
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 
             Assert.True(
@@ -86,13 +93,21 @@ public class ToolStripItemAndDataGridColumnConversionTests
 
             vfs.TryGetText("Views/MainView.axaml", out var axaml);
             Assert.Contains("<DataGrid.Columns>", axaml);
-            Assert.Contains("<DataGridTextColumn Header=\"Name\" />", axaml);
-            Assert.Contains("<DataGridCheckBoxColumn Header=\"Active\" />", axaml);
+            // The designer's DataPropertyName becomes the column's binding - the two column types
+            // Avalonia gives a Binding property to.
+            Assert.Contains("<DataGridTextColumn Header=\"Name\" Binding=\"{ReflectionBinding Name}\" />", axaml);
+            Assert.Contains("<DataGridCheckBoxColumn Header=\"Active\" Binding=\"{ReflectionBinding Active}\" />", axaml);
 
             // Avalonia has no ComboBox/Button/Image/Link column type - these four become
             // template columns. DataGridComboBoxColumn used to be emitted here and broke the build.
             Assert.DoesNotContain("DataGridComboBoxColumn", axaml);
             Assert.Contains("<DataGridTemplateColumn Header=\"Category\">", axaml);
+
+            // A template column gets no generated binding - DataGridTemplateColumn has no Binding
+            // property, and which member of the cell it belongs to is not decidable. The name the
+            // designer did record is reported instead of thrown away.
+            Assert.DoesNotContain("<DataGridTemplateColumn Header=\"Category\" Binding=", axaml);
+            Assert.Contains("bind this cell to the row model's 'Category'", axaml);
             Assert.Contains("<DataGridTemplateColumn Header=\"Action\">", axaml);
             Assert.Contains("<Button Content=\"Run\" />", axaml);
 

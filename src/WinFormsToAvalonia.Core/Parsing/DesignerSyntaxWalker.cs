@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 
 namespace WinFormsToAvalonia.Core.Parsing;
@@ -43,6 +44,7 @@ public sealed class DesignerSyntaxWalker
 
         var formModel = new FormModel { ClassName = className, Namespace = @namespace };
         var edges = new List<ParentChildEdge>();
+        var hostedAliases = new Dictionary<string, string>(StringComparer.Ordinal);
         var warnings = new List<string>();
 
         var initializeComponent = root.DescendantNodes()
@@ -66,17 +68,17 @@ public sealed class DesignerSyntaxWalker
             switch (expressionStatement.Expression)
             {
                 case AssignmentExpressionSyntax assignment:
-                    HandleAssignment(formModel, assignment);
+                    HandleAssignment(formModel, assignment, hostedAliases);
                     break;
                 case InvocationExpressionSyntax invocation:
                     HandleInvocation(formModel, invocation, edges);
-                    HandleSetToolTipInvocation(formModel, invocation);
+                    HandleExtenderProviderInvocation(formModel, invocation, warnings);
                     HandleApplyResourcesInvocation(formModel, invocation, resx, className, warnings);
                     break;
             }
         }
 
-        return new DesignerWalkResult(formModel, edges, warnings);
+        return new DesignerWalkResult(formModel, edges, warnings, hostedAliases);
     }
 
     /// <summary>
@@ -154,7 +156,8 @@ public sealed class DesignerSyntaxWalker
         }
     }
 
-    private static void HandleAssignment(FormModel formModel, AssignmentExpressionSyntax assignment)
+    private static void HandleAssignment(
+        FormModel formModel, AssignmentExpressionSyntax assignment, Dictionary<string, string> hostedAliases)
     {
         if (!TryParseThisMemberAccess(assignment.Left, out var first, out var second))
         {
@@ -172,7 +175,7 @@ public sealed class DesignerSyntaxWalker
         {
             if (second is null)
             {
-                HandleThisLevelAssignment(formModel, first, assignment.Right);
+                HandleThisLevelAssignment(formModel, first, assignment.Right, hostedAliases);
             }
             else if (formModel.Controls.TryGetValue(first, out var control))
             {
@@ -188,13 +191,25 @@ public sealed class DesignerSyntaxWalker
         }
     }
 
-    private static void HandleThisLevelAssignment(FormModel formModel, string name, ExpressionSyntax right)
+    private static void HandleThisLevelAssignment(
+        FormModel formModel, string name, ExpressionSyntax right, Dictionary<string, string> hostedAliases)
     {
         if (right is ObjectCreationExpressionSyntax creation
             && !InlineValueTypeNames.Contains(RoslynTypeNameHelper.GetSimpleTypeName(creation.Type)))
         {
             var typeName = RoslynTypeNameHelper.GetSimpleTypeName(creation.Type);
             formModel.Controls[name] = new ControlModel { FieldName = name, ClrTypeName = typeName };
+
+            // A host is plumbing around a control the designer names right here - the only shape
+            // it can take, since the type has no parameterless constructor. Recorded only: the
+            // host goes on collecting property assignments until the walk is over.
+            if (HostedControlCatalog.TryGetHostedArgumentIndex(typeName, out var argumentIndex)
+                && creation.ArgumentList is { } arguments
+                && arguments.Arguments.Count > argumentIndex
+                && TryGetControlFieldReference(arguments.Arguments[argumentIndex].Expression, out var hostedField))
+            {
+                hostedAliases[name] = hostedField;
+            }
         }
         else
         {
@@ -352,25 +367,41 @@ public sealed class DesignerSyntaxWalker
 
     /// <summary>
     /// Recognizes `this.toolTip1.SetToolTip(this.someControl, "text")` - a ToolTip
-    /// component's tooltip assignment isn't a `Controls.Add`/property-assignment shape at
-    /// all, it's a plain method call on the (non-visual) ToolTip field. Stores the resolved
-    /// text on the *target* control's Properties under "ToolTipText", exactly like a normal
-    /// `this.someControl.SomeProperty = ...;` assignment would - so AxamlEmitter can treat it
-    /// identically regardless of which ToolTip field it came from.
+    /// An extender provider's designer output is neither a `Controls.Add` nor a property
+    /// assignment - it is a plain two-argument call on a non-visual field,
+    /// `this.toolTip1.SetToolTip(this.button1, "text")`, and the value belongs to the argument
+    /// rather than to the field it was called on. The resolved value is parked on the *target*
+    /// control's Properties under the key `ExtenderProviderCatalog` names, exactly as an ordinary
+    /// `this.someControl.SomeProperty = ...;` would - so everything downstream treats it
+    /// identically, regardless of which provider field it came from.
     /// </summary>
-    private static void HandleSetToolTipInvocation(FormModel formModel, InvocationExpressionSyntax invocation)
+    private static void HandleExtenderProviderInvocation(
+        FormModel formModel, InvocationExpressionSyntax invocation, List<string> warnings)
     {
         if (invocation.Expression is not MemberAccessExpressionSyntax
             {
-                Name.Identifier.ValueText: "SetToolTip",
+                Name.Identifier.ValueText: var methodName,
                 Expression: MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var ownerField },
             })
         {
             return;
         }
 
-        if (!formModel.Controls.TryGetValue(ownerField, out var owner) || owner.ClrTypeName != "ToolTip")
+        if (!formModel.Controls.TryGetValue(ownerField, out var owner)
+            || !ExtenderProviderCatalog.IsProvider(owner.ClrTypeName))
         {
+            return;
+        }
+
+        if (!ExtenderProviderCatalog.TryGetSetter(owner.ClrTypeName, methodName, out var setter))
+        {
+            // A provider this converter knows, calling a setter it cannot translate
+            // (SetShowHelp, SetHelpKeyword, SetError). Reported by name rather than dropped:
+            // the value the designer recorded is real, and silence about it is what made
+            // HelpProvider's whole contribution disappear without a trace.
+            warnings.Add(
+                $"'{ownerField}' ({owner.ClrTypeName}) calls '{methodName}(...)', which has no Avalonia " +
+                "equivalent - that setting is not carried over.");
             return;
         }
 
@@ -385,7 +416,7 @@ public sealed class DesignerSyntaxWalker
             return;
         }
 
-        target.Properties["ToolTipText"] = ExpressionEvaluator.Evaluate(invocation.ArgumentList.Arguments[1].Expression);
+        target.Properties[setter.PropertyKey] = ExpressionEvaluator.Evaluate(invocation.ArgumentList.Arguments[1].Expression);
     }
 
     private static IEnumerable<ExpressionSyntax> GetArrayElements(ExpressionSyntax arrayExpression) => arrayExpression switch

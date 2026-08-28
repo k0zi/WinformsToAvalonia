@@ -161,7 +161,9 @@ public sealed class FormMigrationPlanner
             h => new HelperCallInfo(CountParameters(h.ParameterListText), h.IsAsync),
             StringComparer.Ordinal);
 
-        var rewrittenHandlers = ResolveDuplicateXamlAttributes(codeBehindHandlers, warnings)
+        var trayResolved = SuppressUnresolvedTrayIconSubscriptions(codeBehindHandlers, trayIconFields, warnings);
+
+        var rewrittenHandlers = ResolveDuplicateXamlAttributes(trayResolved, warnings)
             .Select(h => h.Rewrite is not null
                 // Already synthesized (a designer-set DialogResult) - there is no original body
                 // to translate, and re-running the rewriter would erase it.
@@ -204,6 +206,55 @@ public sealed class FormMigrationPlanner
                     && viewSurface.Own.Any(p => string.Equals(p.Name, m.Name, StringComparison.Ordinal))))],
             codeBehind.ConstructorExtraStatements,
             warnings);
+    }
+
+    /// <summary>
+    /// A NotifyIcon whose icon never resolved has no TrayIcon to subscribe to.
+    /// </summary>
+    /// <remarks>
+    /// App.axaml emits such a tray icon <em>commented out</em>, because Avalonia resolves
+    /// TrayIcon.Icon at run time and a dangling asset reference throws out of App.Initialize().
+    /// So there is no accessor and no element - a subscription would not compile. The handler is
+    /// still emitted, which is what <see cref="EventSubscriptionPlan.Suppressed"/> already means
+    /// everywhere else, and the reason is reported.
+    /// </remarks>
+    private static List<CodeBehindHandlerPlan> SuppressUnresolvedTrayIconSubscriptions(
+        List<CodeBehindHandlerPlan> handlers, IReadOnlySet<string> trayIconFields, List<string> warnings)
+    {
+        bool NeedsSuppressing(EventSubscriptionPlan subscription) =>
+            subscription.ControlClrTypeName == "NotifyIcon"
+            && subscription.Mapping.AvaloniaEventName is not null
+            && !subscription.Suppressed
+            && !(subscription.ControlFieldName is { } field && trayIconFields.Contains(field));
+
+        return
+        [
+            .. handlers.Select(handler =>
+                !handler.Subscriptions.Any(NeedsSuppressing)
+                    ? handler
+                    : handler with
+                    {
+                        Subscriptions =
+                        [
+                            .. handler.Subscriptions.Select(subscription =>
+                            {
+                                if (!NeedsSuppressing(subscription))
+                                {
+                                    return subscription;
+                                }
+
+                                warnings.Add(
+                                    $"'{subscription.ControlFieldName}' subscribes '{subscription.WinFormsEventName}', " +
+                                    "but its icon could not be resolved, so App.axaml's TrayIcon for it is commented " +
+                                    $"out - '{subscription.HandlerMethodName}' is emitted but not subscribed. Copy the " +
+                                    "icon into Assets/, uncomment the block, and the subscription is generated on the " +
+                                    "next run.");
+
+                                return subscription with { Suppressed = true };
+                            }),
+                        ],
+                    }),
+        ];
     }
 
     /// <summary>

@@ -99,11 +99,13 @@ public static class DefaultControlMappers
         new SimplePropertyMapper("DataGridViewTextBoxColumn", "DataGridTextColumn",
         [
             ("HeaderText", "Header", PropertyValueFormatters.AsText),
+            ("DataPropertyName", "Binding", PropertyValueFormatters.AsBinding),
         ],
         supportsName: false),
         new SimplePropertyMapper("DataGridViewCheckBoxColumn", "DataGridCheckBoxColumn",
         [
             ("HeaderText", "Header", PropertyValueFormatters.AsText),
+            ("DataPropertyName", "Binding", PropertyValueFormatters.AsBinding),
         ],
         supportsName: false),
         // Avalonia's DataGrid ships only Text/CheckBox/Template columns - there is no
@@ -249,65 +251,65 @@ public static class DefaultControlMappers
         ]),
         new FallbackControlMapper("PrintPreviewControl", "PrintPreviewControlFallback"),
 
-        new UnsupportedControlMapper("BackgroundWorker", EmittedAsField + "It predates async/await, so Task.Run with IProgress<T> is usually the better end state - but that is a design improvement, not a migration step: the converted code runs as it is."),
-        new UnsupportedControlMapper("BindingSource", "No runtime equivalent shipped - recommend an ObservableCollection<T> in the ViewModel instead."),
+        new UnsupportedControlMapper("BackgroundWorker", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + "It predates async/await, so Task.Run with IProgress<T> is usually the better end state - but that is a design improvement, not a migration step: the converted code runs as it is."),
+        new UnsupportedControlMapper("BindingSource", UnsupportedDisposition.NoAvaloniaApi, "No runtime equivalent shipped - recommend an ObservableCollection<T> in the ViewModel instead."),
 
         // Menu/toolbar family - ContextMenuStrip is never Controls.Add-ed (assigned to
         // another control's .ContextMenuStrip property instead), and the container/panel
         // types have no automatic layout translation under this tool's fixed Canvas strategy.
-        new UnsupportedControlMapper("ContextMenuStrip", "The ContextMenuStrip component itself has no element - but this.someControl.ContextMenuStrip = this.contextMenuStrip1 assignments ARE now translated automatically into a nested <Control.ContextMenu><ContextMenu>...</ContextMenu></Control.ContextMenu> on the target control (see AxamlEmitter.EmitContextMenuIfPresent). NotifyIcon.ContextMenuStrip is not wired - Avalonia's TrayIcon.Menu needs NativeMenu/NativeMenuItem, a different target."),
+        new UnsupportedControlMapper("ContextMenuStrip", UnsupportedDisposition.FeatureElsewhere, "The ContextMenuStrip component itself has no element - but this.someControl.ContextMenuStrip = this.contextMenuStrip1 assignments ARE now translated automatically into a nested <Control.ContextMenu><ContextMenu>...</ContextMenu></Control.ContextMenu> on the target control (see AxamlEmitter.EmitContextMenuIfPresent). NotifyIcon.ContextMenuStrip is not wired - Avalonia's TrayIcon.Menu needs NativeMenu/NativeMenuItem, a different target."),
 
         // ToolStripItem family: DropDownButton/SplitButton are Direct-mapped above (Button/
         // SplitButton + a Button.Flyout > MenuFlyout child wrapper); these 2 stay Unsupported.
-        new UnsupportedControlMapper("ToolStripControlHost", "Hosts an arbitrary embedded WinForms Control - too dynamic to translate generically; recreate manually with the equivalent Avalonia control."),
-        new UnsupportedControlMapper("ToolStripDropDown", "Base class for drop-down surfaces - rarely instantiated directly by designer code."),
+        new UnsupportedControlMapper("ToolStripControlHost", UnsupportedDisposition.FeatureElsewhere, "The host itself has no element - it is plumbing WinForms needs because a ToolStrip only takes ToolStripItems, and Avalonia does not. new ToolStripControlHost(this.someControl) IS translated: HostedControlCatalog names the constructor argument, and ControlGraphBuilder puts the hosted control where the host was. This entry is only reached when the argument is not a designer field (new ToolStripControlHost(new TrackBar())), which there is nothing to name."),
+        new UnsupportedControlMapper("ToolStripDropDown", UnsupportedDisposition.Unreachable, "Base class for drop-down surfaces - rarely instantiated directly by designer code."),
 
         // DataGridView cell family: in practice these are essentially never separately
         // instantiated in real Designer.cs - only Columns are (each column's CellTemplate is
         // set internally by its own constructor) - so DataGridViewColumnOrCellGuidance's
         // .Columns.Add framing still applies loosely, even though real designer code won't
         // actually hit this path.
-        new UnsupportedControlMapper("DataGridViewTextBoxCell", DataGridViewColumnOrCellGuidance),
-        new UnsupportedControlMapper("DataGridViewCheckBoxCell", DataGridViewColumnOrCellGuidance),
-        new UnsupportedControlMapper("DataGridViewComboBoxCell", DataGridViewColumnOrCellGuidance),
-        new UnsupportedControlMapper("DataGridViewButtonCell", DataGridViewColumnOrCellGuidance),
-        new UnsupportedControlMapper("DataGridViewImageCell", DataGridViewColumnOrCellGuidance),
-        new UnsupportedControlMapper("DataGridViewLinkCell", DataGridViewColumnOrCellGuidance),
-        new UnsupportedControlMapper("DataGridViewHeaderCell", DataGridViewColumnOrCellGuidance),
+        new UnsupportedControlMapper("DataGridViewTextBoxCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
+        new UnsupportedControlMapper("DataGridViewCheckBoxCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
+        new UnsupportedControlMapper("DataGridViewComboBoxCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
+        new UnsupportedControlMapper("DataGridViewButtonCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
+        new UnsupportedControlMapper("DataGridViewImageCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
+        new UnsupportedControlMapper("DataGridViewLinkCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
+        new UnsupportedControlMapper("DataGridViewHeaderCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
 
         // Dialog family - Avalonia's replacement is an async TopLevel.StorageProvider/printing
         // API called from code, not a XAML element, so none of these get an automatic mapping.
-        new UnsupportedControlMapper("OpenFileDialog", "No control mapping - use TopLevel.StorageProvider.OpenFilePickerAsync from code instead."),
-        new UnsupportedControlMapper("SaveFileDialog", "No control mapping - use TopLevel.StorageProvider.SaveFilePickerAsync from code instead."),
-        new UnsupportedControlMapper("FolderBrowserDialog", "No control mapping - use TopLevel.StorageProvider.OpenFolderPickerAsync from code instead."),
-        new UnsupportedControlMapper("ColorDialog", "No built-in Avalonia color picker dialog - recommend a community package or a custom dialog."),
-        new UnsupportedControlMapper("FontDialog", "No built-in Avalonia font picker dialog - recommend a community package or a custom dialog."),
-        new UnsupportedControlMapper("PrintDialog", "No built-in Avalonia printing API - manual migration required."),
-        new UnsupportedControlMapper("PageSetupDialog", "No built-in Avalonia printing API - manual migration required."),
-        new UnsupportedControlMapper("PrintPreviewDialog", "No built-in Avalonia printing API - manual migration required."),
-        new UnsupportedControlMapper("PrintDocument", "No built-in Avalonia printing API - manual migration required."),
+        new UnsupportedControlMapper("OpenFileDialog", UnsupportedDisposition.FeatureElsewhere, "No control mapping - use TopLevel.StorageProvider.OpenFilePickerAsync from code instead."),
+        new UnsupportedControlMapper("SaveFileDialog", UnsupportedDisposition.FeatureElsewhere, "No control mapping - use TopLevel.StorageProvider.SaveFilePickerAsync from code instead."),
+        new UnsupportedControlMapper("FolderBrowserDialog", UnsupportedDisposition.FeatureElsewhere, "No control mapping - use TopLevel.StorageProvider.OpenFolderPickerAsync from code instead."),
+        new UnsupportedControlMapper("ColorDialog", UnsupportedDisposition.FeatureElsewhere, "No built-in Avalonia colour picker *dialog*, but there is a real ColorView - so the bundled ColorDialogFallback wraps it, and a handler's ShowDialog IS translated inline onto it: both the `if (dlg.ShowDialog() == DialogResult.OK)` shape and the `if (dlg.ShowDialog() != DialogResult.OK) return;` guard clause. Reading dlg.Color inside them becomes the picked value. Needs the Avalonia.Controls.ColorPicker package. What is not carried over is a seed value assigned before the call - the fallback opens on its default."),
+        new UnsupportedControlMapper("FontDialog", UnsupportedDisposition.FeatureElsewhere, "No Avalonia font picker at all, so the bundled FontDialogFallback provides one over FontManager.Current.SystemFonts - family, size, bold and italic only. A handler's ShowDialog IS translated inline onto it, in the same two shapes as ColorDialog, and `ctrl.Font = dlg.Font` expands to the four Avalonia properties. A seed value assigned before the call is not carried over."),
+        new UnsupportedControlMapper("PrintDialog", UnsupportedDisposition.NoAvaloniaApi, "No built-in Avalonia printing API - manual migration required."),
+        new UnsupportedControlMapper("PageSetupDialog", UnsupportedDisposition.NoAvaloniaApi, "No built-in Avalonia printing API - manual migration required."),
+        new UnsupportedControlMapper("PrintPreviewDialog", UnsupportedDisposition.NoAvaloniaApi, "No built-in Avalonia printing API - manual migration required."),
+        new UnsupportedControlMapper("PrintDocument", UnsupportedDisposition.NoAvaloniaApi, "No built-in Avalonia printing API - manual migration required."),
 
         // Non-visual component family.
-        new UnsupportedControlMapper("NotifyIcon", "No per-View mapping - Avalonia's tray-icon support is app-level, configured in App.axaml's TrayIcon.Icons (now generated automatically by ConversionPipeline.Run's cross-form aggregation - see AvaloniaProjectScaffolder.BuildTrayIconsSection). A literal icon path that resolves to a real file is copied into the generated project's Assets/ folder; otherwise (the common case - resx/dynamic icons) the TrayIcon block is emitted commented out with a TODO, since Avalonia resolves TrayIcon.Icon at run time and a dangling asset reference would throw out of App.Initialize()."),
-        new UnsupportedControlMapper("Timer", "No control mapping - but a DispatcherTimer field, its Interval and its Tick wiring ARE generated on the View whenever the component has a real Tick handler (see FormMigrationPlanner.PlanTimers). A handler body can then drive it: Enabled, Start() and Stop() translate, and Interval can be written but not read - WinForms counts milliseconds, Avalonia holds a TimeSpan."),
+        new UnsupportedControlMapper("NotifyIcon", UnsupportedDisposition.FeatureElsewhere, "No per-View mapping - Avalonia's tray-icon support is app-level, configured in App.axaml's TrayIcon.Icons (now generated automatically by ConversionPipeline.Run's cross-form aggregation - see AvaloniaProjectScaffolder.BuildTrayIconsSection). A literal icon path that resolves to a real file is copied into the generated project's Assets/ folder; otherwise (the common case - resx/dynamic icons) the TrayIcon block is emitted commented out with a TODO, since Avalonia resolves TrayIcon.Icon at run time and a dangling asset reference would throw out of App.Initialize(). Designer-wired events: Click becomes TrayIcon.Clicked and is subscribed from the generated View's constructor for an icon that resolved; DoubleClick and the mouse/balloon events have no Avalonia counterpart and are reported by name rather than emitted as a handler nothing subscribes."),
+        new UnsupportedControlMapper("Timer", UnsupportedDisposition.FeatureElsewhere, "No control mapping - but a DispatcherTimer field, its Interval and its Tick wiring ARE generated on the View whenever the component has a real Tick handler (see FormMigrationPlanner.PlanTimers). A handler body can then drive it: Enabled, Start() and Stop() translate, and Interval can be written but not read - WinForms counts milliseconds, Avalonia holds a TimeSpan."),
         // The type itself has no Avalonia counterpart, but its contents do: ConversionPipeline
         // unpacks the .resx ImageStream into one PNG per image under Assets/ and resolves every
         // ImageIndex that points into it. This entry is what reports the half that is left.
-        new UnsupportedControlMapper("ImageList", "No control mapping, but the images are not lost - each one is written to Assets/<field>_<index>.png and set on the menu items that used it. MenuItem.Icon is the only per-item image slot Avalonia has; anywhere else, place the extracted file by hand."),
-        new UnsupportedControlMapper("ToolTip", "The ToolTip component itself has no element - but its this.toolTip1.SetToolTip(this.control1, \"text\") calls ARE now translated automatically into a ToolTip.Tip attribute on the target control (see DesignerSyntaxWalker.HandleSetToolTipInvocation)."),
-        new UnsupportedControlMapper("HelpProvider", "No built-in Avalonia equivalent - manual migration required."),
+        new UnsupportedControlMapper("ImageList", UnsupportedDisposition.FeatureElsewhere, "No control mapping, but the images are not lost - each one is written to Assets/<field>_<index>.png and set on the menu items that used it. MenuItem.Icon is the only per-item image slot Avalonia has; anywhere else, place the extracted file by hand."),
+        new UnsupportedControlMapper("ToolTip", UnsupportedDisposition.FeatureElsewhere, "The ToolTip component itself has no element - but its this.toolTip1.SetToolTip(this.control1, \"text\") calls ARE now translated automatically into a ToolTip.Tip attribute on the target control (see DesignerSyntaxWalker.HandleExtenderProviderInvocation, driven by ExtenderProviderCatalog)."),
+        new UnsupportedControlMapper("HelpProvider", UnsupportedDisposition.FeatureElsewhere, "The component itself has no element, but its this.helpProvider1.SetHelpString(this.control1, \"text\") calls ARE translated - into AutomationProperties.HelpText on the target control, which is the one Avalonia slot that means 'help text about this control'. The F1 gesture itself has no equivalent, so SetShowHelp and HelpNamespace are reported rather than guessed at."),
 
         // Framework-agnostic .NET components: not WinForms-specific, and the very same class in
         // an Avalonia project - which is why ComponentFieldCatalog emits them rather than asking
         // the user to. These entries stay Unsupported because there is no *control* to map, so
         // the guidance has to say what does happen instead.
-        new UnsupportedControlMapper("FileSystemWatcher", EmittedAsField + MoveToAService),
-        new UnsupportedControlMapper("Process", EmittedAsField + MoveToAService),
-        new UnsupportedControlMapper("SerialPort", EmittedAsField + MoveToAService),
-        new UnsupportedControlMapper("EventLog", EmittedAsField + WindowsOnly),
-        new UnsupportedControlMapper("PerformanceCounter", EmittedAsField + WindowsOnly),
-        new UnsupportedControlMapper("ServiceController", EmittedAsField + WindowsOnly),
-        new UnsupportedControlMapper("SoundPlayer", EmittedAsField + WindowsOnly + " There is no Avalonia audio API either, so a cross-platform library is the eventual answer."),
+        new UnsupportedControlMapper("FileSystemWatcher", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + MoveToAService),
+        new UnsupportedControlMapper("Process", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + MoveToAService),
+        new UnsupportedControlMapper("SerialPort", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + MoveToAService),
+        new UnsupportedControlMapper("EventLog", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + WindowsOnly),
+        new UnsupportedControlMapper("PerformanceCounter", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + WindowsOnly),
+        new UnsupportedControlMapper("ServiceController", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + WindowsOnly),
+        new UnsupportedControlMapper("SoundPlayer", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + WindowsOnly + " There is no Avalonia audio API either, so a cross-platform library is the eventual answer."),
     ];
 
     /// <summary>

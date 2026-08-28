@@ -26,18 +26,19 @@ one is the first the conversion could not prove equivalent.
 - [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 
-## Conversion notes (70)
+## Conversion notes (71)
 
 Everything the conversion decided not to guess at, and why.
 
+- 'helpProvider1' (HelpProvider) calls 'SetShowHelp(...)', which has no Avalonia equivalent - that setting is not carried over.
 - 'ToolStrip' has no built-in Avalonia equivalent; using the bundled fallback control 'ToolStripFallback'.
 - No runtime equivalent shipped - recommend an ObservableCollection<T> in the ViewModel instead.
 - No control mapping - but a DispatcherTimer field, its Interval and its Tick wiring ARE generated on the View whenever the component has a real Tick handler (see FormMigrationPlanner.PlanTimers). A handler body can then drive it: Enabled, Start() and Stop() translate, and Interval can be written but not read - WinForms counts milliseconds, Avalonia holds a TimeSpan.
 - No control mapping - use TopLevel.StorageProvider.OpenFilePickerAsync from code instead.
 - No control mapping - use TopLevel.StorageProvider.SaveFilePickerAsync from code instead.
 - No control mapping - use TopLevel.StorageProvider.OpenFolderPickerAsync from code instead.
-- No built-in Avalonia color picker dialog - recommend a community package or a custom dialog.
-- No built-in Avalonia font picker dialog - recommend a community package or a custom dialog.
+- No built-in Avalonia colour picker *dialog*, but there is a real ColorView - so the bundled ColorDialogFallback wraps it, and a handler's ShowDialog IS translated inline onto it: both the `if (dlg.ShowDialog() == DialogResult.OK)` shape and the `if (dlg.ShowDialog() != DialogResult.OK) return;` guard clause. Reading dlg.Color inside them becomes the picked value. Needs the Avalonia.Controls.ColorPicker package. What is not carried over is a seed value assigned before the call - the fallback opens on its default.
+- No Avalonia font picker at all, so the bundled FontDialogFallback provides one over FontManager.Current.SystemFonts - family, size, bold and italic only. A handler's ShowDialog IS translated inline onto it, in the same two shapes as ColorDialog, and `ctrl.Font = dlg.Font` expands to the four Avalonia properties. A seed value assigned before the call is not carried over.
 - No built-in Avalonia printing API - manual migration required.
 - No built-in Avalonia printing API - manual migration required.
 - No built-in Avalonia printing API - manual migration required.
@@ -50,13 +51,13 @@ Everything the conversion decided not to guess at, and why.
 - Not a control, but this run emits it as a real field on the generated View - same .NET type, designer values applied, designer-wired events subscribed - so handler bodies keep working as they were. Windows-only, so it is built lazily: the app starts everywhere, but touching it throws off Windows.
 - Not a control, but this run emits it as a real field on the generated View - same .NET type, designer values applied, designer-wired events subscribed - so handler bodies keep working as they were. Moving it into a service later is a design improvement, not a migration step.
 - Not a control, but this run emits it as a real field on the generated View - same .NET type, designer values applied, designer-wired events subscribed - so handler bodies keep working as they were. Windows-only, so it is built lazily: the app starts everywhere, but touching it throws off Windows. There is no Avalonia audio API either, so a cross-platform library is the eventual answer.
-- No per-View mapping - Avalonia's tray-icon support is app-level, configured in App.axaml's TrayIcon.Icons (now generated automatically by ConversionPipeline.Run's cross-form aggregation - see AvaloniaProjectScaffolder.BuildTrayIconsSection). A literal icon path that resolves to a real file is copied into the generated project's Assets/ folder; otherwise (the common case - resx/dynamic icons) the TrayIcon block is emitted commented out with a TODO, since Avalonia resolves TrayIcon.Icon at run time and a dangling asset reference would throw out of App.Initialize().
+- No per-View mapping - Avalonia's tray-icon support is app-level, configured in App.axaml's TrayIcon.Icons (now generated automatically by ConversionPipeline.Run's cross-form aggregation - see AvaloniaProjectScaffolder.BuildTrayIconsSection). A literal icon path that resolves to a real file is copied into the generated project's Assets/ folder; otherwise (the common case - resx/dynamic icons) the TrayIcon block is emitted commented out with a TODO, since Avalonia resolves TrayIcon.Icon at run time and a dangling asset reference would throw out of App.Initialize(). Designer-wired events: Click becomes TrayIcon.Clicked and is subscribed from the generated View's constructor for an icon that resolved; DoubleClick and the mouse/balloon events have no Avalonia counterpart and are reported by name rather than emitted as a handler nothing subscribes.
 - NotifyIcon 'notifyIcon1': couldn't resolve a literal icon file path from Designer.cs (it is usually a resx resource) - App.axaml's TrayIcon is emitted commented out, since referencing an icon file the conversion cannot produce would throw at startup. Copy the real icon into Assets/ and uncomment the block.
-- No built-in Avalonia equivalent - manual migration required.
+- The component itself has no element, but its this.helpProvider1.SetHelpString(this.control1, "text") calls ARE translated - into AutomationProperties.HelpText on the target control, which is the one Avalonia slot that means 'help text about this control'. The F1 gesture itself has no equivalent, so SetShowHelp and HelpNamespace are reported rather than guessed at.
 - The ContextMenuStrip component itself has no element - but this.someControl.ContextMenuStrip = this.contextMenuStrip1 assignments ARE now translated automatically into a nested <Control.ContextMenu><ContextMenu>...</ContextMenu></Control.ContextMenu> on the target control (see AxamlEmitter.EmitContextMenuIfPresent). NotifyIcon.ContextMenuStrip is not wired - Avalonia's TrayIcon.Menu needs NativeMenu/NativeMenuItem, a different target.
 - 'DemoComponent' is a Component defined by this project - no visual representation, so no control mapping. Its source names nothing that would not survive the conversion, so it is copied into the generated project and a real field is emitted for it.
 - No control mapping, but the images are not lost - each one is written to Assets/<field>_<index>.png and set on the menu items that used it. MenuItem.Icon is the only per-item image slot Avalonia has; anywhere else, place the extracted file by hand.
-- The ToolTip component itself has no element - but its this.toolTip1.SetToolTip(this.control1, "text") calls ARE now translated automatically into a ToolTip.Tip attribute on the target control (see DesignerSyntaxWalker.HandleSetToolTipInvocation).
+- The ToolTip component itself has no element - but its this.toolTip1.SetToolTip(this.control1, "text") calls ARE now translated automatically into a ToolTip.Tip attribute on the target control (see DesignerSyntaxWalker.HandleExtenderProviderInvocation, driven by ExtenderProviderCatalog).
 - 'ErrorProvider' has no built-in Avalonia equivalent; using the bundled fallback control 'ErrorProviderFallback'.
 - Click handler 'newMenuItem_Click' stays in code-behind: it uses 'titleTextBox.Clear', which has no bindable Avalonia equivalent.
 - Click handler 'openMenuItem_Click' stays in code-behind: it drives the Form itself (DialogResult).
@@ -87,6 +88,7 @@ Everything the conversion decided not to guess at, and why.
 - Click handler 'serialOpenButton_Click' stays in code-behind: 'serialPort1' (SerialPort) has no direct Avalonia element to bind against.
 - Click handler 'playSoundButton_Click' stays in code-behind: 'soundPlayer1' (SoundPlayer) has no direct Avalonia element to bind against.
 - Click handler 'showBalloonButton_Click' stays in code-behind: 'notifyIcon1' (NotifyIcon) has no direct Avalonia element to bind against.
+- 'notifyIcon1' subscribes 'DoubleClick', which has no Avalonia equivalent - 'notifyIcon1_DoubleClick' is emitted but never subscribed. Avalonia's TrayIcon raises only Clicked - there is no double-click on a tray icon, and a single click is not one.
 - Click handler 'copyContextMenuItem_Click' stays in code-behind: it uses an API whose Avalonia replacement hangs off the TopLevel (a message box, the clipboard) - which the View has and a ViewModel does not.
 - Click handler 'openDialogFormButton_Click' stays in code-behind: it opens another Form/Dialog, which needs a navigation or dialog service before it can move to a ViewModel.
 - Click handler 'aboutButton_Click' stays in code-behind: it opens another Form/Dialog, which needs a navigation or dialog service before it can move to a ViewModel.
@@ -97,7 +99,6 @@ Everything the conversion decided not to guess at, and why.
 - Component 'soundPlayer1' (SoundPlayer) is Windows-only. The generated View declares it and compiles everywhere, with the platform analyser suppressed for that file - but these calls throw on Linux and macOS.
 - 'pictureBox1' subscribes both 'MouseDown' and 'Click', which map to the same Avalonia event 'PointerPressed' - only 'pictureBox1_MouseDown' is subscribed; call 'pictureBox1_Click' from it by hand.
 - field 'domainUpDown1' (DomainUpDown) has 3 designer-declared item(s), but 'controls:DomainUpDownFallback' does not take item elements - add them by hand, or bind ItemsSource.
-- field 'toolStripControlHost1' (ToolStripControlHost) has no Avalonia mapping: Hosts an arbitrary embedded WinForms Control - too dynamic to translate generically; recreate manually with the equivalent Avalonia control.
 - Click handler 'okButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 - Click handler 'cancelButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 

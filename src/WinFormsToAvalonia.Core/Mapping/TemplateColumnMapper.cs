@@ -12,14 +12,34 @@ namespace WinFormsToAvalonia.Core.Mapping;
 /// <c>DataGridComboBoxColumn</c> (a mapping to one is an AVLN2000 build break), and no button/
 /// image/link column at all, so every one of those WinForms column types has to become a
 /// template column instead. The generated cell template is deliberately unbound: Designer.cs
-/// records the column, never which row-model property it displays, so the emitted element
-/// carries an XML comment telling the human to add the binding.
+/// records the column, and even when it records a <c>DataPropertyName</c> the cell member it
+/// belongs to is not decidable from it - so the emitted element carries an XML comment naming
+/// what is known and asking for the rest.
 /// </remarks>
 public sealed class TemplateColumnMapper : IControlMapper
 {
-    private const string BindingTodoComment =
-        "TODO(Winforms2Avalonia): bind this cell to the row model - Designer.cs records the " +
-        "column but not its DataPropertyName-to-view-model mapping.";
+    /// <summary>
+    /// What the human still has to write, naming the row-model property when the designer
+    /// recorded one.
+    /// </summary>
+    /// <remarks>
+    /// A template column is refused a generated binding on purpose, unlike the text and checkbox
+    /// columns: <c>DataGridTemplateColumn</c> has no <c>Binding</c> property at all, and which
+    /// member of the cell element the value belongs to is not decidable from
+    /// <c>DataPropertyName</c> alone - a ComboBox cell could want <c>SelectedItem</c> or
+    /// <c>SelectedValue</c>; a button or link cell shows the column's own <c>Text</c> unless
+    /// <c>UseColumnTextForButtonValue</c> says otherwise; an <c>Image.Source</c> wants an
+    /// <c>IImage</c> where a WinForms row holds a <c>System.Drawing.Image</c> or a byte array.
+    /// So the name is reported rather than guessed at.
+    /// </remarks>
+    private static string BindingTodo(ControlModel control) =>
+        control.Properties.TryGetValue("DataPropertyName", out var value)
+            && value is PropertyValue.Literal { Value: string path }
+                ? $"TODO(Winforms2Avalonia): bind this cell to the row model's '{path}' - which member " +
+                  "of the cell element it belongs to depends on the column's own settings, so it is " +
+                  "not generated."
+                : "TODO(Winforms2Avalonia): bind this cell to the row model - this column has no " +
+                  "DataPropertyName in Designer.cs, so there is no property name to carry over.";
 
     private readonly string _cellElementName;
     private readonly IReadOnlyList<(string WinFormsProperty, string AvaloniaAttribute, Func<PropertyValue, string?> Format)> _cellPropertyMappings;
@@ -65,7 +85,7 @@ public sealed class TemplateColumnMapper : IControlMapper
             [
                 new AxamlElementSpec(
                     "DataTemplate",
-                    Comment: BindingTodoComment,
+                    Comment: BindingTodo(control),
                     Children: [new AxamlElementSpec(_cellElementName, cellAttributes)]),
             ]);
 

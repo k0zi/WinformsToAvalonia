@@ -65,6 +65,31 @@ public sealed class EventMappingRegistry
 
     private static readonly Dictionary<(string ControlType, string EventName), EventMapping> ControlTypeOverrides = new()
     {
+        // A NotifyIcon has no element - it becomes App.axaml's TrayIcon - so every one of its
+        // events resolves here or nowhere. Without these rows they fell through to the generic
+        // control table, which produced a perfectly translated handler on the View that nothing
+        // ever subscribed and nothing ever reported: a method that looks alive and never runs.
+        [("NotifyIcon", "Click")] = new("Click", "Clicked", "EventArgs", SubscribeInCode: true,
+            Guidance: "WinForms' NotifyIcon.Click fires for a right-click too, which is why handlers cast e to MouseEventArgs; Avalonia's TrayIcon.Clicked is activation only and carries no button information."),
+        [("NotifyIcon", "DoubleClick")] = new("DoubleClick", null,
+            Guidance: "Avalonia's TrayIcon raises only Clicked - there is no double-click on a tray icon, and a single click is not one."),
+        [("NotifyIcon", "MouseDoubleClick")] = new("MouseDoubleClick", null,
+            Guidance: "Avalonia's TrayIcon raises only Clicked - there is no double-click on a tray icon."),
+        [("NotifyIcon", "MouseClick")] = new("MouseClick", null,
+            Guidance: "Avalonia's TrayIcon.Clicked carries no button or coordinates, so a MouseClick handler's argument has nothing to come from."),
+        [("NotifyIcon", "MouseDown")] = new("MouseDown", null,
+            Guidance: "Avalonia's TrayIcon raises only Clicked, with no button or coordinate payload."),
+        [("NotifyIcon", "MouseUp")] = new("MouseUp", null,
+            Guidance: "Avalonia's TrayIcon raises only Clicked, with no button or coordinate payload."),
+        [("NotifyIcon", "MouseMove")] = new("MouseMove", null,
+            Guidance: "Avalonia's TrayIcon raises only Clicked - it reports no pointer movement."),
+        [("NotifyIcon", "BalloonTipClicked")] = new("BalloonTipClicked", null,
+            Guidance: "Avalonia has no balloon-tip/notification API at all."),
+        [("NotifyIcon", "BalloonTipShown")] = new("BalloonTipShown", null,
+            Guidance: "Avalonia has no balloon-tip/notification API at all."),
+        [("NotifyIcon", "BalloonTipClosed")] = new("BalloonTipClosed", null,
+            Guidance: "Avalonia has no balloon-tip/notification API at all."),
+
         [("TrackBar", "Scroll")] = new("Scroll", "ValueChanged", "RangeBaseValueChangedEventArgs",
             Guidance: "WinForms' TrackBar.Scroll fires only on user drags; Avalonia's Slider.ValueChanged also fires on programmatic Value changes."),
         [("HScrollBar", "Scroll")] = new("Scroll", "Scroll", "ScrollEventArgs"),
@@ -376,14 +401,16 @@ public sealed class EventMappingRegistry
     /// <summary>Resolves an event raised by a control of the given WinForms type.</summary>
     public EventMapping ResolveControlEvent(string winFormsControlTypeName, string eventName)
     {
-        if (eventName == "Click")
-        {
-            return ClickCommandControlTypes.Contains(winFormsControlTypeName) ? ClickAsCommand : ClickAsPointerPress;
-        }
-
+        // Before the Click special case, not after: a NotifyIcon's Click is neither a Button's
+        // Click nor a pointer press on an element - it has no element at all.
         if (ControlTypeOverrides.TryGetValue((winFormsControlTypeName, eventName), out var overrideMapping))
         {
             return overrideMapping;
+        }
+
+        if (eventName == "Click")
+        {
+            return ClickCommandControlTypes.Contains(winFormsControlTypeName) ? ClickAsCommand : ClickAsPointerPress;
         }
 
         if (winFormsControlTypeName == "Timer" && ComponentEvents.TryGetValue(eventName, out var componentMapping))

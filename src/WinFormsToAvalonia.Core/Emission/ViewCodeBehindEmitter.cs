@@ -212,6 +212,15 @@ public sealed class ViewCodeBehindEmitter
             }
         }
 
+        // A NotifyIcon has no element in this View - its TrayIcon lives in App.axaml, reached
+        // through the accessor the generated App declares for it. Only tray icons whose icon file
+        // resolved get one, and the planner has already suppressed the rest.
+        foreach (var (fieldName, avaloniaEventName, handlerMethodName) in plan.TrayIconSubscriptions)
+        {
+            Line();
+            Line($"        App.{NamingConventions.Capitalize(fieldName)}.{avaloniaEventName} += {handlerMethodName};");
+        }
+
         if (plan.ConstructorExtraStatements.Count > 0)
         {
             Line();

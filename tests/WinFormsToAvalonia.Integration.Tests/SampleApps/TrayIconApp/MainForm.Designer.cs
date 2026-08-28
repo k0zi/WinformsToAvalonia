@@ -27,10 +27,13 @@ namespace TrayIconApp
             this.notifyIcon1.Icon = new System.Drawing.Icon("app.ico");
             this.notifyIcon1.Text = "Tray demo";
             this.notifyIcon1.Visible = true;
+            this.notifyIcon1.Click += new System.EventHandler(this.notifyIcon1_Click);
+            this.notifyIcon1.DoubleClick += new System.EventHandler(this.notifyIcon1_DoubleClick);
             //
             // notifyIcon2 - no icon the conversion can resolve, so no TrayIcon is emitted for it.
             //
             this.notifyIcon2.Text = "No icon";
+            this.notifyIcon2.Click += new System.EventHandler(this.notifyIcon2_Click);
             //
             // hideButton
             //

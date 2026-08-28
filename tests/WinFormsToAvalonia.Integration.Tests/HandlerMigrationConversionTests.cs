@@ -114,8 +114,16 @@ public class HandlerMigrationConversionTests
             Assert.Contains("var trimmed = NameTextBoxText?.Trim();", viewModel);
             Assert.Contains("StatusLabelText = trimmed ?? \"empty\";", viewModel);
 
-            Assert.Equal(19, result.Report.MigratedStatementCount);
-            Assert.Equal(22, result.Report.HandlerStatementCount);
+            // The guard-clause dialog shape: the picked value outlives the `if` because the
+            // then-branch is an unconditional return, and the generated project has to compile
+            // with an `is not` pattern relying on exactly that.
+            Assert.Contains(
+                "if (await ColorDialogFallback.ShowAsync(this) is not { } colorDialog1Color)",
+                codeBehind);
+            Assert.Contains("nameTextBox.Background = new SolidColorBrush(colorDialog1Color);", codeBehind);
+
+            Assert.Equal(22, result.Report.MigratedStatementCount);
+            Assert.Equal(25, result.Report.HandlerStatementCount);
 
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
             Assert.True(

@@ -247,7 +247,13 @@ public sealed class HandlerBodyRewriter
         for (var i = 0; i < translatableCount; i++)
         {
             var snapshot = target.Requirements.Snapshot();
-            if (!TryRewriteStatement(statements[i], target, out var rewritten))
+
+            // A guard clause is matched off the body rather than through the statement grammar,
+            // for the same reason the DialogResult tail above is: what it does - leave a value in
+            // scope for everything after it - is a property of being at the top level, and the
+            // grammar has no way to say that.
+            if (!TryRewriteDialogGuard(statements[i], target, out var rewritten)
+                && !TryRewriteStatement(statements[i], target, out rewritten))
             {
                 // Undo anything a half-translated expression recorded, or the method could end up
                 // `async` with nothing to await.
@@ -795,6 +801,145 @@ public sealed class HandlerBodyRewriter
     /// dialogs with no Avalonia equivalent at all (Color/Font/Print).
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// <c>dlg.ShowDialog() == DialogResult.OK</c>, in either operand order.
+    /// </summary>
+    /// <remarks>
+    /// Extracted because both dialog families spelled the same eighteen lines out separately, and
+    /// both accepted only one operand order - while the form-navigation matcher next door
+    /// (<see cref="TryMatchDialogResultCondition"/>) has always read both. That asymmetry was
+    /// forgetfulness rather than a decision: <c>DialogResult.OK == dlg.ShowDialog()</c> is
+    /// textually different and means exactly the same thing.
+    /// </remarks>
+    /// <param name="expectedKind">
+    /// <c>EqualsExpression</c> for the <c>if (ok) { ... }</c> shape,
+    /// <c>NotEqualsExpression</c> for the guard clause that returns instead.
+    /// </param>
+    private static bool TryMatchShowDialogOkComparison(
+        BinaryExpressionSyntax comparison, SyntaxKind expectedKind, out MemberAccessExpressionSyntax call)
+    {
+        call = null!;
+
+        if (!comparison.IsKind(expectedKind))
+        {
+            return false;
+        }
+
+        var (dialogSide, resultSide) = IsDialogResultOk(comparison.Right)
+            ? (comparison.Left, comparison.Right)
+            : (comparison.Right, comparison.Left);
+
+        if (!IsDialogResultOk(resultSide)
+            || dialogSide is not InvocationExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ShowDialog" } showDialog,
+            } invocation
+            || invocation.ArgumentList.Arguments.Count > 1)
+        {
+            return false;
+        }
+
+        call = showDialog;
+        return true;
+    }
+
+    private static bool IsDialogResultOk(ExpressionSyntax expression) =>
+        expression is MemberAccessExpressionSyntax
+        {
+            Expression: IdentifierNameSyntax { Identifier.ValueText: "DialogResult" },
+            Name.Identifier.ValueText: "OK",
+        };
+
+    /// <summary>
+    /// The guard-clause dialog shape: <c>if (dlg.ShowDialog() != DialogResult.OK) { return; }</c>
+    /// followed by the rest of the handler.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Equivalent for a reason worth stating, because the rest of this class refuses anything that
+    /// needs a value to outlive the statement that produced it: C# definite assignment guarantees
+    /// the picked value is assigned at every statement the guard falls through to, because the
+    /// then-branch is an unconditional <c>return</c>. So <c>is not { } colour</c> followed by a
+    /// return leaves <c>colour</c> usable for the remainder of the body, and the compiler is the
+    /// thing enforcing it rather than this rewriter.
+    /// </para>
+    /// <para>
+    /// Matched only at the top level of the body, and that is what keeps it small.
+    /// <see cref="IRewriteTarget.DialogSelections"/> is otherwise scoped to a branch by an
+    /// add/<c>finally</c>-remove pair; a guard needs the selection to live for the rest of the
+    /// enclosing block, and at the top level "the rest of the block" is "the rest of the body", so
+    /// the entry is simply added and never removed. Inside a nested block it would leak into
+    /// statements that come after that block, so there it refuses.
+    /// </para>
+    /// <para>
+    /// The then-branch must be exactly a bare <c>return;</c> - not a return with a value, not a
+    /// return plus a log line, and no <c>else</c>. Anything more and the branch is doing work that
+    /// would have to be translated too, at which point this is not a guard.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteDialogGuard(
+        StatementSyntax statement, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!target.AllowsWindowApis
+            || statement is not IfStatementSyntax { Else: null } ifStatement
+            || ifStatement.Condition is not BinaryExpressionSyntax comparison
+            || !TryMatchShowDialogOkComparison(comparison, SyntaxKind.NotEqualsExpression, out var call)
+            || !IsBareReturn(ifStatement.Statement)
+            || !target.TryResolveControlField(call.Expression, out var dialogField))
+        {
+            return false;
+        }
+
+        string opener;
+        string variableName;
+        string selectionKey;
+        string selectionValue;
+        var parts = new List<RewrittenStatement>();
+
+        if (target.TryResolveFileDialog(dialogField, out var kind))
+        {
+            variableName = $"{dialogField}{kind.SelectionSuffix}";
+            selectionKey = $"{dialogField}.{kind.PathMemberName}";
+            selectionValue = $"{variableName}.Path.LocalPath";
+            opener =
+                $"if (await StorageProvider.{kind.PickerMethodName}(new {kind.OptionsTypeName}()) is not "
+                + string.Format(kind.SelectionPattern, variableName) + ")";
+            target.Requirements.RequiredUsings.Add("Avalonia.Platform.Storage");
+        }
+        else if (target.TryResolveComponentTypeName(dialogField, out var componentType)
+            && VisualDialogs.TryGetValue(componentType, out var dialog))
+        {
+            variableName = $"{dialogField}{dialog.ResultMember}";
+            selectionKey = $"{dialogField}.{dialog.ResultMember}";
+            selectionValue = variableName;
+            opener = $"if (await {dialog.TemplateKey}.ShowAsync(this) is not {{ }} {variableName})";
+            parts.Add(new RewrittenStatement("", RequiredFallbackKeys: [dialog.TemplateKey]));
+        }
+        else
+        {
+            return false;
+        }
+
+        // Never removed - see the remarks. The statements after the guard are exactly the ones
+        // entitled to name it.
+        target.DialogSelections[selectionKey] = selectionValue;
+        target.Requirements.RequiresAsync = true;
+        target.Requirements.InlinedDialogFields.Add(dialogField);
+
+        rewritten = Merge($"{opener}\n{{\n    return;\n}}", parts) with { RequiresAsync = true };
+        return true;
+    }
+
+    /// <summary>A <c>return;</c> with nothing else in the branch, braced or not.</summary>
+    private static bool IsBareReturn(StatementSyntax branch) => branch switch
+    {
+        ReturnStatementSyntax { Expression: null } => true,
+        BlockSyntax { Statements: [ReturnStatementSyntax { Expression: null }] } => true,
+        _ => false,
+    };
+
     private static bool TryRewriteFileDialogIf(
         IfStatementSyntax ifStatement, IRewriteTarget target, out RewrittenStatement rewritten)
     {
@@ -802,17 +947,7 @@ public sealed class HandlerBodyRewriter
 
         if (!target.AllowsWindowApis
             || ifStatement.Condition is not BinaryExpressionSyntax comparison
-            || !comparison.IsKind(SyntaxKind.EqualsExpression)
-            || comparison.Right is not MemberAccessExpressionSyntax
-            {
-                Expression: IdentifierNameSyntax { Identifier.ValueText: "DialogResult" },
-                Name.Identifier.ValueText: "OK",
-            }
-            || comparison.Left is not InvocationExpressionSyntax
-            {
-                Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ShowDialog" } call,
-            } invocation
-            || invocation.ArgumentList.Arguments.Count > 1
+            || !TryMatchShowDialogOkComparison(comparison, SyntaxKind.EqualsExpression, out var call)
             || !target.TryResolveControlField(call.Expression, out var dialogField)
             || !target.TryResolveFileDialog(dialogField, out var kind))
         {
@@ -893,17 +1028,7 @@ public sealed class HandlerBodyRewriter
 
         if (!target.AllowsWindowApis
             || ifStatement.Condition is not BinaryExpressionSyntax comparison
-            || !comparison.IsKind(SyntaxKind.EqualsExpression)
-            || comparison.Right is not MemberAccessExpressionSyntax
-            {
-                Expression: IdentifierNameSyntax { Identifier.ValueText: "DialogResult" },
-                Name.Identifier.ValueText: "OK",
-            }
-            || comparison.Left is not InvocationExpressionSyntax
-            {
-                Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ShowDialog" } call,
-            } invocation
-            || invocation.ArgumentList.Arguments.Count > 1
+            || !TryMatchShowDialogOkComparison(comparison, SyntaxKind.EqualsExpression, out var call)
             || !target.TryResolveControlField(call.Expression, out var dialogField)
             || !target.TryResolveComponentTypeName(dialogField, out var componentType)
             || !VisualDialogs.TryGetValue(componentType, out var dialog))

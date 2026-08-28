@@ -90,6 +90,88 @@ contributors know what to expect and where to look before filing a duplicate iss
   `ImageKey` is not resolved at all - the keys are in the designer's `SetKeyName` calls, not in
   the payload.
 
+## Dialog call shapes
+
+- `ColorDialog` and `FontDialog` have no Avalonia counterpart, so a handler's `ShowDialog` is
+  translated **inline** onto the bundled `ColorDialogFallback`/`FontDialogFallback` - the Avalonia
+  replacement *returns* the choice instead of being an object you ask afterwards, which is what
+  makes the shape of the call matter at all.
+- Two shapes are accepted, in either operand order:
+  `if (dlg.ShowDialog() == DialogResult.OK) { … }`, and the guard clause
+  `if (dlg.ShowDialog() != DialogResult.OK) { return; }` followed by the rest of the body. The
+  guard is equivalent for a reason worth stating: C# definite assignment guarantees the picked
+  value is assigned at every statement the guard falls through to, because the then-branch is an
+  unconditional `return` - so the value may outlive the branch here and nowhere else. It is matched
+  only at the **top level** of a handler body, where "the rest of the block" and "the rest of the
+  body" are the same thing; inside a nested block it would leak into statements after that block,
+  so there it refuses. The same shape serves the file dialogs.
+- Still refused, each with the reason in the code: a bare `dlg.ShowDialog();` (nothing is done with
+  the result, and slipping in an `await` would change the semantics); reading `dlg.Color` after a
+  *normal* `if` (the WinForms field keeps the last pick even after Cancel, and here there is
+  nothing to keep it); `var r = dlg.ShowDialog(); if (r == …)` (dataflow across a statement
+  boundary, which this rewriter deliberately does not do); a ViewModel target (no `Window` to
+  parent to); and a branch only part of which translates.
+- **Not carried over:** a seed value assigned before the call (`colorDialog1.Color = this.BackColor;`).
+  Neither fallback's `ShowAsync` takes an initial value, so the dialog opens on its default - and
+  because the seed is the first statement, it stops the prefix before the dialog is even reached.
+  Widening that means widening both bundled templates *and* `FallbackControlMemberSupport`.
+
+## Tray-icon events
+
+- A `NotifyIcon` has no element in any View - its `TrayIcon` lives in `App.axaml` - so its
+  designer-wired events resolve through `EventMappingRegistry`'s per-type overrides or nowhere.
+  Without those rows they fell through to the *generic control* table, which produced a fully
+  translated handler on the View that nothing subscribed and nothing reported: a method that reads
+  as finished and never runs.
+- `Click` → `TrayIcon.Clicked`, subscribed from the generated constructor. Not identical, and the
+  guidance says so: WinForms' `NotifyIcon.Click` fires for a right-click too (which is why real
+  handlers cast `e` to `MouseEventArgs`), while `Clicked` is activation only and carries no button
+  information.
+- `DoubleClick`, `MouseDoubleClick`, `MouseClick`, `MouseDown`/`Up`/`Move` and the three
+  `BalloonTip*` events have no counterpart at all - Avalonia's `TrayIcon` raises only `Clicked`,
+  with no button or coordinate payload, and there is no notification API. Each is refused by name.
+- A tray icon whose file did not resolve is emitted **commented out** in `App.axaml`, so it has no
+  accessor: any subscription against it is suppressed and reported, since the constructor line
+  would not compile.
+- The `Command` property is deliberately unused: promoting a tray click to a `[RelayCommand]` would
+  have to bind from `App.axaml`, which has no `x:DataType` and no ViewModel.
+
+## Hosted controls
+
+- A `ToolStripControlHost` is plumbing WinForms needs because a `ToolStrip` only accepts
+  `ToolStripItem`s. The Avalonia fallback a ToolStrip maps to is an ordinary panel, so the
+  faithful conversion is to put the hosted control where the host was - and since the type has
+  **no parameterless constructor**, `new ToolStripControlHost(this.trackBar1)` is the only shape a
+  designer can emit, with the hosted control always named right there.
+- The substitution happens in `ControlGraphBuilder`, not the walker: the host goes on collecting
+  property assignments until the last statement of `InitializeComponent`, so collapsing it early
+  would silently drop them.
+- Two cases refuse rather than guess. A hosted control that is *also* added to a container of its
+  own would be emitted twice, and two elements with one `x:Name` is an `AVLN1001` the generated
+  build fails on. And the host's own settings have no counterpart once the control is placed
+  directly: its `Size` moves only into a gap (WinForms keeps the two in sync), while
+  `Alignment`/`Overflow`/`DisplayStyle` and any event subscribed on the host are reported by name
+  - the planner iterates the very collection the host is removed from, so silence there would be a
+  handler that never runs.
+
+## Extender providers
+
+- WinForms' extender providers set a property on *another* control (`toolTip1.SetToolTip(btn, "x")`),
+  so the value belongs to the argument rather than to the field the call was made on.
+  `ExtenderProviderCatalog` holds one row per translatable setter, carrying both halves - which
+  property key the walker parks the value under, and which Avalonia attached property the emitter
+  turns it into - so the two cannot drift apart the way they could when both were hardcoded.
+- `ToolTip.SetToolTip` → `ToolTip.Tip`; `HelpProvider.SetHelpString` → `AutomationProperties.HelpText`.
+  The latter is the honest target rather than the convenient one: Avalonia has no F1-context-help
+  concept, but `AutomationProperties.HelpText` means "help text about this control", and unlike
+  `ToolTip.Tip` it cannot collide with a real `SetToolTip` on the same control. The keyboard
+  gesture is lost, the prose is not.
+- A setter on a recognised provider with no row - `SetShowHelp`, `SetHelpKeyword`, `SetError` - is
+  **reported by name**. It used to vanish silently, which is how `HelpProvider`'s entire
+  contribution to a form could disappear with nothing to notice.
+- Both attributes are only emitted where the target can carry one (`MappedControl.SupportsName`):
+  an attached property on a `DataGridTextColumn` is an AVLN2000 in the generated project.
+
 ## Captions and keyboard mnemonics
 
 - A WinForms caption carries its keyboard mnemonic inline (`&File` underlines the F, `&&` is a

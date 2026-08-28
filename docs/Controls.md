@@ -8,18 +8,31 @@ See `docs/known-limitations.md` for the structural parsing gaps referenced throu
 
 **Legend**: ✅ Direct = maps to a real, working Avalonia control. ✅ Fallback = maps to one of
 this tool's bundled placeholder controls (`src/WinFormsToAvalonia.FallbackControls/Templates/`).
-❌ Unsupported = registered with guidance text, but produces no Avalonia element — flagged for
-manual migration. 🚧 Not converted = a different problem entirely: the whole artifact kind is
-currently excluded from the conversion pipeline, so it never reaches the mapping registry at
-all. — = base/abstract class, never instantiated directly by designer code, so it has no
-registry entry at all.
+❌ Unsupported = registered with guidance text, but produces no Avalonia element. 🚧 Not
+converted = a different problem entirely: the whole artifact kind is currently excluded from the
+conversion pipeline, so it never reaches the mapping registry at all. — = base/abstract class,
+never instantiated directly by designer code, so it has no registry entry at all.
 
-**Summary**: 46 Direct, 14 Fallback (60 mapped) · 34 Unsupported (not mapped, guidance-only) ·
+**Why not**: only filled in for ❌ rows, because "no Avalonia element" covers three very different
+situations and reading the table gave no way to tell them apart. 🟡 Elsewhere = the feature *is*
+converted, just not as an element — a `Timer` becomes a `DispatcherTimer` field, an `ImageList`'s
+images become files in `Assets/`; the Notes say where it went, and there is nothing for a reader to
+do. ⚪ Unreachable = designer code never instantiates one (a `DataGridViewColumn`'s `CellTemplate`
+is set by its own constructor, `ToolStripDropDown` is a base class), so the entry exists only so an
+unusual input reports instead of hitting the generic "no mapping registered" message. ❌ No API =
+Avalonia has nothing to map to; permanently manual. This column is not free-form — it comes from
+`UnsupportedDisposition`, a required constructor argument on `UnsupportedControlMapper`, and
+`ControlsDocumentationTests` checks every cell against it.
+
+**Summary**: 45 Direct, 14 Fallback (59 mapped) · 33 Unsupported (not mapped, guidance-only:
+20 handled elsewhere, 8 unreachable from designer code, 5 no Avalonia API) ·
 10 base classes (not applicable) · `Form` and `UserControl` are both conversion roots (a Form
 becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in this table.
 
 These counts are checked against the rows below, which are in turn checked against the registry -
-they were wrong before anything checked them.
+they were wrong before anything checked them. Each type appears exactly once, which is also
+checked: `LinkLabel` and `PrintPreviewDialog` each had a second, cross-referencing row, and because
+the summary counts rows rather than types it agreed with itself while being two too high.
 
 > `MessageBoxFallback` is a bundled template too, but deliberately not part of these counts: it
 > is not a control mapping at all. Nothing in the AXAML ever references it — it is pulled in by
@@ -35,202 +48,208 @@ they were wrong before anything checked them.
 
 ### Basic / Container Controls
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `Control` | — | | Base class, never instantiated directly. |
-| `Form` | ✅ Converted | `Window` | Always the conversion root (becomes a View), never looked up in the mapping table. |
-| `UserControl` | ✅ Converted | `UserControl` | A conversion root like `Form`, not a table entry. A project's *own* UserControls additionally get a per-run `UserControlMapper`, so a Form hosting one emits the generated View element. See [Implementation plan](#usercontrol-conversion). |
-| `ScrollableControl` | — | | Base class. |
-| `ContainerControl` | — | | Base class. |
-| `Panel` | ✅ Direct | `Canvas` | |
-| `SplitContainer` | ✅ Direct | `Grid` | `Panel1`/`Panel2` children map either side of a `GridSplitter` (`Orientation=Horizontal` → stacked rows, default `Vertical` → side-by-side columns). |
-| `Splitter` | ✅ Direct | `GridSplitter` | WinForms' standalone docked drag-handle. Under the fixed Canvas layout strategy it is emitted as a positioned element; its original `Dock` stays in the `w2a:LayoutHint` attached property. |
-| `TabControl` | ✅ Direct | `TabControl` | |
-| `TabPage` | ✅ Direct | `TabItem` | Children wrapped in a `Canvas`. |
-| `FlowLayoutPanel` | ✅ Direct | `Canvas` | Flow layout semantics not translated. |
-| `TableLayoutPanel` | ✅ Direct | `Canvas` | Row/column layout semantics not translated. |
-| `GroupBox` | ✅ Fallback | `GroupBoxFallback` | |
-| `Label` | ✅ Direct | `TextBlock` | |
-| `LinkLabel` | ✅ Direct | `HyperlinkButton` | Its `LinkClicked` maps to `Click`; the `LinkLabelLinkClickedEventArgs.Link` payload has no equivalent. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `Control` | — | | | Base class, never instantiated directly. |
+| `Form` | ✅ Converted | `Window` | | Always the conversion root (becomes a View), never looked up in the mapping table. |
+| `UserControl` | ✅ Converted | `UserControl` | | A conversion root like `Form`, not a table entry. A project's *own* UserControls additionally get a per-run `UserControlMapper`, so a Form hosting one emits the generated View element. See [Implementation plan](#usercontrol-conversion). |
+| `ScrollableControl` | — | | | Base class. |
+| `ContainerControl` | — | | | Base class. |
+| `Panel` | ✅ Direct | `Canvas` | | |
+| `SplitContainer` | ✅ Direct | `Grid` | | `Panel1`/`Panel2` children map either side of a `GridSplitter` (`Orientation=Horizontal` → stacked rows, default `Vertical` → side-by-side columns). |
+| `Splitter` | ✅ Direct | `GridSplitter` | | WinForms' standalone docked drag-handle. Under the fixed Canvas layout strategy it is emitted as a positioned element; its original `Dock` stays in the `w2a:LayoutHint` attached property. |
+| `TabControl` | ✅ Direct | `TabControl` | | |
+| `TabPage` | ✅ Direct | `TabItem` | | Children wrapped in a `Canvas`. |
+| `FlowLayoutPanel` | ✅ Direct | `Canvas` | | Flow layout semantics not translated. |
+| `TableLayoutPanel` | ✅ Direct | `Canvas` | | Row/column layout semantics not translated. |
+| `GroupBox` | ✅ Fallback | `GroupBoxFallback` | | |
+| `Label` | ✅ Direct | `TextBlock` | | |
+| `LinkLabel` | ✅ Direct | `HyperlinkButton` | | Its `LinkClicked` maps to `Click`; the `LinkLabelLinkClickedEventArgs.Link` payload has no equivalent. |
 
 ### Buttons / Selection Controls
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `ButtonBase` | — | | Base class. |
-| `Button` | ✅ Direct | `Button` | |
-| `CheckBox` | ✅ Direct | `CheckBox` | |
-| `RadioButton` | ✅ Direct | `RadioButton` | |
-| `LinkLabel` | ✅ Direct | `HyperlinkButton` | Listed above. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `ButtonBase` | — | | | Base class. |
+| `Button` | ✅ Direct | `Button` | | |
+| `CheckBox` | ✅ Direct | `CheckBox` | | |
+| `RadioButton` | ✅ Direct | `RadioButton` | | |
+
+`LinkLabel` belongs here too and is listed once, under Basic / Container Controls.
 
 ### Text Input Controls
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `TextBoxBase` | — | | Base class. |
-| `TextBox` | ✅ Direct | `TextBox` | |
-| `RichTextBox` | ✅ Fallback | `RichTextBoxFallback` | |
-| `MaskedTextBox` | ✅ Fallback | `MaskedTextBoxFallback` | |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `TextBoxBase` | — | | | Base class. |
+| `TextBox` | ✅ Direct | `TextBox` | | |
+| `RichTextBox` | ✅ Fallback | `RichTextBoxFallback` | | |
+| `MaskedTextBox` | ✅ Fallback | `MaskedTextBoxFallback` | | |
 
 ### List / Selection Controls
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `ListControl` | — | | Base class. |
-| `ListBox` | ✅ Direct | `ListBox` | Designer-declared literal `Items` entries are emitted as `ListBoxItem` children. |
-| `CheckedListBox` | ✅ Direct | `ListBox` | Checkbox-per-item semantics not translated; literal `Items` entries are. |
-| `ComboBox` | ✅ Direct | `ComboBox` | Designer-declared literal `Items` entries are emitted as `ComboBoxItem` children. |
-| `ListView` | ✅ Direct | `DataGrid` / `ListBox` | Per-instance (`ListViewMapper`): `View=Details`, or any parsed `ColumnHeader` children, → `DataGrid` with its columns; otherwise `ListBox`. Items are not translated either way — the control is emitted without rows. |
-| `TreeView` | ✅ Direct | `TreeView` | |
-| `PropertyGrid` | ✅ Fallback | `PropertyGridFallback` | Reflection-based name/value editor. No categories, nested objects or custom editors. See [Implementation plan](#propertygrid). |
-| `DataGridView` | ✅ Direct | `DataGrid` | Requires the `Avalonia.Controls.DataGrid` NuGet package; all six column types nest under `<DataGrid.Columns>`. |
-| `DomainUpDown` | ✅ Fallback | `DomainUpDownFallback` | The fallback takes no item elements, so its designer-declared `Items` are **reported** rather than emitted — populate by hand or bind from the ViewModel. |
-| `NumericUpDown` | ✅ Direct | `NumericUpDown` | |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `ListControl` | — | | | Base class. |
+| `ListBox` | ✅ Direct | `ListBox` | | Designer-declared literal `Items` entries are emitted as `ListBoxItem` children. |
+| `CheckedListBox` | ✅ Direct | `ListBox` | | Checkbox-per-item semantics not translated; literal `Items` entries are. |
+| `ComboBox` | ✅ Direct | `ComboBox` | | Designer-declared literal `Items` entries are emitted as `ComboBoxItem` children. |
+| `ListView` | ✅ Direct | `DataGrid` / `ListBox` | | Per-instance (`ListViewMapper`): `View=Details`, or any parsed `ColumnHeader` children, → `DataGrid` with its columns; otherwise `ListBox`. Items are not translated either way — the control is emitted without rows. |
+| `TreeView` | ✅ Direct | `TreeView` | | |
+| `PropertyGrid` | ✅ Fallback | `PropertyGridFallback` | | Reflection-based name/value editor. No categories, nested objects or custom editors. See [Implementation plan](#propertygrid). |
+| `DataGridView` | ✅ Direct | `DataGrid` | | Requires the `Avalonia.Controls.DataGrid` NuGet package; all six column types nest under `<DataGrid.Columns>`. |
+| `DomainUpDown` | ✅ Fallback | `DomainUpDownFallback` | | The fallback takes no item elements, so its designer-declared `Items` are **reported** rather than emitted — populate by hand or bind from the ViewModel. |
+| `NumericUpDown` | ✅ Direct | `NumericUpDown` | | |
 
 ### Date / Time Controls
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `DateTimePicker` | ✅ Direct | `CalendarDatePicker` | Closest built-in analog; time-of-day component not represented. |
-| `MonthCalendar` | ✅ Direct | `Calendar` | Selection ranges not translated. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `DateTimePicker` | ✅ Direct | `CalendarDatePicker` | | Closest built-in analog; time-of-day component not represented. |
+| `MonthCalendar` | ✅ Direct | `Calendar` | | Selection ranges not translated. |
 
 ### Visual Controls
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `PictureBox` | ✅ Direct | `Image` | Its `Image` is recovered from the form's `.resx` and copied into `Assets/`, then bound via `Source`. A payload `ResxImageExtractor` can't decode is reported instead of emitted. |
-| `ProgressBar` | ✅ Direct | `ProgressBar` | |
-| `TrackBar` | ✅ Direct | `Slider` | Its `Scroll` maps to `ValueChanged` (which also fires on programmatic changes). |
-| `HScrollBar` | ✅ Direct | `ScrollBar` | Fixed `Orientation="Horizontal"`; its `Scroll` maps to Avalonia's `ScrollBar.Scroll`. |
-| `VScrollBar` | ✅ Direct | `ScrollBar` | Fixed `Orientation="Vertical"`; its `Scroll` maps to Avalonia's `ScrollBar.Scroll`. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `PictureBox` | ✅ Direct | `Image` | | Its `Image` is recovered from the form's `.resx` and copied into `Assets/`, then bound via `Source`. A payload `ResxImageExtractor` can't decode is reported instead of emitted. |
+| `ProgressBar` | ✅ Direct | `ProgressBar` | | |
+| `TrackBar` | ✅ Direct | `Slider` | | Its `Scroll` maps to `ValueChanged` (which also fires on programmatic changes). |
+| `HScrollBar` | ✅ Direct | `ScrollBar` | | Fixed `Orientation="Horizontal"`; its `Scroll` maps to Avalonia's `ScrollBar.Scroll`. |
+| `VScrollBar` | ✅ Direct | `ScrollBar` | | Fixed `Orientation="Vertical"`; its `Scroll` maps to Avalonia's `ScrollBar.Scroll`. |
 
 ### Menu / Toolbar Controls
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `MenuStrip` | ✅ Direct | `Menu` | Items are real `MenuItem`/`Separator` children (nested `DropDownItems` become nested `MenuItem`s) — promoted from `Fallback` once item parsing landed; `MenuStripFallback` was deleted as superseded. |
-| `ToolStrip` | ✅ Fallback | `ToolStripFallback` | Now a `StackPanel` hosting its real `ToolStripButton`/`Label`/`ComboBox`/`TextBox`/`ProgressBar` item children. |
-| `StatusStrip` | ✅ Fallback | `StatusStripFallback` | Now a `StackPanel` hosting its real `ToolStripStatusLabel` item children. |
-| `ContextMenuStrip` | ❌ Unsupported | | The component itself has no element — but `this.someControl.ContextMenuStrip = this.contextMenuStrip1` assignments ARE now translated automatically into a nested `<Control.ContextMenu>` on the target control. See [Implementation plan](#contextmenustrip). |
-| `ToolStripContainer` | ✅ Fallback | `ToolStripContainerFallback` | Builds the 5-region docked layout; nested content not auto-migrated (3-level member-access chain not parsed). |
-| `ToolStripPanel` | ✅ Fallback | `ToolStripPanelFallback` | |
-| `ToolStripContentPanel` | ✅ Fallback | `ToolStripContentPanelFallback` | |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `MenuStrip` | ✅ Direct | `Menu` | | Items are real `MenuItem`/`Separator` children (nested `DropDownItems` become nested `MenuItem`s) — promoted from `Fallback` once item parsing landed; `MenuStripFallback` was deleted as superseded. |
+| `ToolStrip` | ✅ Fallback | `ToolStripFallback` | | Now a `StackPanel` hosting its real `ToolStripButton`/`Label`/`ComboBox`/`TextBox`/`ProgressBar` item children. |
+| `StatusStrip` | ✅ Fallback | `StatusStripFallback` | | Now a `StackPanel` hosting its real `ToolStripStatusLabel` item children. |
+| `ContextMenuStrip` | ❌ Unsupported | | 🟡 Elsewhere | The component itself has no element — but `this.someControl.ContextMenuStrip = this.contextMenuStrip1` assignments ARE now translated automatically into a nested `<Control.ContextMenu>` on the target control. See [Implementation plan](#contextmenustrip). |
+| `ToolStripContainer` | ✅ Fallback | `ToolStripContainerFallback` | | Builds the 5-region docked layout; nested content not auto-migrated (3-level member-access chain not parsed). |
+| `ToolStripPanel` | ✅ Fallback | `ToolStripPanelFallback` | | |
+| `ToolStripContentPanel` | ✅ Fallback | `ToolStripContentPanelFallback` | | |
 
 ### ToolStrip Items
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `ToolStripItem` | — | | Base class. |
-| `ToolStripButton` | ✅ Direct | `Button` | |
-| `ToolStripLabel` | ✅ Direct | `TextBlock` | |
-| `ToolStripTextBox` | ✅ Direct | `TextBox` | |
-| `ToolStripComboBox` | ✅ Direct | `ComboBox` | |
-| `ToolStripDropDownButton` | ✅ Direct | `Button` | `DropDownItems` nest through a two-level `Button.Flyout` > `MenuFlyout` child wrapper. |
-| `ToolStripSplitButton` | ✅ Direct | `SplitButton` | Same two-level `SplitButton.Flyout` > `MenuFlyout` wrapper. |
-| `ToolStripSeparator` | ✅ Direct | `Separator` | |
-| `ToolStripControlHost` | ❌ Unsupported | | Hosts an arbitrary embedded `Control` — too dynamic to translate generically. |
-| `ToolStripProgressBar` | ✅ Direct | `ProgressBar` | |
-| `ToolStripStatusLabel` | ✅ Direct | `TextBlock` | |
-| `ToolStripDropDown` | ❌ Unsupported | | Base class for drop-down surfaces — rarely instantiated directly. |
-| `ToolStripMenuItem` | ✅ Direct | `MenuItem` | Nested `DropDownItems` become nested `MenuItem`/`Separator` children automatically. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `ToolStripItem` | — | | | Base class. |
+| `ToolStripButton` | ✅ Direct | `Button` | | |
+| `ToolStripLabel` | ✅ Direct | `TextBlock` | | |
+| `ToolStripTextBox` | ✅ Direct | `TextBox` | | |
+| `ToolStripComboBox` | ✅ Direct | `ComboBox` | | |
+| `ToolStripDropDownButton` | ✅ Direct | `Button` | | `DropDownItems` nest through a two-level `Button.Flyout` > `MenuFlyout` child wrapper. |
+| `ToolStripSplitButton` | ✅ Direct | `SplitButton` | | Same two-level `SplitButton.Flyout` > `MenuFlyout` wrapper. |
+| `ToolStripSeparator` | ✅ Direct | `Separator` | | |
+| `ToolStripControlHost` | ❌ Unsupported | | 🟡 Elsewhere | The host has no element of its own, but `new ToolStripControlHost(this.someControl)` is translated — the hosted control is emitted in its place. Only an argument that is not a designer field reaches this entry. See [Implementation plan](#toolstripcontrolhost). |
+| `ToolStripProgressBar` | ✅ Direct | `ProgressBar` | | |
+| `ToolStripStatusLabel` | ✅ Direct | `TextBlock` | | |
+| `ToolStripDropDown` | ❌ Unsupported | | ⚪ Unreachable | Base class for drop-down surfaces — rarely instantiated directly. |
+| `ToolStripMenuItem` | ✅ Direct | `MenuItem` | | Nested `DropDownItems` become nested `MenuItem`/`Separator` children automatically. |
 
 ### Web / Document Controls
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `WebBrowser` | ✅ Fallback | `WebBrowserFallback` | Visible placeholder showing the designer's `Url`. Avalonia ships no webview and the community ones are platform-specific extra dependencies. See [Implementation plan](#webbrowser). |
-| `WebBrowserBase` | — | | Base class. |
-| `PrintPreviewControl` | ✅ Fallback | `PrintPreviewControlFallback` | Page-shaped placeholder — Avalonia has no printing API to preview from. |
-| `PrintPreviewDialog` | ❌ Unsupported | | No Avalonia printing API. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `WebBrowser` | ✅ Fallback | `WebBrowserFallback` | | Visible placeholder showing the designer's `Url`. Avalonia ships no webview and the community ones are platform-specific extra dependencies. See [Implementation plan](#webbrowser). |
+| `WebBrowserBase` | — | | | Base class. |
+| `PrintPreviewControl` | ✅ Fallback | `PrintPreviewControlFallback` | | Page-shaped placeholder — Avalonia has no printing API to preview from. |
+
+The *dialog* it belongs to, `PrintPreviewDialog`, is listed once, under Common Dialog Components.
 
 ## Components
 
 ### Common Dialog Components
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `OpenFileDialog` | ❌ Unsupported | | Now generates an async `[RelayCommand]` ViewModel stub calling `TopLevel.StorageProvider.OpenFilePickerAsync`. See [Implementation plan](#file-dialogs). |
-| `SaveFileDialog` | ❌ Unsupported | | Same as above, calling `SaveFilePickerAsync`. |
-| `FolderBrowserDialog` | ❌ Unsupported | | Same as above, calling `OpenFolderPickerAsync`. |
-| `ColorDialog` | ❌ Unsupported | | No built-in Avalonia colour picker *dialog*, but there is a real `ColorView` — so a handler's `ShowDialog` is translated inline onto the bundled `ColorDialogFallback`, which wraps it. Needs the `Avalonia.Controls.ColorPicker` package. |
-| `FontDialog` | ❌ Unsupported | | No Avalonia equivalent, so the bundled `FontDialogFallback` provides one, listing `FontManager.Current.SystemFonts`. Family/size/bold/italic only. |
-| `PrintDialog` | ❌ Unsupported | | No Avalonia printing API. |
-| `PageSetupDialog` | ❌ Unsupported | | No Avalonia printing API. |
-| `PrintPreviewDialog` | ❌ Unsupported | | No Avalonia printing API. |
-| `PrintDocument` | ❌ Unsupported | | No Avalonia printing API, same as the three dialogs above. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `OpenFileDialog` | ❌ Unsupported | | 🟡 Elsewhere | Now generates an async `[RelayCommand]` ViewModel stub calling `TopLevel.StorageProvider.OpenFilePickerAsync`. See [Implementation plan](#file-dialogs). |
+| `SaveFileDialog` | ❌ Unsupported | | 🟡 Elsewhere | Same as above, calling `SaveFilePickerAsync`. |
+| `FolderBrowserDialog` | ❌ Unsupported | | 🟡 Elsewhere | Same as above, calling `OpenFolderPickerAsync`. |
+| `ColorDialog` | ❌ Unsupported | | 🟡 Elsewhere | No built-in Avalonia colour picker *dialog*, but there is a real `ColorView` — so a handler's `ShowDialog` is translated inline onto the bundled `ColorDialogFallback`, in both the `== DialogResult.OK` and the guard-clause shape. Needs the `Avalonia.Controls.ColorPicker` package. A seed value assigned before the call is not carried over. |
+| `FontDialog` | ❌ Unsupported | | 🟡 Elsewhere | No Avalonia equivalent, so the bundled `FontDialogFallback` provides one, listing `FontManager.Current.SystemFonts`. Family/size/bold/italic only. |
+| `PrintDialog` | ❌ Unsupported | | ❌ No API | No Avalonia printing API. |
+| `PageSetupDialog` | ❌ Unsupported | | ❌ No API | No Avalonia printing API. |
+| `PrintPreviewDialog` | ❌ Unsupported | | ❌ No API | No Avalonia printing API. |
+| `PrintDocument` | ❌ Unsupported | | ❌ No API | No Avalonia printing API, same as the three dialogs above. |
 
 ### Data Binding Components
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `BindingSource` | ❌ Unsupported | | Recommend `ObservableCollection<T>` in the ViewModel. |
-| `BindingNavigator` | ✅ Fallback | `BindingNavigatorFallback` | A `StackPanel` (it is a `ToolStrip` subclass, so its designer-declared items render for real) with `Position`/`Count` properties to bind. Navigates nothing on its own. See [Implementation plan](#bindingnavigator). |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `BindingSource` | ❌ Unsupported | | ❌ No API | Recommend `ObservableCollection<T>` in the ViewModel. |
+| `BindingNavigator` | ✅ Fallback | `BindingNavigatorFallback` | | A `StackPanel` (it is a `ToolStrip` subclass, so its designer-declared items render for real) with `Position`/`Count` properties to bind. Navigates nothing on its own. See [Implementation plan](#bindingnavigator). |
 
 ### Timer / Background Components
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `Timer` | ❌ Unsupported | | Generates a `DispatcherTimer` field, its `Interval` and its `Tick` wiring **on the View**, gated on the component actually having a `Tick` handler. A handler body can drive it (`Enabled`, `Start()`, `Stop()`; `Interval` write-only). See [Implementation plan](#timer). |
-| `BackgroundWorker` | ❌ Unsupported | | Emitted as a **real field** on the View (`ComponentFieldCatalog`), designer values and events wired, so handler bodies keep working. `Task.Run` with `IProgress<T>` is the better end state, but that is a redesign, not a migration step. |
-| `FileSystemWatcher` | ❌ Unsupported | | Emitted as a **real field** on the View — same .NET type, designer values applied, events subscribed. See [Implementation plan](#framework-agnostic-components). |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `Timer` | ❌ Unsupported | | 🟡 Elsewhere | Generates a `DispatcherTimer` field, its `Interval` and its `Tick` wiring **on the View**, gated on the component actually having a `Tick` handler. A handler body can drive it (`Enabled`, `Start()`, `Stop()`; `Interval` write-only). See [Implementation plan](#timer). |
+| `BackgroundWorker` | ❌ Unsupported | | 🟡 Elsewhere | Emitted as a **real field** on the View (`ComponentFieldCatalog`), designer values and events wired, so handler bodies keep working. `Task.Run` with `IProgress<T>` is the better end state, but that is a redesign, not a migration step. |
+| `FileSystemWatcher` | ❌ Unsupported | | 🟡 Elsewhere | Emitted as a **real field** on the View — same .NET type, designer values applied, events subscribed. See [Implementation plan](#framework-agnostic-components). |
 
 ### Windows / System Components
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `Process` | ❌ Unsupported | | Emitted as a **real field** on the View; nested paths like `process1.StartInfo.FileName` translate too. |
-| `EventLog` | ❌ Unsupported | | Real field, but **built lazily** — Windows-only, so eager construction made the converted app unlaunchable elsewhere. Needs the `System.Diagnostics.EventLog` package. |
-| `PerformanceCounter` | ❌ Unsupported | | Real field, built lazily (Windows-only). Needs the `System.Diagnostics.PerformanceCounter` package. |
-| `ServiceController` | ❌ Unsupported | | Real field, built lazily (Windows-only). Needs the `System.ServiceProcess.ServiceController` package. |
-| `SerialPort` | ❌ Unsupported | | Real field, eagerly — it looks Windows-shaped and is not, which was checked against a real build rather than assumed. Needs the `System.IO.Ports` package. |
-| `SoundPlayer` | ❌ Unsupported | | Real field, built lazily (Windows-only). There is no Avalonia audio API either, so a cross-platform library is the eventual answer. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `Process` | ❌ Unsupported | | 🟡 Elsewhere | Emitted as a **real field** on the View; nested paths like `process1.StartInfo.FileName` translate too. |
+| `EventLog` | ❌ Unsupported | | 🟡 Elsewhere | Real field, but **built lazily** — Windows-only, so eager construction made the converted app unlaunchable elsewhere. Needs the `System.Diagnostics.EventLog` package. |
+| `PerformanceCounter` | ❌ Unsupported | | 🟡 Elsewhere | Real field, built lazily (Windows-only). Needs the `System.Diagnostics.PerformanceCounter` package. |
+| `ServiceController` | ❌ Unsupported | | 🟡 Elsewhere | Real field, built lazily (Windows-only). Needs the `System.ServiceProcess.ServiceController` package. |
+| `SerialPort` | ❌ Unsupported | | 🟡 Elsewhere | Real field, eagerly — it looks Windows-shaped and is not, which was checked against a real build rather than assumed. Needs the `System.IO.Ports` package. |
+| `SoundPlayer` | ❌ Unsupported | | 🟡 Elsewhere | Real field, built lazily (Windows-only). There is no Avalonia audio API either, so a cross-platform library is the eventual answer. |
 
 ### UI Helper Components
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `ToolTip` | ❌ Unsupported | | The component itself has no element, but `SetToolTip(...)` calls are now translated automatically into a `ToolTip.Tip` attribute on the target control. See [Implementation plan](#tooltip). |
-| `HelpProvider` | ❌ Unsupported | | No Avalonia analog — permanently guidance-only. |
-| `ErrorProvider` | ✅ Fallback | `ErrorProviderFallback` | An attached property rather than a control, so it has no element of its own — and `errorProvider1.SetError(ctrl, "…")` in a handler body is translated into a static call on the template. |
-| `NotifyIcon` | ❌ Unsupported | | Aggregated across all forms into App.axaml's `TrayIcon.Icons`. The icon is copied into `Assets/` from either a literal path or the form's `.resx`; only when it is neither — a computed `Icon`, or an undecodable payload — is the block emitted **commented out** with a TODO, because Avalonia resolves `TrayIcon.Icon` at run time and a dangling asset reference throws out of `App.Initialize()`. See [Implementation plan](#notifyicon). |
-| `ImageList` | ❌ Unsupported | | The type has no element, but its images are extracted: the `.resx` `ImageStream` is decoded into `Assets/<field>_<index>.png`, and an `ImageIndex` into it becomes a `MenuItem.Icon` — the only per-item image slot Avalonia has. See [Implementation plan](#imagelist). |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `ToolTip` | ❌ Unsupported | | 🟡 Elsewhere | The component itself has no element, but `SetToolTip(...)` calls are now translated automatically into a `ToolTip.Tip` attribute on the target control. See [Implementation plan](#tooltip). |
+| `HelpProvider` | ❌ Unsupported | | 🟡 Elsewhere | The component has no element, but `SetHelpString(ctrl, "…")` is now translated into `AutomationProperties.HelpText` on the target. The F1 gesture has no equivalent, so `SetShowHelp` and `HelpNamespace` are reported instead. See [Implementation plan](#helpprovider). |
+| `ErrorProvider` | ✅ Fallback | `ErrorProviderFallback` | | An attached property rather than a control, so it has no element of its own — and `errorProvider1.SetError(ctrl, "…")` in a handler body is translated into a static call on the template. |
+| `NotifyIcon` | ❌ Unsupported | | 🟡 Elsewhere | Aggregated across all forms into App.axaml's `TrayIcon.Icons`. The icon is copied into `Assets/` from either a literal path or the form's `.resx`; only when it is neither — a computed `Icon`, or an undecodable payload — is the block emitted **commented out** with a TODO, because Avalonia resolves `TrayIcon.Icon` at run time and a dangling asset reference throws out of `App.Initialize()`. A designer-wired `Click` becomes `TrayIcon.Clicked`, subscribed from the View's constructor; the events Avalonia's TrayIcon does not have are reported. See [Implementation plan](#notifyicon). |
+| `ImageList` | ❌ Unsupported | | 🟡 Elsewhere | The type has no element, but its images are extracted: the `.resx` `ImageStream` is decoded into `Assets/<field>_<index>.png`, and an `ImageIndex` into it becomes a `MenuItem.Icon` — the only per-item image slot Avalonia has. See [Implementation plan](#imagelist). |
 
 ## DataGridView Related Types
 
 ### DataGridView Columns
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `DataGridViewColumn` | — | | Base class. |
-| `DataGridViewTextBoxColumn` | ✅ Direct | `DataGridTextColumn` | Nested under `<DataGrid.Columns>`. |
-| `DataGridViewCheckBoxColumn` | ✅ Direct | `DataGridCheckBoxColumn` | |
-| `DataGridViewComboBoxColumn` | ✅ Direct | `DataGridTemplateColumn` | Avalonia has no `DataGridComboBoxColumn` — a `ComboBox` cell template instead. |
-| `DataGridViewButtonColumn` | ✅ Direct | `DataGridTemplateColumn` | `Button` cell template, carrying the column's `Text` as its `Content`. |
-| `DataGridViewImageColumn` | ✅ Direct | `DataGridTemplateColumn` | `Image` cell template. |
-| `DataGridViewLinkColumn` | ✅ Direct | `DataGridTemplateColumn` | `HyperlinkButton` cell template. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `DataGridViewColumn` | — | | | Base class. |
+| `DataGridViewTextBoxColumn` | ✅ Direct | `DataGridTextColumn` | | Nested under `<DataGrid.Columns>`. |
+| `DataGridViewCheckBoxColumn` | ✅ Direct | `DataGridCheckBoxColumn` | | |
+| `DataGridViewComboBoxColumn` | ✅ Direct | `DataGridTemplateColumn` | | Avalonia has no `DataGridComboBoxColumn` — a `ComboBox` cell template instead. |
+| `DataGridViewButtonColumn` | ✅ Direct | `DataGridTemplateColumn` | | `Button` cell template, carrying the column's `Text` as its `Content`. |
+| `DataGridViewImageColumn` | ✅ Direct | `DataGridTemplateColumn` | | `Image` cell template. |
+| `DataGridViewLinkColumn` | ✅ Direct | `DataGridTemplateColumn` | | `HyperlinkButton` cell template. |
 
-The generated cell templates are **unbound**: Designer.cs records the column, never which
-row-model property it displays, so each emitted `DataTemplate` carries a `TODO` comment asking
-for the binding.
+`DataPropertyName` becomes the column's `Binding` on the two types Avalonia gives one to. It is a
+`{ReflectionBinding}` rather than a `{Binding}` on purpose: the generated view's root carries an
+`x:DataType`, which compiles every `{Binding}` inside it against the *ViewModel*, while a column's
+path names a member of the **row** object — a plain `{Binding}` failed the generated build outright
+with AVLN2000. The template columns stay unbound (`DataGridTemplateColumn` has no `Binding`, and
+which member of the cell element the value belongs to is not decidable), but their `TODO` comment
+now names the `DataPropertyName` the designer recorded.
 
 ### ListView Columns
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `ColumnHeader` | ✅ Direct | `DataGridTextColumn` | `Text` → `Header`, `Width` → `Width`; nested under the `<DataGrid.Columns>` of the `DataGrid` a Details-mode `ListView` maps to. |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `ColumnHeader` | ✅ Direct | `DataGridTextColumn` | | `Text` → `Header`, `Width` → `Width`; nested under the `<DataGrid.Columns>` of the `DataGrid` a Details-mode `ListView` maps to. |
 
 ### DataGridView Cells
 
-| WinForms type | Status | Avalonia target | Notes |
-|---|---|---|---|
-| `DataGridViewCell` | — | | Base class. |
-| `DataGridViewTextBoxCell` | ❌ Unsupported | | See [Implementation plan](#datagridview-columns). |
-| `DataGridViewCheckBoxCell` | ❌ Unsupported | | " |
-| `DataGridViewComboBoxCell` | ❌ Unsupported | | " |
-| `DataGridViewButtonCell` | ❌ Unsupported | | " |
-| `DataGridViewImageCell` | ❌ Unsupported | | " |
-| `DataGridViewLinkCell` | ❌ Unsupported | | " |
-| `DataGridViewHeaderCell` | ❌ Unsupported | | " |
+| WinForms type | Status | Avalonia target | Why not | Notes |
+|---|---|---|---|---|
+| `DataGridViewCell` | — | | | Base class. |
+| `DataGridViewTextBoxCell` | ❌ Unsupported | | ⚪ Unreachable | See [Implementation plan](#datagridview-columns). |
+| `DataGridViewCheckBoxCell` | ❌ Unsupported | | ⚪ Unreachable | " |
+| `DataGridViewComboBoxCell` | ❌ Unsupported | | ⚪ Unreachable | " |
+| `DataGridViewButtonCell` | ❌ Unsupported | | ⚪ Unreachable | " |
+| `DataGridViewImageCell` | ❌ Unsupported | | ⚪ Unreachable | " |
+| `DataGridViewLinkCell` | ❌ Unsupported | | ⚪ Unreachable | " |
+| `DataGridViewHeaderCell` | ❌ Unsupported | | ⚪ Unreachable | " |
 
 ---
 
@@ -284,7 +303,9 @@ through the new `TemplateColumnMapper`, which emits a `DataGridTemplateColumn` p
 `CellTemplate` (via `MappedControl.NestedElements`, a mapper-prescribed element subtree
 `AxamlEmitter` walks recursively). The cell content cannot be bound automatically - Designer.cs
 records the column but not its `DataPropertyName`-to-view-model mapping - so each template
-carries a `TODO` comment. The 7 `DataGridViewCell` subtypes are left as-is; in practice they're
+carries a `TODO` comment **naming the `DataPropertyName`** when the designer recorded one — which
+it does for a bound column; the claim that Designer.cs never records it was simply wrong, and this
+repo's own sample was the unfaithful one. The 7 `DataGridViewCell` subtypes are left as-is; in practice they're
 essentially never separately instantiated in real Designer.cs (only Columns are - each
 column's `CellTemplate` is set internally by its own constructor).
 
@@ -320,6 +341,27 @@ per owner (Avalonia's `ContextMenu` isn't a shareable instance the way WinForms'
 `NativeMenu`/`NativeMenuItem`, a structurally different target from `Control.ContextMenu`.
 The registry entry stays `Unsupported` (same pattern as `ToolTip`) since the component itself
 is never resolved via `_registry.Map` - the capability ships through the owner control instead.
+
+### ToolStripControlHost
+
+**Done.**
+The type exists because a `ToolStrip` only accepts `ToolStripItem`s — it is plumbing around an
+ordinary `Control`, and it has **no parameterless constructor**, so
+`new ToolStripControlHost(this.hostedTrackBar)` is the only shape a designer can produce and the
+hosted control is always named right there. The old guidance called this "too dynamic to translate
+generically"; it was wrong, and the price was that the hosted control disappeared from the
+conversion entirely while the host left a TODO comment in its place.
+
+`HostedControlCatalog` names the constructor argument, `DesignerSyntaxWalker` records the alias,
+and `ControlGraphBuilder` rewrites the parent/child edge so the hosted control lands where the host
+was — the same tree-assembly job as its existing `SplitContainer.Panel1` decoding, and the reason
+it is not done in the walker: the host keeps taking property assignments until the last statement.
+
+Two things are refused rather than guessed at, both because they would break the generated build or
+lose something silently: a hosted control that is *also* added to a container of its own (one
+control, two places, `AVLN1001`), and the host's own settings — its `Size` moves only into a gap,
+since WinForms keeps the two in sync, while `Alignment`/`Overflow`/`DisplayStyle` and any event
+subscribed on the host are reported by name.
 
 ### ToolStripContainer, ToolStripPanel, ToolStripContentPanel
 
@@ -470,8 +512,20 @@ broader `BindingSource`→`ObservableCollection<T>` translation feature that doe
 
 ### HelpProvider
 
-No Avalonia analog at all (WinForms' F1-context-help concept has no equivalent) — no
-realistic implementation plan, permanently guidance-only.
+**Done, for the half that has a target.**
+`ExtenderProviderCatalog` generalises what used to be a hardcoded `SetToolTip` path into a table of
+WinForms extender providers — the components that set a property on *another* control instead of
+having one of their own. `helpProvider1.SetHelpString(this.notesRichTextBox, "…")` now lands on the
+target as `AutomationProperties.HelpText`.
+
+That is the right slot rather than the convenient one: Avalonia has no F1-context-help concept, but
+`AutomationProperties.HelpText` means exactly "help text about this control", and unlike
+`ToolTip.Tip` it cannot collide with a real `SetToolTip` on the same control. The keyboard gesture
+is lost; the prose the developer wrote is not, and it used to vanish without even a warning.
+
+`SetShowHelp(bool)` and `HelpNamespace` (a URL) have no target at all and are reported by name —
+as is any other setter on a recognised provider, which is what stops the next one from
+disappearing silently.
 
 ### Framework-agnostic components
 

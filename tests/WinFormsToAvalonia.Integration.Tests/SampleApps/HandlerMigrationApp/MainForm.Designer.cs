@@ -29,6 +29,7 @@ namespace HandlerMigrationApp
             this.colorButton = new System.Windows.Forms.Button();
             this.colorDialog1 = new System.Windows.Forms.ColorDialog();
             this.pickColorButton = new System.Windows.Forms.Button();
+            this.guardColorButton = new System.Windows.Forms.Button();
             this.confirmButton = new System.Windows.Forms.Button();
             this.trimButton = new System.Windows.Forms.Button();
             this.flagButton = new System.Windows.Forms.Button();
@@ -153,6 +154,14 @@ namespace HandlerMigrationApp
             this.pickColorButton.Size = new System.Drawing.Size(90, 28);
             this.pickColorButton.Text = "Pick";
             this.pickColorButton.Click += new System.EventHandler(this.pickColorButton_Click);
+            //
+            // guardColorButton
+            //
+            this.guardColorButton.Location = new System.Drawing.Point(512, 46);
+            this.guardColorButton.Name = "guardColorButton";
+            this.guardColorButton.Size = new System.Drawing.Size(90, 28);
+            this.guardColorButton.Text = "Guard";
+            this.guardColorButton.Click += new System.EventHandler(this.guardColorButton_Click);
             this.Controls.Add(this.colorButton);
             this.confirmButton.Location = new System.Drawing.Point(608, 12);
             this.confirmButton.Name = "confirmButton";
@@ -160,6 +169,7 @@ namespace HandlerMigrationApp
             this.confirmButton.Text = "Confirm";
             this.confirmButton.Click += new System.EventHandler(this.confirmButton_Click);
             this.Controls.Add(this.pickColorButton);
+            this.Controls.Add(this.guardColorButton);
             this.trimButton.Location = new System.Drawing.Point(704, 12);
             this.trimButton.Name = "trimButton";
             this.trimButton.Size = new System.Drawing.Size(90, 28);
@@ -177,6 +187,7 @@ namespace HandlerMigrationApp
         private System.Windows.Forms.Button flagButton;
         private System.Windows.Forms.Button colorButton;
         private System.Windows.Forms.Button pickColorButton;
+        private System.Windows.Forms.Button guardColorButton;
         private System.Windows.Forms.Button confirmButton;
         private System.Windows.Forms.Button trimButton;
         private System.Windows.Forms.ColorDialog colorDialog1;

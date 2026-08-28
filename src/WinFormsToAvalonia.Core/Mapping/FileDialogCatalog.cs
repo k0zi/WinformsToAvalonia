@@ -21,7 +21,10 @@ public sealed record FileDialogKind(
 /// </summary>
 /// <remarks>
 /// Only these three have an Avalonia equivalent at all. <c>ColorDialog</c>, <c>FontDialog</c> and
-/// the print dialogs have none, so they stay guidance-only - see docs/known-limitations.md.
+/// the print dialogs have none. ColorDialog and FontDialog are handled a level up, by
+/// HandlerBodyRewriter's VisualDialogs table over the bundled fallback controls - the shapes are
+/// the same, the replacement is not a picker. Only the print dialogs stay guidance-only; see
+/// docs/known-limitations.md.
 /// </remarks>
 public static class FileDialogCatalog
 {

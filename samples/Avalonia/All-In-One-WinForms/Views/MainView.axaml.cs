@@ -519,7 +519,7 @@ public partial class MainView : Window
         Log($"{e.ChangeType}: {e.FullPath}");
     }
 
-    private void notifyIcon1_DoubleClick(object? sender, TappedEventArgs e)
+    private void notifyIcon1_DoubleClick(object? sender, EventArgs e)
     {
         WindowState = WindowState.Normal;
         Activate();

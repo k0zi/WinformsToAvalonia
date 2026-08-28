@@ -66,6 +66,21 @@ namespace HandlerMigrationApp
             }
         }
 
+        // The other dialog idiom: a guard clause instead of a nested branch. Equivalent because
+        // the then-branch is an unconditional return, so C# definite assignment keeps the picked
+        // value in scope for the rest of the body - and the generated project has to compile with
+        // an `is not` pattern doing exactly that, which is why this fixture builds.
+        private void guardColorButton_Click(object sender, EventArgs e)
+        {
+            if (this.colorDialog1.ShowDialog(this) != DialogResult.OK)
+            {
+                return;
+            }
+
+            this.nameTextBox.BackColor = this.colorDialog1.Color;
+            this.statusLabel.Text = "Colour picked";
+        }
+
         // Colours: WinForms writes a Color, Avalonia wants a brush - and which of the two
         // properties exists at all depends on the element the control maps to.
         private void colorButton_Click(object sender, EventArgs e)

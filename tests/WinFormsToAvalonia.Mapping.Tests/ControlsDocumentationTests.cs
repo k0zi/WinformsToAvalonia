@@ -17,7 +17,7 @@ public class ControlsDocumentationTests
 {
     [Theory]
     [MemberData(nameof(DocumentedRows))]
-    public void DocumentedRow_MatchesTheRegistry(string winFormsTypeName, string status, string targets)
+    public void DocumentedRow_MatchesTheRegistry(string winFormsTypeName, string status, string targets, string why)
     {
         var registry = new ControlMappingRegistry();
         var hasMapper = registry.Mappers.ContainsKey(winFormsTypeName);
@@ -49,11 +49,23 @@ public class ControlsDocumentationTests
             mapped.Status == expected,
             $"The doc says '{winFormsTypeName}' is {status}, but the registry maps it as {mapped.Status}.");
 
-        // An Unsupported entry produces no element, so the doc's target column is empty for it.
+        // An Unsupported entry produces no element, so the doc's target column is empty for it -
+        // but its "Why not" cell has to say which of the three kinds of "no element" it is.
         if (expected == MappingStatus.Unsupported)
         {
+            var mapper = Assert.IsType<UnsupportedControlMapper>(registry.Mappers[winFormsTypeName]);
+
+            Assert.True(
+                ExpectedDisposition(why) == mapper.Disposition,
+                $"The doc calls '{winFormsTypeName}' {why}, but the registry classifies it as {mapper.Disposition}.");
+
             return;
         }
+
+        // The other direction, so a stray glyph on a mapped row cannot sit there unnoticed.
+        Assert.True(
+            why.Length == 0,
+            $"'{winFormsTypeName}' is {status}, so its 'Why not' cell must be empty - it said '{why}'.");
 
         var actual = expected == MappingStatus.Fallback ? mapped.FallbackTemplateKey : mapped.AvaloniaElementName;
 
@@ -96,24 +108,84 @@ public class ControlsDocumentationTests
         var unsupported = counts.GetValueOrDefault("❌ Unsupported");
         var baseClasses = counts.GetValueOrDefault(BaseClassStatus);
 
+        var why = ParsedRows
+            .Where(r => r.Status == "❌ Unsupported")
+            .GroupBy(r => r.Why, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+
         var summary = File.ReadAllLines(Path.Combine(RepositoryRoot(), "docs", "Controls.md"))
             .First(l => l.StartsWith("**Summary**:", StringComparison.Ordinal));
 
         Assert.Equal(
             $"**Summary**: {direct} Direct, {fallback} Fallback ({direct + fallback} mapped) · "
-            + $"{unsupported} Unsupported (not mapped, guidance-only) ·",
+            + $"{unsupported} Unsupported (not mapped, guidance-only:",
             summary);
+
+        var breakdown = File.ReadAllLines(Path.Combine(RepositoryRoot(), "docs", "Controls.md"))
+            .SkipWhile(l => !l.StartsWith("**Summary**:", StringComparison.Ordinal))
+            .Skip(1)
+            .First();
+
+        Assert.Equal(
+            $"{why.GetValueOrDefault("🟡 Elsewhere")} handled elsewhere, "
+            + $"{why.GetValueOrDefault("⚪ Unreachable")} unreachable from designer code, "
+            + $"{why.GetValueOrDefault("❌ No API")} no Avalonia API) ·",
+            breakdown);
 
         Assert.Equal(10, baseClasses);
     }
 
-    public static TheoryData<string, string, string> DocumentedRows()
+    /// <summary>
+    /// Every type appears exactly once.
+    /// </summary>
+    /// <remarks>
+    /// The summary counts <em>rows</em>, so a type listed twice inflates it and the count still
+    /// agrees with the table - which is exactly what happened: `LinkLabel` and
+    /// `PrintPreviewDialog` each carried a second, cross-referencing row, and the header claimed
+    /// two more types than the registry has. Nothing could notice, because the only two things
+    /// checking each other were both counting the same duplicate.
+    /// </remarks>
+    [Fact]
+    public void EachType_IsListedOnce()
     {
-        var data = new TheoryData<string, string, string>();
+        var duplicated = ParsedRows
+            .GroupBy(r => r.TypeName, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToList();
 
-        foreach (var (typeName, status, targets) in ParsedRows)
+        Assert.True(
+            duplicated.Count == 0,
+            $"docs/Controls.md lists these types more than once: {string.Join(", ", duplicated)}. "
+            + "Cross-reference them in prose under the table instead - a second row inflates the "
+            + "summary counts without disagreeing with them.");
+    }
+
+    /// <summary>
+    /// Every kind of "no Avalonia element" is actually in use.
+    /// </summary>
+    /// <remarks>
+    /// A disposition nobody ever assigns is a distinction that reads as meaningful and is not -
+    /// the same failure the single undifferentiated status had, one level down.
+    /// </remarks>
+    [Fact]
+    public void EveryDisposition_IsUsedByAtLeastOneEntry()
+    {
+        var used = new ControlMappingRegistry().Mappers.Values
+            .OfType<UnsupportedControlMapper>()
+            .Select(m => m.Disposition)
+            .ToHashSet();
+
+        Assert.Equal(Enum.GetValues<UnsupportedDisposition>().ToHashSet(), used);
+    }
+
+    public static TheoryData<string, string, string, string> DocumentedRows()
+    {
+        var data = new TheoryData<string, string, string, string>();
+
+        foreach (var (typeName, status, targets, why) in ParsedRows)
         {
-            data.Add(typeName, status, targets);
+            data.Add(typeName, status, targets, why);
         }
 
         return data;
@@ -134,6 +206,15 @@ public class ControlsDocumentationTests
     private const string BaseClassStatus = "—";
     private const string ConversionRootStatus = "✅ Converted";
 
+    private static UnsupportedDisposition ExpectedDisposition(string documented) => documented switch
+    {
+        "🟡 Elsewhere" => UnsupportedDisposition.FeatureElsewhere,
+        "⚪ Unreachable" => UnsupportedDisposition.Unreachable,
+        "❌ No API" => UnsupportedDisposition.NoAvaloniaApi,
+        _ => throw new InvalidOperationException(
+            $"docs/Controls.md uses a 'Why not' value this test does not know: '{documented}'."),
+    };
+
     private static MappingStatus ExpectedStatus(string documented) => documented switch
     {
         "✅ Direct" => MappingStatus.Direct,
@@ -146,18 +227,21 @@ public class ControlsDocumentationTests
     /// Every `| `Type` | status | `target` | notes |` row. Parsed rather than duplicated, so the
     /// doc stays the single place these are written down.
     /// </summary>
-    private static IReadOnlyList<(string TypeName, string Status, string Targets)> ParsedRows { get; } =
+    private static IReadOnlyList<(string TypeName, string Status, string Targets, string Why)> ParsedRows { get; } =
     [
         .. Regex.Matches(
                 File.ReadAllText(Path.Combine(RepositoryRoot(), "docs", "Controls.md")),
                 // Whitespace-tolerant on purpose: an Unsupported row's target column is empty,
-                // so the cell is a single space rather than ` something `.
-                @"^\|\s*`(?<type>[\w.]+)`\s*\|(?<status>[^|]*)\|(?<target>[^|]*)\|",
+                // so the cell is a single space rather than ` something `. The disposition cell
+                // comes *after* the target - putting it before would silently rebind the target
+                // group to the glyph and every row would compare against the wrong thing.
+                @"^\|\s*`(?<type>[\w.]+)`\s*\|(?<status>[^|]*)\|(?<target>[^|]*)\|(?<why>[^|]*)\|",
                 RegexOptions.Multiline)
             .Select(m => (
                 m.Groups["type"].Value,
                 m.Groups["status"].Value.Trim(),
-                string.Join(" / ", Regex.Matches(m.Groups["target"].Value, "`([^`]+)`").Select(t => t.Groups[1].Value)))),
+                string.Join(" / ", Regex.Matches(m.Groups["target"].Value, "`([^`]+)`").Select(t => t.Groups[1].Value)),
+                m.Groups["why"].Value.Trim())),
     ];
 
     /// <remarks>

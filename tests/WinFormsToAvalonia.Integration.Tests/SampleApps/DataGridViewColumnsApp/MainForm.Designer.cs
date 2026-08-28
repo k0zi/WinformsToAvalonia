@@ -35,16 +35,19 @@ namespace DataGridViewColumnsApp
             //
             // nameColumn
             //
+            this.nameColumn.DataPropertyName = "Name";
             this.nameColumn.HeaderText = "Name";
             this.nameColumn.Name = "nameColumn";
             //
             // activeColumn
             //
+            this.activeColumn.DataPropertyName = "Active";
             this.activeColumn.HeaderText = "Active";
             this.activeColumn.Name = "activeColumn";
             //
             // categoryColumn
             //
+            this.categoryColumn.DataPropertyName = "Category";
             this.categoryColumn.HeaderText = "Category";
             this.categoryColumn.Name = "categoryColumn";
             //

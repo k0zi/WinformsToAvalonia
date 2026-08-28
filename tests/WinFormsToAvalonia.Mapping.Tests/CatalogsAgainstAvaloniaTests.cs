@@ -251,4 +251,40 @@ public class CatalogsAgainstAvaloniaTests
         Assert.True(directory is not null, "Could not find the repository root from the test output directory.");
         return directory!.FullName;
     }
+
+    /// <summary>
+    /// The tray-icon events, against the real <c>TrayIcon</c>.
+    /// </summary>
+    /// <remarks>
+    /// The event registry's own suite cannot check these: a <c>SubscribeInCode</c> mapping does
+    /// not name a declaring type, so all three of its tests skip them. This is where that gap is
+    /// closed.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(TrayIconEvents))]
+    public void TrayIconEvent_ExistsAndCarriesEventArgs(string winFormsEventName, string avaloniaEventName)
+    {
+        var trayIcon = AvaloniaMetadata.FindElement("TrayIcon");
+        Assert.True(trayIcon is not null, "Avalonia does not define TrayIcon.");
+
+        var declared = AvaloniaMetadata.FindEvent(trayIcon!, avaloniaEventName);
+
+        Assert.True(
+            declared is not null,
+            $"TrayIconMemberCatalog maps '{winFormsEventName}' to TrayIcon.{avaloniaEventName}, which does not exist.");
+
+        var invoke = declared!.EventHandlerType!.GetMethod("Invoke");
+        Assert.Equal("EventArgs", invoke!.GetParameters()[1].ParameterType.Name);
+    }
+
+    public static TheoryData<string, string> TrayIconEvents()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var (winFormsName, avaloniaName) in TrayIconMemberCatalog.AllEventEntries)
+        {
+            data.Add(winFormsName, avaloniaName);
+        }
+
+        return data;
+    }
 }

@@ -5,3 +5,6 @@ obj/
 .claude/
 .idea/
 .codegraph/
+
+# `dotnet pack` output for the wf2a tool package.
+artifacts/
