@@ -1,6 +1,6 @@
-using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
+using Avalonia;
 
 namespace __TARGET_NAMESPACE__;
 

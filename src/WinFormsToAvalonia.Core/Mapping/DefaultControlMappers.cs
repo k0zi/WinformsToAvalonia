@@ -290,7 +290,10 @@ public static class DefaultControlMappers
         // Non-visual component family.
         new UnsupportedControlMapper("NotifyIcon", "No per-View mapping - Avalonia's tray-icon support is app-level, configured in App.axaml's TrayIcon.Icons (now generated automatically by ConversionPipeline.Run's cross-form aggregation - see AvaloniaProjectScaffolder.BuildTrayIconsSection). A literal icon path that resolves to a real file is copied into the generated project's Assets/ folder; otherwise (the common case - resx/dynamic icons) the TrayIcon block is emitted commented out with a TODO, since Avalonia resolves TrayIcon.Icon at run time and a dangling asset reference would throw out of App.Initialize()."),
         new UnsupportedControlMapper("Timer", "No control mapping - but a DispatcherTimer field, its Interval and its Tick wiring ARE generated on the View whenever the component has a real Tick handler (see FormMigrationPlanner.PlanTimers). A handler body can then drive it: Enabled, Start() and Stop() translate, and Interval can be written but not read - WinForms counts milliseconds, Avalonia holds a TimeSpan."),
-        new UnsupportedControlMapper("ImageList", "No control mapping - reference images directly per-control, or via a shared resource dictionary."),
+        // The type itself has no Avalonia counterpart, but its contents do: ConversionPipeline
+        // unpacks the .resx ImageStream into one PNG per image under Assets/ and resolves every
+        // ImageIndex that points into it. This entry is what reports the half that is left.
+        new UnsupportedControlMapper("ImageList", "No control mapping, but the images are not lost - each one is written to Assets/<field>_<index>.png and set on the menu items that used it. MenuItem.Icon is the only per-item image slot Avalonia has; anywhere else, place the extracted file by hand."),
         new UnsupportedControlMapper("ToolTip", "The ToolTip component itself has no element - but its this.toolTip1.SetToolTip(this.control1, \"text\") calls ARE now translated automatically into a ToolTip.Tip attribute on the target control (see DesignerSyntaxWalker.HandleSetToolTipInvocation)."),
         new UnsupportedControlMapper("HelpProvider", "No built-in Avalonia equivalent - manual migration required."),
 

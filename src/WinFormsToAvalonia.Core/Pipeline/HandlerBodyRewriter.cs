@@ -1711,6 +1711,12 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `treeView1.ExpandAll();` - one WinForms call, one Avalonia loop.
+        if (TryRewriteExpandAll(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
+        }
+
         // `listView1.Items.Add(new ListViewItem("x"));` - only where the ListView became a
         // ListBox, which is the only shape with a faithful answer.
         if (TryRewriteListViewItemCall(receiver, methodName, invocation, target, out rewritten))
@@ -2076,6 +2082,12 @@ public sealed class HandlerBodyRewriter
             case InvocationExpressionSyntax invocation:
                 return TryRewriteCallExpression(invocation, target, out text);
 
+            // `(string[])e.Data.GetData(DataFormats.FileDrop)` - the one cast this rewriter
+            // understands, because the thing being cast is a payload it knows the shape of.
+            case CastExpressionSyntax payloadCast
+                when TryRewriteDragPayloadRead(payloadCast, target, out text):
+                return true;
+
             default:
                 return false;
         }
@@ -2173,6 +2185,45 @@ public sealed class HandlerBodyRewriter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// <c>treeView1.ExpandAll()</c>, as the loop Avalonia needs for it.
+    /// </summary>
+    /// <remarks>
+    /// Avalonia has no single call, which is why this was written off as having no counterpart -
+    /// but <c>ExpandSubTree</c> expands the item <em>and every descendant</em>, so running it over
+    /// the root items expands the whole tree. That is what ExpandAll means, and it is the reason
+    /// "no one-call equivalent" and "no equivalent" are not the same answer.
+    /// </remarks>
+    private static bool TryRewriteExpandAll(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (methodName != "ExpandAll"
+            || invocation.ArgumentList.Arguments.Count != 0
+            || receiver is null
+            || !target.TryResolveControlField(receiver, out var fieldName)
+            || !target.TryResolveControlTypeName(fieldName, out var typeName)
+            || typeName != "TreeView")
+        {
+            return false;
+        }
+
+        // OfType rather than a cast: this conversion only ever puts TreeViewItems in there, and
+        // anything a human adds later is skipped rather than throwing.
+        rewritten = new RewrittenStatement(
+            $"foreach (var w2aNode in {fieldName}.Items.OfType<TreeViewItem>())\n"
+            + "{\n"
+            + $"    {fieldName}.ExpandSubTree(w2aNode);\n"
+            + "}",
+            RequiredUsings: ["System.Linq"]);
+        return true;
     }
 
     /// <summary>
@@ -2784,6 +2835,67 @@ public sealed class HandlerBodyRewriter
         }
 
         text = $"{parameterName}.DataTransfer.Contains(DataFormat.{avaloniaFormat})";
+        return true;
+    }
+
+    /// <summary>
+    /// <c>(string[])e.Data.GetData(DataFormats.FileDrop)</c> - reading a dropped file list.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A change of shape rather than of spelling, and it took a while to decide it was worth
+    /// making: WinForms hands back an array of paths, Avalonia an array of storage items. The
+    /// *content* is the same set of files, and <c>IStorageItem.Path</c> is a <c>Uri</c> whose
+    /// <c>LocalPath</c> is exactly the string WinForms would have given - so the conversion is
+    /// exact, it just is not a rename.
+    /// </para>
+    /// <para>
+    /// The null-forgiving operator is kept rather than dropped, unlike everywhere else in this
+    /// rewriter. Both sides return null when the drop carried no files, and the original code -
+    /// either through its own <c>!</c> or by being written where the cast produced a non-nullable
+    /// array - treats the result as non-null. Emitting <c>string[]?</c> instead would make the
+    /// very next line (<c>files.Length</c>) a nullable warning in a project that must build
+    /// warning-free.
+    /// </para>
+    /// <para>
+    /// Only <c>FileDrop</c>, and only into a <c>string[]</c>. Every other format is a different
+    /// payload with a different shape.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteDragPayloadRead(
+        CastExpressionSyntax cast, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (cast.Type is not ArrayTypeSyntax { ElementType: PredefinedTypeSyntax { Keyword.ValueText: "string" } }
+            || StripSuppression(cast.Expression) is not InvocationExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax
+                {
+                    Name.Identifier.ValueText: "GetData",
+                    Expression: var dataReceiver,
+                },
+                ArgumentList.Arguments:
+                [{
+                    Expression: MemberAccessExpressionSyntax
+                    {
+                        Expression: IdentifierNameSyntax { Identifier.ValueText: "DataFormats" },
+                        Name.Identifier.ValueText: "FileDrop",
+                    },
+                }],
+            }
+            || StripSuppression(dataReceiver) is not MemberAccessExpressionSyntax
+            {
+                Name.Identifier.ValueText: "Data",
+                Expression: var argsReceiver,
+            }
+            || !target.TryResolveEventArgsParameter(argsReceiver, "DragEventArgs", out var parameterName))
+        {
+            return false;
+        }
+
+        text = $"{parameterName}.DataTransfer.TryGetFiles()!.Select(w2aFile => w2aFile.Path.LocalPath).ToArray()";
+        target.Requirements.RequiredUsings.Add("System.Linq");
         return true;
     }
 

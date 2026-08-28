@@ -77,8 +77,43 @@ contributors know what to expect and where to look before filing a duplicate iss
     asset the conversion never produced would throw at run time, not at build time;
   - the recovered file can carry a byte or two of serializer trailer, which every decoder
     ignores;
-  - `ImageList`, and images referenced from a `.resources`/satellite assembly rather than the
-    form's own `.resx`, are still not handled.
+  - images referenced from a `.resources`/satellite assembly rather than the form's own `.resx`
+    are still not handled.
+- **An `ImageList`'s images are extracted; where they can be *shown* is the narrower half.**
+  `ImageListExtractor` decodes the `ImageStream` payload (RLE + `ILHEAD` + a tiled bitmap strip +
+  a 1bpp mask) into one PNG per image under `Assets/<field>_<index>.png`, mask applied as alpha.
+  An `ImageIndex` into that list - inherited from the owning control when the item does not name
+  the list itself, as WinForms does it - is then set as the element's image. But `MenuItem.Icon`
+  is the only per-item image slot Avalonia has: a `TreeViewItem`, `ListBoxItem` or `TabItem` has
+  no icon property, and a `Button`'s `Content` is already its text. For those the image is
+  written to `Assets/` and the warning names the file, rather than a header layout being invented.
+  `ImageKey` is not resolved at all - the keys are in the designer's `SetKeyName` calls, not in
+  the payload.
+
+## Captions and keyboard mnemonics
+
+- A WinForms caption carries its keyboard mnemonic inline (`&File` underlines the F, `&&` is a
+  literal ampersand). Avalonia uses the same idea with a different character (`_File`, `__`), so
+  the conversion transliterates - in both directions at once, since an underscore already in the
+  text has to be doubled or it becomes a marker of its own.
+- Whether that happens at all is decided by `WinFormsMnemonicCatalog`, per WinForms type, because
+  the question has two halves. A `TextBox`'s `Text` is the user's data, so "Smith & Sons" is left
+  exactly as it is. A `Label` becomes a `TextBlock`, which renders an underscore literally, so
+  the marker is *removed* rather than translated - the caption is right, the keyboard shortcut is
+  gone, and Avalonia has nowhere to put it. Only targets that really render an access key
+  (`AvaloniaAccessKeySupport` - Button, CheckBox, RadioButton, HyperlinkButton, SplitButton,
+  MenuItem, TabItem, Label) get the underscore.
+- A `ListView` `ColumnHeader` is deliberately left alone: WinForms does not read a mnemonic out
+  of one, so an ampersand there is part of the heading.
+
+## Themes for packaged controls
+
+- `DataGrid` and `ColorView` ship outside core Avalonia and carry their own `ControlTheme` in a
+  resource dictionary. `App.axaml` includes it (`AvaloniaProjectScaffolder.PackageStyleIncludes`)
+  for exactly the packages a conversion required - an include for a package the csproj does not
+  reference is a XAML load failure at startup rather than a build error, so it is conditional.
+  The Simple variants, matching the `SimpleTheme` the generated shell uses; switching the shell
+  to Fluent means switching these too.
 
 ## Control mapping
 
@@ -359,8 +394,12 @@ rule itself; what follows is what the rule does *not* cover yet.
     BackgroundWorker ones). The pointer position is the one genuinely *translated* member -
     WinForms' `e.X`/`e.Y` are relative to the control that raised the event, which is exactly
     what `GetPosition(control)` takes, so it needs a handler wired to exactly one control.
-    Anything with no exact answer (`DataGridViewCellEventArgs.RowIndex`, whose Avalonia
-    counterpart reports a cell object rather than an index pair) is left for a human.
+    A grid cell's `RowIndex`/`ColumnIndex` are translated too, and were another thing called
+    inexact without being looked at: Avalonia reports the row and column *objects*, the row knows
+    its own `Index`, and the column index comes from asking the grid that raised the event
+    (`DataGridColumn.OwningGrid` is not public, so it has to be the source control) - which makes
+    `ColumnIndex` another member that needs a handler wired to exactly one control. Anything with
+    no exact answer at all is still left for a human.
 
     **Drag and drop** is where the two frameworks diverge most, and only the one shape with an
     exact answer is translated: `e.Effect` → `e.DragEffects` (the `DragDropEffects` members both
@@ -370,8 +409,15 @@ rule itself; what follows is what the rule does *not* cover yet.
     Avalonia 12 renamed the property, changed its type (`IDataObject` → `IDataTransfer`, with
     different method names) and replaced the format constants. `e.Data` is deliberately *not* a
     pass-through member for the same reason - letting it through would emit an `IDataObject`
-    method against a type that has none. Reading the payload (`GetData`) is left alone: Avalonia
-    hands back storage items rather than a `string[]`, which is a change of shape, not spelling.
+    method against a type that has none. Reading the payload *is* translated, in the one shape
+    that has an exact answer: `(string[])e.Data.GetData(DataFormats.FileDrop)` becomes
+    `e.DataTransfer.TryGetFiles()!.Select(f => f.Path.LocalPath).ToArray()`. It is a change of
+    shape rather than of spelling - storage items instead of paths - but the content is the same
+    set of files and `IStorageItem.Path.LocalPath` is exactly the string WinForms would have
+    given. The null-forgiving operator is kept rather than dropped, unusually: both sides return
+    null when the drop carried no files, and the original treats the result as non-null, so
+    emitting a `string[]?` would make the next line a nullable warning in a project that must
+    build warning-free. Any other format, or a cast to anything but `string[]`, still refuses.
 
     Plain `EventArgs` is deliberately **not** treated as pass-through: it is the fallback the
     planner uses when an event has no Avalonia equivalent, so it means "unknown type", and the
@@ -611,9 +657,13 @@ rule itself; what follows is what the rule does *not* cover yet.
   `Visible` - across the ordinary controls, the ToolStrip items (which are Direct-mapped, so
   their values are as reachable as any other control's) and `CheckedListBox`. A handler touching
   anything outside that vocabulary stays in code-behind, since the property could not be
-  expressed as a `{Binding}` anyway. Real WinForms-only properties (`RichTextBox.WordWrap`,
-  `LinkLabel.LinkVisited`) are not in it and are not going to be - they have no Avalonia
-  counterpart to name.
+  expressed as a `{Binding}` anyway.
+
+  This paragraph used to name `RichTextBox.WordWrap` and `LinkLabel.LinkVisited` as WinForms-only
+  properties with "no Avalonia counterpart to name". Both were wrong, and both are in the catalog
+  now: `WordWrap` is a `TextWrapping` enum on the Avalonia side, and a `HyperlinkButton` really
+  does have an `IsVisited`. Neither claim had ever been checked against the API - which is the
+  argument for checking a table rather than remembering it.
 
   The catalog and the control mappers name the same Avalonia property from two separate tables,
   and a disagreement between them is a *generated-project* build error rather than a tool error -
@@ -691,8 +741,12 @@ rule itself; what follows is what the rule does *not* cover yet.
   `ItemsSource` is the better *end state*, but it is not what the original said.
 
   Only a string header - a `TreeNode` object carries an image index, a tag and children of its own,
-  none of which a bare TreeViewItem has. `TreeView.ExpandAll()` has no counterpart either
-  (Avalonia has only `ExpandSubTree(item)`), so a handler ending in it keeps that last line.
+  none of which a bare TreeViewItem has.
+
+  `TreeView.ExpandAll()` comes across as the loop Avalonia needs for it: `ExpandSubTree` expands
+  the item **and every descendant**, so running it over the root items is exactly what ExpandAll
+  means. This was written off as having no counterpart, which confused "no one-call equivalent"
+  with "no equivalent" - they are not the same answer.
 
 - **A ListView's items, on the half of the mapping that has an answer.** A ListView with neither
   `View.Details` nor parsed `ColumnHeader`s becomes a `ListBox`, and there
@@ -812,3 +866,17 @@ required before anything is written into a non-empty output directory at all.
   be statically resolved to a fixed value, so `Canvas.Left`/`Canvas.Top`/`Width`/`Height`
   aren't emitted for that control. This is now surfaced as a conversion warning naming the
   field and the unresolved expression, rather than silently dropped.
+- Controls are pinned to the size the designer recorded, with a style block per view
+  (`Canvas > :is(Control)` gets `MinWidth`/`MinHeight` 0, `Canvas > :is(TemplatedControl)` gets
+  `Padding="4,1"`). Avalonia's default theme is built for touch: a 23-pixel TextBox renders 32
+  pixels tall with padding to match, and on an absolutely-positioned Canvas that silently covers
+  whatever the designer put 26 pixels below it. Both setters are needed - dropping the minimum
+  alone only trades the overlap for clipped text. A designer-set `Padding` on the element itself
+  still wins over the style.
+- Absolute layout is emitted everywhere *except* where the parent element holds items rather
+  than positioned children - a `TabControl`'s pages, a `Menu`'s items, a `DataGrid`'s columns
+  (`AxamlEmitter.HostsItems`). A `TabPage`'s WinForms bounds are the tab control's client area,
+  not a position anyone chose, and in Avalonia `Width`/`Height` on a `TabItem` size its *tab*:
+  the sample's nine 992x602 pages each produced a 602-pixel-tall tab header, which filled the
+  window and pushed every page out of it. Adding a mapper whose target holds items means adding
+  it to that set.

@@ -2,7 +2,7 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**85 of 106 handler statements (80%)** came across as real Avalonia code.
+**91 of 106 handler statements (86%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
@@ -13,24 +13,20 @@ right Avalonia signature, and its event is subscribed - the AXAML carries the at
 the constructor the subscription. What is left is the body: the statement named beside each
 one is the first the conversion could not prove equivalent.
 
-## Methods to migrate (12)
+## Methods to migrate (8)
 
 ### `Views/MainView.axaml.cs`
 
 - [ ] `MainForm_FormClosing` — `this.notifyIcon1.Visible = false;`
 - [ ] `MainForm_Load` — `this.itemsListView.Items.Add(new ListViewItem(new[] { "readme.txt", "2 KB" }));`
-- [ ] `contextPanel_DragDrop` — `var files = (string[])e.Data!.GetData(DataFormats.FileDrop)!;`
-- [ ] `dataGridView1_CellClick` — `this.gridInfoLabel.Text = $"Cell clicked: row {e.RowIndex}, column {e.ColumnIndex}";`
-- [ ] `linkLabel1_LinkClicked` — `this.linkLabel1.LinkVisited = true;`
 - [ ] `pageSetupButton_Click` — `this.pageSetupDialog1.ShowDialog(this);`
 - [ ] `pictureBox1_Paint` — `e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);`
 - [ ] `printButton_Click` — `if (this.printDialog1.ShowDialog(this) == DialogResult.OK)`
 - [ ] `printDocument1_PrintPage` — `e.Graphics!.DrawString(`
 - [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
-- [ ] `refreshButton_Click` — `this.itemsTreeView.ExpandAll();`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 
-## Conversion notes (71)
+## Conversion notes (70)
 
 Everything the conversion decided not to guess at, and why.
 
@@ -59,7 +55,7 @@ Everything the conversion decided not to guess at, and why.
 - No built-in Avalonia equivalent - manual migration required.
 - The ContextMenuStrip component itself has no element - but this.someControl.ContextMenuStrip = this.contextMenuStrip1 assignments ARE now translated automatically into a nested <Control.ContextMenu><ContextMenu>...</ContextMenu></Control.ContextMenu> on the target control (see AxamlEmitter.EmitContextMenuIfPresent). NotifyIcon.ContextMenuStrip is not wired - Avalonia's TrayIcon.Menu needs NativeMenu/NativeMenuItem, a different target.
 - 'DemoComponent' is a Component defined by this project - no visual representation, so no control mapping. Its source names nothing that would not survive the conversion, so it is copied into the generated project and a real field is emitted for it.
-- No control mapping - reference images directly per-control, or via a shared resource dictionary.
+- No control mapping, but the images are not lost - each one is written to Assets/<field>_<index>.png and set on the menu items that used it. MenuItem.Icon is the only per-item image slot Avalonia has; anywhere else, place the extracted file by hand.
 - The ToolTip component itself has no element - but its this.toolTip1.SetToolTip(this.control1, "text") calls ARE now translated automatically into a ToolTip.Tip attribute on the target control (see DesignerSyntaxWalker.HandleSetToolTipInvocation).
 - 'ErrorProvider' has no built-in Avalonia equivalent; using the bundled fallback control 'ErrorProviderFallback'.
 - Click handler 'newMenuItem_Click' stays in code-behind: it uses 'titleTextBox.Clear', which has no bindable Avalonia equivalent.
@@ -67,7 +63,6 @@ Everything the conversion decided not to guess at, and why.
 - Click handler 'exitMenuItem_Click' stays in code-behind: it drives the Form itself (Close).
 - Click handler 'wordWrapMenuItem_Click' stays in code-behind: 'notesRichTextBox' (RichTextBox) has no direct Avalonia element to bind against.
 - Click handler 'aboutMenuItem_Click' stays in code-behind: it opens another Form/Dialog, which needs a navigation or dialog service before it can move to a ViewModel.
-- Click handler 'linkLabel1_LinkClicked' stays in code-behind: it uses 'linkLabel1.LinkVisited', which has no bindable Avalonia equivalent.
 - Click handler 'demoButton_Click' stays in code-behind: it uses an API whose Avalonia replacement hangs off the TopLevel (a message box, the clipboard) - which the View has and a ViewModel does not.
 - Click handler 'sharedButton_Click' stays in code-behind: it is wired to 2 controls, so it needs the 'sender' that told them apart.
 - Click handler 'validateButton_Click' stays in code-behind: 'errorProvider1' (ErrorProvider) has no direct Avalonia element to bind against.

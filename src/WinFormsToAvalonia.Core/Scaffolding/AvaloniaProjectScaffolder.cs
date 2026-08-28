@@ -20,6 +20,29 @@ public sealed class AvaloniaProjectScaffolder
     private const string CommunityToolkitMvvmVersion = "8.4.2";
 
     /// <summary>The allowlist of extra packages a generated csproj may carry, and at which version.</summary>
+    /// <summary>
+    /// The theme each extra package ships for its own controls, which App.axaml has to include.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A control that ships outside core Avalonia brings its own <c>ControlTheme</c> in a
+    /// resource dictionary the application has to ask for. Referencing the package is not enough:
+    /// without the include the control finds no theme, gets no template, and renders as
+    /// <em>nothing</em> - the converted sample's two DataGrids were blank rectangles, and its
+    /// ColorDialog opened an empty window, while the project compiled and started cleanly.
+    /// </para>
+    /// <para>
+    /// The Simple variants, because <see cref="BuildAppAxaml"/> uses <c>SimpleTheme</c>. Both
+    /// halves have to move together; the Mapping tests check that every entry names a resource
+    /// its package really contains.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, string> PackageStyleIncludes = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["Avalonia.Controls.DataGrid"] = "avares://Avalonia.Controls.DataGrid/Themes/Simple.xaml",
+        ["Avalonia.Controls.ColorPicker"] = "avares://Avalonia.Controls.ColorPicker/Themes/Simple/Simple.xaml",
+    };
+
     public static readonly IReadOnlyDictionary<string, string> ExtraPackageVersions = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["Avalonia.Controls.DataGrid"] = "12.1.2",
@@ -110,7 +133,7 @@ public sealed class AvaloniaProjectScaffolder
             vfs.AddText($"{projectName}.csproj", BuildCsproj(projectName, packages, references));
             vfs.AddText("app.manifest", AppManifest);
             vfs.AddText("Program.cs", BuildProgram(projectName));
-            vfs.AddText("App.axaml", BuildAppAxaml(projectName, notifyIcons ?? []));
+            vfs.AddText("App.axaml", BuildAppAxaml(projectName, notifyIcons ?? [], packages));
             vfs.AddText("App.axaml.cs", BuildAppAxamlCs(
                 projectName, mainForm.ViewClassName, mainForm.RelativeFolder, notifyIcons));
             vfs.AddText("ViewLocator.cs", BuildViewLocator(projectName));
@@ -235,9 +258,15 @@ public sealed class AvaloniaProjectScaffolder
     /// converted app has not been themed yet; delete this attribute (or set "Default") once
     /// the generated views have been reworked to use theme resources instead of fixed colors.
     /// </remarks>
-    private static string BuildAppAxaml(string projectName, IReadOnlyList<NotifyIconInfo> notifyIcons)
+    private static string BuildAppAxaml(
+        string projectName, IReadOnlyList<NotifyIconInfo> notifyIcons, IReadOnlyCollection<string>? packages = null)
     {
         var trayIconsSection = notifyIcons.Count == 0 ? "" : BuildTrayIconsSection(notifyIcons);
+
+        var styleIncludes = string.Concat((packages ?? [])
+            .Where(PackageStyleIncludes.ContainsKey)
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .Select(p => $"\n        <StyleInclude Source=\"{PackageStyleIncludes[p]}\" />"));
 
         return $"""
             <Application xmlns="https://github.com/avaloniaui"
@@ -251,7 +280,7 @@ public sealed class AvaloniaProjectScaffolder
                 </Application.DataTemplates>
 
                 <Application.Styles>
-                    <SimpleTheme />
+                    <SimpleTheme />{styleIncludes}
                 </Application.Styles>
             </Application>
             """;

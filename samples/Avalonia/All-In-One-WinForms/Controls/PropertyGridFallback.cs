@@ -1,12 +1,12 @@
-using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
-using Avalonia;
+using System;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia;
 
 namespace All_In_One_WinForms.Controls;
 
@@ -24,6 +24,14 @@ namespace All_In_One_WinForms.Controls;
 /// </remarks>
 public class PropertyGridFallback : UserControl
 {
+    /// <remarks>
+    /// Avalonia resolves a control's theme by its <em>concrete</em> type, so a subclass of a
+    /// templated control finds no theme and gets no template - it renders as nothing at all,
+    /// not as an unstyled box. Measured: without this the fallback was absent from the window
+    /// while compiling, starting and passing every test.
+    /// </remarks>
+    protected override Type StyleKeyOverride => typeof(UserControl);
+
     public static readonly StyledProperty<object?> SelectedObjectProperty =
         AvaloniaProperty.Register<PropertyGridFallback, object?>(nameof(SelectedObject));
 

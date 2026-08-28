@@ -59,6 +59,57 @@ public class AvaloniaProjectScaffolderTests
     }
 
     /// <summary>
+    /// A control from a package outside core Avalonia brings its own theme, and App.axaml has to
+    /// ask for it - referencing the package is not enough.
+    /// </summary>
+    /// <remarks>
+    /// Without the include the control finds no ControlTheme, gets no template, and renders as
+    /// nothing: the converted sample's two DataGrids were blank rectangles and its ColorDialog
+    /// opened an empty window, while the project compiled and started cleanly. The third table
+    /// an extra package has to appear in, after the mapper's RequiredNuGetPackage and
+    /// ExtraPackageVersions.
+    /// </remarks>
+    [Fact]
+    public void BuildProject_WithAPackagedControl_IncludesThatPackagesOwnTheme()
+    {
+        var vfs = new AvaloniaProjectScaffolder().BuildProject(
+            "Demo",
+            [new("", "MainView", "MainViewModel", "<Window />", "// view code-behind", "// view model")],
+            extraNuGetPackages: new HashSet<string>(StringComparer.Ordinal) { "Avalonia.Controls.DataGrid" });
+
+        vfs.TryGetText("App.axaml", out var app);
+
+        Assert.Contains(
+            "<StyleInclude Source=\"avares://Avalonia.Controls.DataGrid/Themes/Simple.xaml\" />",
+            app);
+    }
+
+    /// <summary>
+    /// ...and only the ones actually used: an include for a package the csproj does not
+    /// reference is a XAML load failure at startup, not a build error.
+    /// </summary>
+    [Fact]
+    public void BuildProject_WithoutAPackagedControl_IncludesNoExtraTheme()
+    {
+        var vfs = new AvaloniaProjectScaffolder().BuildProject(
+            "Demo",
+            [new("", "MainView", "MainViewModel", "<Window />", "// view code-behind", "// view model")]);
+
+        vfs.TryGetText("App.axaml", out var app);
+
+        Assert.DoesNotContain("<StyleInclude", app);
+    }
+
+    /// <summary>Every package that ships a theme has to be one the csproj writer can emit.</summary>
+    [Fact]
+    public void PackageStyleIncludes_OnlyNamesPackagesTheCsprojCanReference()
+    {
+        Assert.All(
+            AvaloniaProjectScaffolder.PackageStyleIncludes.Keys,
+            package => Assert.Contains(package, AvaloniaProjectScaffolder.ExtraPackageVersions.Keys));
+    }
+
+    /// <summary>
     /// Un-migrated handler stubs report through this helper instead of throwing, because
     /// Avalonia invokes them from the framework - a TabControl selecting its first tab, a Window
     /// raising Loaded - so a throwing stub killed the generated app during XAML initialization,

@@ -58,8 +58,13 @@ public class SenderAndDragConversionTests
             Assert.Contains("e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;", codeBehind);
             Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(dropPanel_DragEnter)", codeBehind);
 
-            // Reading the payload is a change of shape, not of spelling.
-            Assert.Contains("MigrationTodo.NotMigrated(nameof(dropPanel_DragDrop)", codeBehind);
+            // Reading the payload is a change of shape rather than of spelling - storage items
+            // instead of paths - but the content is the same files, and LocalPath is the string
+            // WinForms would have handed over.
+            Assert.Contains(
+                "var files = e.DataTransfer.TryGetFiles()!.Select(w2aFile => w2aFile.Path.LocalPath).ToArray();",
+                codeBehind);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(dropPanel_DragDrop)", codeBehind);
 
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
             Assert.True(

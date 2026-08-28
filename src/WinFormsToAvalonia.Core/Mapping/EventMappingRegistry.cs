@@ -70,7 +70,7 @@ public sealed class EventMappingRegistry
         [("HScrollBar", "Scroll")] = new("Scroll", "Scroll", "ScrollEventArgs"),
         [("VScrollBar", "Scroll")] = new("Scroll", "Scroll", "ScrollEventArgs"),
         [("DataGridView", "CellClick")] = new("CellClick", "CellPointerPressed", "DataGridCellPointerPressedEventArgs",
-            Guidance: "Avalonia's DataGrid reports the cell through DataGridCellPointerPressedEventArgs.Cell/Row, not a ColumnIndex/RowIndex pair."),
+            Guidance: "Avalonia's DataGrid reports the cell through DataGridCellPointerPressedEventArgs.Cell/Row rather than an index pair - e.RowIndex and e.ColumnIndex are translated for you, but anything else about the cell has to be read off the row and column objects."),
         [("LinkLabel", "LinkClicked")] = new("LinkClicked", "Click", "RoutedEventArgs", IsCommandCandidate: true,
             Guidance: "LinkLabel maps to a HyperlinkButton, whose Click replaces LinkClicked; the LinkLabelLinkClickedEventArgs.Link information has no equivalent."),
 

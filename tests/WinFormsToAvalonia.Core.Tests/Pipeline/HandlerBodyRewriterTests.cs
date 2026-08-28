@@ -836,10 +836,10 @@ public class HandlerBodyRewriterTests
     {
         var form = FormWith(("treeView1", "TreeView"));
 
-        var result = Rewriter.RewriteForView("this.treeView1.ExpandAll();", form);
+        var result = Rewriter.RewriteForView("this.treeView1.BeginUpdate();", form);
 
         Assert.Empty(result.MigratedStatements);
-        Assert.Equal("this.treeView1.ExpandAll();", result.RemainingBody);
+        Assert.Equal("this.treeView1.BeginUpdate();", result.RemainingBody);
     }
 
     /// <summary>
@@ -999,8 +999,8 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// Avalonia reports a grid cell through an object rather than an index pair, so there is no
-    /// exact answer and the member is left for a human.
+    /// An args member with no counterpart at all is still left for a human - the grid cell pair
+    /// stopped being an example of that once the row and column objects were read properly.
     /// </summary>
     [Fact]
     public void RewriteForView_EventArgsMemberWithNoExactEquivalent_IsNotMigrated()
@@ -1008,7 +1008,7 @@ public class HandlerBodyRewriterTests
         var form = FormWith(("statusLabel", "Label"), ("grid1", "DataGridView"));
 
         var result = Rewriter.RewriteForView(
-            "this.statusLabel.Text = e.RowIndex.ToString();",
+            "this.statusLabel.Text = e.Handled.ToString();",
             form,
             navigation: null,
             new HandlerSignature("e", "DataGridCellPointerPressedEventArgs", ["grid1"]));
@@ -1884,11 +1884,12 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// Reading the payload is a change of shape, not of spelling: Avalonia hands back storage
-    /// items rather than the `string[]` the original casts to.
+    /// Reading the payload is a change of shape rather than of spelling - Avalonia hands back
+    /// storage items where WinForms hands back paths - but the content is the same set of files,
+    /// and `IStorageItem.Path.LocalPath` is exactly the string WinForms would have given.
     /// </summary>
     [Fact]
-    public void RewriteForView_ReadingTheDragPayload_IsNotMigrated()
+    public void RewriteForView_ReadingTheDragPayload_BecomesTheStorageItemPaths()
     {
         var form = FormWith(("dropPanel", "Panel"));
 
@@ -1897,6 +1898,26 @@ public class HandlerBodyRewriterTests
             form,
             Navigation(),
             new HandlerSignature("e", "DragEventArgs", ["dropPanel"]));
+
+        Assert.Equal(
+            ["var files = e.DataTransfer.TryGetFiles()!.Select(w2aFile => w2aFile.Path.LocalPath).ToArray();"],
+            result.MigratedStatements);
+        Assert.Contains("System.Linq", result.RequiredUsings);
+    }
+
+    /// <summary>
+    /// Only FileDrop, and only into a `string[]`. Every other format is a different payload with
+    /// a different shape, and there is no reason to guess which.
+    /// </summary>
+    [Theory]
+    [InlineData("var text = (string)e.Data!.GetData(DataFormats.Text)!;")]
+    [InlineData("var files = (object[])e.Data!.GetData(DataFormats.FileDrop)!;")]
+    public void RewriteForView_ADragPayloadOfAnotherShape_IsNotMigrated(string body)
+    {
+        var form = FormWith(("dropPanel", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            body, form, Navigation(), new HandlerSignature("e", "DragEventArgs", ["dropPanel"]));
 
         Assert.Empty(result.MigratedStatements);
     }
@@ -2928,6 +2949,91 @@ public class HandlerBodyRewriterTests
 
         var result = Rewriter.RewriteForView(
             "this.itemsListView.Items.Add(new ListViewItem(new[] { \"readme.txt\", \"2 KB\" }));", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Avalonia has no single ExpandAll, which is why this was written off as having no
+    /// counterpart - but `ExpandSubTree` expands the item *and every descendant*, so running it
+    /// over the root items is exactly what ExpandAll means.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ExpandAll_BecomesExpandSubTreeOverTheRootItems()
+    {
+        var form = FormWith(("itemsTreeView", "TreeView"));
+
+        var result = Rewriter.RewriteForView("this.itemsTreeView.ExpandAll();", form);
+
+        Assert.Equal(
+            [
+                "foreach (var w2aNode in itemsTreeView.Items.OfType<TreeViewItem>())\n"
+                + "{\n    itemsTreeView.ExpandSubTree(w2aNode);\n}",
+            ],
+            result.MigratedStatements);
+        Assert.Contains("System.Linq", result.RequiredUsings);
+    }
+
+    /// <summary>`ExpandAll` on something that is not a TreeView is not this shape.</summary>
+    [Fact]
+    public void RewriteForView_ExpandAllOnAnotherControlType_IsNotMigrated()
+    {
+        var form = FormWith(("listBox1", "ListBox"));
+
+        var result = Rewriter.RewriteForView("this.listBox1.ExpandAll();", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A HyperlinkButton really does track whether it has been visited - `LinkVisited` was called
+    /// impossible for a long time on no evidence at all.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_LinkVisited_BecomesIsVisited()
+    {
+        var form = FormWith(("linkLabel1", "LinkLabel"));
+
+        var result = Rewriter.RewriteForView("this.linkLabel1.LinkVisited = true;", form);
+
+        Assert.Equal(["linkLabel1.IsVisited = true;"], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// WinForms reports a clicked cell as an index pair; Avalonia reports the row and column
+    /// objects. The row knows its own index; the column does not, and its OwningGrid is not
+    /// public - so the index comes from asking the grid that raised the event.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DataGridCellIndices_ComeFromTheRowAndTheGrid()
+    {
+        var form = FormWith(("dataGridView1", "DataGridView"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = $\"row {e.RowIndex}, column {e.ColumnIndex}\";",
+            form,
+            Navigation(),
+            new HandlerSignature("e", "DataGridCellPointerPressedEventArgs", ["dataGridView1"]));
+
+        Assert.Equal(
+            ["statusLabel.Text = $\"row {e.Row.Index}, column {dataGridView1.Columns.IndexOf(e.Column)}\";"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The column index needs the grid that raised the event, so a handler shared by several
+    /// controls cannot have it - the same rule the pointer coordinates follow.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DataGridColumnIndexOnASharedHandler_IsNotMigrated()
+    {
+        var form = FormWith(("dataGridView1", "DataGridView"), ("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text = e.ColumnIndex.ToString();",
+            form,
+            Navigation(),
+            new HandlerSignature("e", "DataGridCellPointerPressedEventArgs", SourceControlFieldNames: []));
 
         Assert.Empty(result.MigratedStatements);
     }

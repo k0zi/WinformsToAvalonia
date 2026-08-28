@@ -1,13 +1,22 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:All_In_One_WinForms.ViewModels" xmlns:controls="using:All_In_One_WinForms.Controls" xmlns:w2a="clr-namespace:All_In_One_WinForms.Controls.Generated" xmlns:uc0="using:All_In_One_WinForms.Views.Controls" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="All_In_One_WinForms.Views.MainView" x:DataType="vm:MainViewModel" Width="1024" Height="720" Title="All-In-One WinForms control gallery" Opened="MainForm_Load" Closing="MainForm_FormClosing">
+    <Window.Styles>
+        <Style Selector="Canvas &gt; :is(Control)">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="Canvas &gt; :is(TemplatedControl)">
+            <Setter Property="Padding" Value="4,1" />
+        </Style>
+    </Window.Styles>
     <Design.DataContext>
         <vm:MainViewModel />
     </Design.DataContext>
     <Canvas>
         <TabControl x:Name="tabControl1" Canvas.Left="12" Canvas.Top="58" Width="1000" Height="630" SelectionChanged="tabControl1_SelectedIndexChanged">
-            <TabItem x:Name="buttonsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Buttons &amp;&amp; Text">
+            <TabItem x:Name="buttonsTabPage" Header="Buttons &amp; Text">
                 <Canvas>
                     <TextBlock x:Name="captionLabel" Canvas.Left="12" Canvas.Top="12" Width="220" Height="20" Text="{Binding CaptionLabelText, Mode=TwoWay}" />
-                    <HyperlinkButton x:Name="linkLabel1" Canvas.Left="12" Canvas.Top="38" Width="220" Height="20" Content="LinkLabel - click me" Click="linkLabel1_LinkClicked" />
+                    <HyperlinkButton x:Name="linkLabel1" Canvas.Left="12" Canvas.Top="38" Width="220" Height="20" Content="LinkLabel - click me" IsVisited="{Binding LinkLabel1IsVisited, Mode=TwoWay}" Command="{Binding LinkLabel1Command}" />
                     <TextBox x:Name="titleTextBox" Canvas.Left="12" Canvas.Top="64" Width="220" Height="23" Text="{Binding TitleTextBoxText, Mode=TwoWay}" ToolTip.Tip="The document title" />
                     <controls:MaskedTextBoxFallback x:Name="phoneMaskedTextBox" Canvas.Left="12" Canvas.Top="93" Width="220" Height="23" />
                     <controls:RichTextBoxFallback x:Name="notesRichTextBox" Canvas.Left="12" Canvas.Top="122" Width="220" Height="100" />
@@ -24,7 +33,7 @@
                     <Button x:Name="validateButton" Canvas.Left="356" Canvas.Top="212" Width="100" Height="28" Content="Validate" Click="validateButton_Click" />
                 </Canvas>
             </TabItem>
-            <TabItem x:Name="listsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Lists">
+            <TabItem x:Name="listsTabPage" Header="Lists">
                 <Canvas>
                     <ListBox x:Name="itemsListBox" Canvas.Left="12" Canvas.Top="12" Width="180" Height="124" SelectionChanged="itemsListBox_SelectedIndexChanged">
                         <ListBoxItem Content="Alpha" />
@@ -54,7 +63,7 @@
                     <controls:PropertyGridFallback x:Name="propertyGrid1" Canvas.Left="588" Canvas.Top="12" Width="280" Height="280" />
                 </Canvas>
             </TabItem>
-            <TabItem x:Name="containersTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Containers">
+            <TabItem x:Name="containersTabPage" Header="Containers">
                 <Canvas>
                     <Canvas x:Name="plainPanel" Canvas.Left="12" Canvas.Top="12" Width="220" Height="120">
                         <TextBlock x:Name="panelLabel" Canvas.Left="8" Canvas.Top="8" Width="190" Height="20" Text="Panel - free-form container" />
@@ -82,19 +91,19 @@
                     </Grid>
                     <GridSplitter x:Name="splitter1" Canvas.Left="460" Canvas.Top="144" Width="8" Height="180" />
                     <TabControl x:Name="innerTabControl" Canvas.Left="476" Canvas.Top="144" Width="240" Height="180">
-                        <TabItem x:Name="innerTabPage1" Canvas.Left="4" Canvas.Top="24" Width="232" Height="152" Header="Inner one">
+                        <TabItem x:Name="innerTabPage1" Header="Inner one">
                             <Canvas>
                                 <TextBlock x:Name="innerLabel" Canvas.Left="8" Canvas.Top="8" Width="200" Height="20" Text="Nested tab content" />
                             </Canvas>
                         </TabItem>
-                        <TabItem x:Name="innerTabPage2" Canvas.Left="4" Canvas.Top="24" Width="232" Height="152" Header="Inner two" />
+                        <TabItem x:Name="innerTabPage2" Header="Inner two" />
                     </TabControl>
                     <controls:ToolStripPanelFallback x:Name="toolStripPanel1" Canvas.Left="724" Canvas.Top="144" Width="224" Height="86" />
                     <controls:ToolStripContentPanelFallback x:Name="toolStripContentPanel1" Canvas.Left="724" Canvas.Top="238" Width="224" Height="86" />
                     <controls:ToolStripContainerFallback x:Name="toolStripContainer1" Canvas.Left="12" Canvas.Top="336" Width="936" Height="220" />
                 </Canvas>
             </TabItem>
-            <TabItem x:Name="dataTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Data">
+            <TabItem x:Name="dataTabPage" Header="Data">
                 <Canvas>
                     <DataGrid x:Name="dataGridView1" Canvas.Left="12" Canvas.Top="12" Width="940" Height="300" CellPointerPressed="dataGridView1_CellClick" ToolTip.Tip="Bound to bindingSource1">
                         <DataGrid.Columns>
@@ -143,7 +152,7 @@
                     <TextBlock x:Name="gridInfoLabel" Canvas.Left="12" Canvas.Top="356" Width="940" Height="20" Text="DataGridView bound to a BindingSource, driven by a BindingNavigator." />
                 </Canvas>
             </TabItem>
-            <TabItem x:Name="dateTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Date &amp;&amp; Time">
+            <TabItem x:Name="dateTabPage" Header="Date &amp; Time">
                 <Canvas>
                     <CalendarDatePicker x:Name="dateTimePicker1" Canvas.Left="12" Canvas.Top="12" Width="240" Height="23" />
                     <Calendar x:Name="monthCalendar1" Canvas.Left="12" Canvas.Top="44" Width="240" Height="170" />
@@ -151,7 +160,7 @@
                     <Button x:Name="clockToggleButton" Canvas.Left="270" Canvas.Top="44" Width="140" Height="28" Content="Start clock" Click="clockToggleButton_Click" />
                 </Canvas>
             </TabItem>
-            <TabItem x:Name="graphicsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Graphics &amp;&amp; Range">
+            <TabItem x:Name="graphicsTabPage" Header="Graphics &amp; Range">
                 <Canvas>
                     <Image x:Name="pictureBox1" Canvas.Left="12" Canvas.Top="12" Width="240" Height="160" PointerPressed="pictureBox1_MouseDown" />
                     <ProgressBar x:Name="progressBar1" Canvas.Left="270" Canvas.Top="12" Width="240" Height="23" Value="40" />
@@ -161,7 +170,7 @@
                     <TextBlock x:Name="graphicsInfoLabel" Canvas.Left="270" Canvas.Top="120" Width="240" Height="20" Text="TrackBar value: 40" />
                 </Canvas>
             </TabItem>
-            <TabItem x:Name="dialogsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Dialogs &amp;&amp; Printing">
+            <TabItem x:Name="dialogsTabPage" Header="Dialogs &amp; Printing">
                 <Canvas>
                     <Button x:Name="openFileButton" Canvas.Left="12" Canvas.Top="12" Width="180" Height="28" Content="OpenFileDialog..." Click="openFileButton_Click" />
                     <Button x:Name="saveFileButton" Canvas.Left="12" Canvas.Top="46" Width="180" Height="28" Content="SaveFileDialog..." Click="saveFileButton_Click" />
@@ -175,7 +184,7 @@
                     <controls:PrintPreviewControlFallback x:Name="printPreviewControl1" Canvas.Left="204" Canvas.Top="12" Width="600" Height="400" />
                 </Canvas>
             </TabItem>
-            <TabItem x:Name="componentsTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Components">
+            <TabItem x:Name="componentsTabPage" Header="Components">
                 <Canvas>
                     <Button x:Name="startWorkerButton" Canvas.Left="12" Canvas.Top="12" Width="160" Height="28" Content="Run BackgroundWorker" Click="startWorkerButton_Click" />
                     <ProgressBar x:Name="workerProgressBar" Canvas.Left="178" Canvas.Top="15" Width="300" Height="23" />
@@ -192,17 +201,17 @@
                     <Canvas x:Name="contextPanel" Canvas.Left="12" Canvas.Top="320" Width="784" Height="60" DragDrop.Drop="contextPanel_DragDrop" DragDrop.DragEnter="contextPanel_DragEnter">
                         <Control.ContextMenu>
                             <ContextMenu>
-                                <MenuItem x:Name="copyContextMenuItem" Header="&amp;Copy" Click="copyContextMenuItem_Click" />
-                                <MenuItem x:Name="pasteContextMenuItem" Header="&amp;Paste" />
+                                <MenuItem x:Name="copyContextMenuItem" Header="_Copy" Click="copyContextMenuItem_Click" />
+                                <MenuItem x:Name="pasteContextMenuItem" Header="_Paste" />
                                 <Separator x:Name="contextMenuSeparator" />
-                                <MenuItem x:Name="selectAllContextMenuItem" Header="Select &amp;all" />
+                                <MenuItem x:Name="selectAllContextMenuItem" Header="Select _all" />
                             </ContextMenu>
                         </Control.ContextMenu>
                         <TextBlock x:Name="contextPanelLabel" Canvas.Left="8" Canvas.Top="8" Width="600" Height="20" Text="Right-click for a ContextMenuStrip, or drop a file here." />
                     </Canvas>
                 </Canvas>
             </TabItem>
-            <TabItem x:Name="advancedTabPage" Canvas.Left="4" Canvas.Top="24" Width="992" Height="602" Header="Advanced">
+            <TabItem x:Name="advancedTabPage" Header="Advanced">
                 <Canvas>
                     <controls:WebBrowserFallback x:Name="webBrowser1" Canvas.Left="12" Canvas.Top="12" Width="600" Height="320" />
                     <uc0:DemoUserControlView x:Name="demoUserControl1" Canvas.Left="624" Canvas.Top="12" Width="220" Height="70" />
@@ -242,25 +251,25 @@
             <!-- TODO(Winforms2Avalonia): field 'toolStripControlHost1' (ToolStripControlHost) has no Avalonia mapping: Hosts an arbitrary embedded WinForms Control - too dynamic to translate generically; recreate manually with the equivalent Avalonia control. - not emitted. -->
         </controls:ToolStripFallback>
         <Menu x:Name="menuStrip1" Canvas.Left="0" Canvas.Top="0" Width="1024" Height="24">
-            <MenuItem x:Name="fileMenuItem" Header="&amp;File">
-                <MenuItem x:Name="newMenuItem" Header="&amp;New" Click="newMenuItem_Click" />
-                <MenuItem x:Name="openMenuItem" Header="&amp;Open..." Click="openMenuItem_Click" />
+            <MenuItem x:Name="fileMenuItem" Header="_File">
+                <MenuItem x:Name="newMenuItem" Header="_New" Click="newMenuItem_Click" />
+                <MenuItem x:Name="openMenuItem" Header="_Open..." Click="openMenuItem_Click" />
                 <Separator x:Name="fileMenuSeparator" />
-                <MenuItem x:Name="exitMenuItem" Header="E&amp;xit" Click="exitMenuItem_Click" />
+                <MenuItem x:Name="exitMenuItem" Header="E_xit" Click="exitMenuItem_Click" />
             </MenuItem>
-            <MenuItem x:Name="editMenuItem" Header="&amp;Edit">
-                <MenuItem x:Name="undoMenuItem" Header="&amp;Undo" />
-                <MenuItem x:Name="redoMenuItem" Header="&amp;Redo" />
-                <MenuItem x:Name="wordWrapMenuItem" Header="&amp;Word wrap" Click="wordWrapMenuItem_Click" />
+            <MenuItem x:Name="editMenuItem" Header="_Edit">
+                <MenuItem x:Name="undoMenuItem" Header="_Undo" />
+                <MenuItem x:Name="redoMenuItem" Header="_Redo" />
+                <MenuItem x:Name="wordWrapMenuItem" Header="_Word wrap" Click="wordWrapMenuItem_Click" />
             </MenuItem>
-            <MenuItem x:Name="viewMenuItem" Header="&amp;View">
-                <MenuItem x:Name="barsMenuItem" Header="&amp;Bars">
-                    <MenuItem x:Name="showToolStripMenuItem" Header="Show &amp;toolbar" />
-                    <MenuItem x:Name="showStatusStripMenuItem" Header="Show &amp;status bar" />
+            <MenuItem x:Name="viewMenuItem" Header="_View">
+                <MenuItem x:Name="barsMenuItem" Header="_Bars">
+                    <MenuItem x:Name="showToolStripMenuItem" Header="Show _toolbar" />
+                    <MenuItem x:Name="showStatusStripMenuItem" Header="Show _status bar" />
                 </MenuItem>
             </MenuItem>
-            <MenuItem x:Name="helpMenuItem" Header="&amp;Help">
-                <MenuItem x:Name="aboutMenuItem" Header="&amp;About..." Click="aboutMenuItem_Click" />
+            <MenuItem x:Name="helpMenuItem" Header="_Help">
+                <MenuItem x:Name="aboutMenuItem" Header="_About..." Click="aboutMenuItem_Click" />
             </MenuItem>
         </Menu>
     </Canvas>

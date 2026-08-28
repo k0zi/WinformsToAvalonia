@@ -105,6 +105,8 @@ public sealed class AxamlEmitter
             builder.Attribute(attributeName, handlerMethodName);
         }
 
+        EmitCanvasLayoutStyles(builder, isUserControl ? "UserControl" : "Window");
+
         builder.OpenElement("Design.DataContext");
         builder.OpenElement($"vm:{viewModelClassName}");
         builder.CloseElement();
@@ -113,7 +115,7 @@ public sealed class AxamlEmitter
         builder.OpenElement("Canvas");
         foreach (var control in formModel.RootControls)
         {
-            EmitControl(builder, control, emitFallbackControls, state);
+            EmitControl(builder, control, emitFallbackControls, state, isItemOfParent: false);
         }
 
         builder.CloseElement();
@@ -131,6 +133,56 @@ public sealed class AxamlEmitter
     }
 
     /// <summary>
+    /// Makes the Canvas-everywhere layout mean what it says: a control ends up the size the
+    /// WinForms designer recorded, not the size Avalonia's theme would rather it were.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Avalonia's default theme gives an editable control a <c>MinHeight</c> of 32 and generous
+    /// padding, both aimed at touch. A designer's 23-pixel TextBox therefore rendered 32 pixels
+    /// tall and swallowed whatever sat 26 pixels below it - in the sample, the LinkLabel above
+    /// every text box on the first tab. With absolute coordinates and no layout panel to absorb
+    /// the difference, that is a silent overlap on every form ever converted.
+    /// </para>
+    /// <para>
+    /// Two setters rather than one, because dropping the minimum alone only trades the overlap
+    /// for clipped text: the theme's padding does not fit a line of text into 23 pixels either.
+    /// Both were measured on the headless platform - with them a 23-pixel TextBox, Button and
+    /// ComboBox each render at exactly 23 pixels with their text fully visible.
+    /// </para>
+    /// <para>
+    /// A style, not per-element attributes: a designer-set value on the element itself still
+    /// wins over a style setter, so a control whose padding the WinForms designer really did
+    /// specify keeps it.
+    /// </para>
+    /// </remarks>
+    private static void EmitCanvasLayoutStyles(AxamlDocumentBuilder builder, string rootElementName)
+    {
+        builder.OpenElement($"{rootElementName}.Styles");
+
+        builder.OpenElement("Style");
+        builder.Attribute("Selector", "Canvas > :is(Control)");
+        EmitSetter(builder, "MinWidth", "0");
+        EmitSetter(builder, "MinHeight", "0");
+        builder.CloseElement();
+
+        builder.OpenElement("Style");
+        builder.Attribute("Selector", "Canvas > :is(TemplatedControl)");
+        EmitSetter(builder, "Padding", "4,1");
+        builder.CloseElement();
+
+        builder.CloseElement();
+    }
+
+    private static void EmitSetter(AxamlDocumentBuilder builder, string propertyName, string value)
+    {
+        builder.OpenElement("Setter");
+        builder.Attribute("Property", propertyName);
+        builder.Attribute("Value", value);
+        builder.CloseElement();
+    }
+
+    /// <summary>
     /// One xmlns declaration per distinct UserControl-View namespace, keyed by the prefix the
     /// pipeline already assigned. Several UserControls in the same folder share one namespace
     /// (and therefore one prefix), and a duplicate xmlns attribute would be a XAML parse error.
@@ -142,7 +194,20 @@ public sealed class AxamlEmitter
             .Select(g => (g.First().XmlnsPrefix, g.First().XmlnsValue))
             .OrderBy(x => x.XmlnsPrefix, StringComparer.Ordinal);
 
-    private void EmitControl(AxamlDocumentBuilder builder, ControlModel control, bool emitFallbackControls, EmissionState state)
+    /// <param name="isItemOfParent">
+    /// Whether this element is an <em>item</em> of its parent rather than a child positioned in
+    /// it. Absolute position and size are what the Canvas-everywhere layout is built on, and they
+    /// are emitted everywhere else - but on an item they land on the wrong thing entirely: a
+    /// TabItem's Width/Height size its <em>tab</em>, and a TabPage's WinForms bounds are the tab
+    /// control's client area rather than anything the user chose. Emitting them made every tab
+    /// header 600px tall, which pushed all nine pages of the sample out of the window.
+    /// </param>
+    private void EmitControl(
+        AxamlDocumentBuilder builder,
+        ControlModel control,
+        bool emitFallbackControls,
+        EmissionState state,
+        bool isItemOfParent)
     {
         var mapped = _registry.Map(control);
         var treatAsFallback = mapped.Status == MappingStatus.Fallback && emitFallbackControls;
@@ -190,24 +255,27 @@ public sealed class AxamlEmitter
             builder.Attribute("x:Name", control.FieldName);
         }
 
-        if (TryGetPoint(control.Properties, "Location", out var x, out var y))
+        if (!isItemOfParent)
         {
-            builder.Attribute("Canvas.Left", FormatInt(x));
-            builder.Attribute("Canvas.Top", FormatInt(y));
-        }
-        else
-        {
-            WarnIfPropertyUnresolved(control, "Location", "Point", state);
-        }
+            if (TryGetPoint(control.Properties, "Location", out var x, out var y))
+            {
+                builder.Attribute("Canvas.Left", FormatInt(x));
+                builder.Attribute("Canvas.Top", FormatInt(y));
+            }
+            else
+            {
+                WarnIfPropertyUnresolved(control, "Location", "Point", state);
+            }
 
-        if (TryGetSize(control.Properties, "Size", out var width, out var height))
-        {
-            builder.Attribute("Width", FormatInt(width));
-            builder.Attribute("Height", FormatInt(height));
-        }
-        else
-        {
-            WarnIfPropertyUnresolved(control, "Size", "Size", state);
+            if (TryGetSize(control.Properties, "Size", out var width, out var height))
+            {
+                builder.Attribute("Width", FormatInt(width));
+                builder.Attribute("Height", FormatInt(height));
+            }
+            else
+            {
+                WarnIfPropertyUnresolved(control, "Size", "Size", state);
+            }
         }
 
         // A bound property's designer literal moves to the ViewModel property's initializer, so
@@ -250,6 +318,7 @@ public sealed class AxamlEmitter
         }
 
         EmitLiteralItems(builder, control, elementName, state);
+        EmitIconIfPresent(builder, control, elementName, state);
 
         if (control.ClrTypeName == "SplitContainer")
         {
@@ -263,9 +332,13 @@ public sealed class AxamlEmitter
                 builder.OpenElement(wrapperElementName);
             }
 
+            // Whatever the children actually land in: the innermost wrapper if the mapper asked
+            // for one (TabItem's Canvas, DataGrid.Columns), otherwise this element itself.
+            var childParent = wrappers.Count > 0 ? wrappers[^1] : elementName;
+
             foreach (var child in control.Children)
             {
-                EmitControl(builder, child, emitFallbackControls, state);
+                EmitControl(builder, child, emitFallbackControls, state, HostsItems.Contains(childParent));
             }
 
             for (var i = 0; i < wrappers.Count; i++)
@@ -369,7 +442,7 @@ public sealed class AxamlEmitter
             builder.OpenElement("ContextMenu");
             foreach (var item in menuControl.Children)
             {
-                EmitControl(builder, item, emitFallbackControls, state);
+                EmitControl(builder, item, emitFallbackControls, state, isItemOfParent: true);
             }
 
             builder.CloseElement();
@@ -415,11 +488,30 @@ public sealed class AxamlEmitter
 
         foreach (var child in children)
         {
-            EmitControl(builder, child, emitFallbackControls, state);
+            EmitControl(builder, child, emitFallbackControls, state, isItemOfParent: false);
         }
 
         builder.CloseElement();
     }
+
+    /// <summary>
+    /// The target elements whose children are items rather than positioned content.
+    /// </summary>
+    /// <remarks>
+    /// Keyed on the Avalonia element, like the other emission tables, and deliberately a list of
+    /// what is <em>not</em> a panel rather than a list of what is: every WinForms container maps
+    /// to a Canvas or to a bundled template that hosts one, so absolute layout is right for all
+    /// of them and the exceptions are countable. Adding a mapper whose target holds items -
+    /// rather than lays children out - means adding it here.
+    /// </remarks>
+    private static readonly HashSet<string> HostsItems = new(StringComparer.Ordinal)
+    {
+        "TabControl",
+        "Menu",
+        "MenuItem",
+        "ContextMenu",
+        "DataGrid.Columns",
+    };
 
     private sealed class EmissionState
     {
@@ -494,6 +586,55 @@ public sealed class AxamlEmitter
                 $"'{mapped.FallbackTemplateKey}', which has no '{bound.AvaloniaPropertyName}' - the ViewModel's " +
                 $"'{bound.ViewModelPropertyName}' is generated but not bound to anything. Wire it up by hand.");
         }
+    }
+
+    /// <summary>
+    /// The image a control carried - from its own .resx entry, or from an ImageList by
+    /// <c>ImageIndex</c> - emitted into the one slot Avalonia has for a per-item icon.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// That slot is <c>MenuItem.Icon</c>, and only <c>MenuItem.Icon</c>: Avalonia's
+    /// <c>TreeViewItem</c>, <c>ListBoxItem</c> and <c>TabItem</c> have no icon property at all, so
+    /// the WinForms shape of "text plus a small picture" would have to be invented there as a
+    /// panel inside the header - a layout decision this converter does not get to make. A Button
+    /// is the same story from the other side: its Content already holds the text.
+    /// </para>
+    /// <para>
+    /// Gated on the target element rather than the WinForms type, like the other two emission
+    /// tables. <c>PictureBox</c> is excluded because its own mapper already turns
+    /// <c>Image</c> into <c>Image.Source</c>; anything else is reported, naming the asset that
+    /// was written so wiring it up by hand is a one-liner rather than a search.
+    /// </para>
+    /// </remarks>
+    private static void EmitIconIfPresent(
+        AxamlDocumentBuilder builder, ControlModel control, string elementName, EmissionState state)
+    {
+        if (!control.Properties.TryGetValue("Image", out var value)
+            || PropertyValueFormatters.AsText(value) is not { } assetPath
+            || !assetPath.StartsWith("/Assets/", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (elementName == "Image")
+        {
+            return;
+        }
+
+        if (elementName != "MenuItem")
+        {
+            state.Warnings.Add(
+                $"field '{control.FieldName}' ({control.ClrTypeName}) has an image, extracted to '{assetPath[1..]}', but " +
+                $"'{elementName}' has no icon property in Avalonia - place it by hand if you want it shown.");
+            return;
+        }
+
+        builder.OpenElement("MenuItem.Icon");
+        builder.OpenElement("Image");
+        builder.Attribute("Source", assetPath);
+        builder.CloseElement();
+        builder.CloseElement();
     }
 
     /// <summary>

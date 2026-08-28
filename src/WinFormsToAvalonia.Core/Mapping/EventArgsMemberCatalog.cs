@@ -23,11 +23,12 @@ public readonly record struct EventArgsMember(string Format, bool NeedsSourceCon
 /// Avalonia equivalent has a genuinely different shape.
 /// </para>
 /// <para>
-/// Of the third kind only the pointer position is translated, because it has an exact answer:
+/// Of the third kind, two have exact answers and are translated. The pointer position:
 /// WinForms' <c>e.X</c>/<c>e.Y</c> are relative to the control that raised the event, which is
-/// precisely what <c>GetPosition(control)</c> takes. Something like
-/// <c>DataGridViewCellEventArgs.RowIndex</c> has no exact answer - Avalonia reports the cell
-/// through an object rather than an index pair - so it is left for a human.
+/// precisely what <c>GetPosition(control)</c> takes. And a grid cell's index pair, which was
+/// called inexact here for a long time on no evidence: Avalonia reports the row and column
+/// objects, the row knows its own index, and the column's comes from asking the grid - so both
+/// halves are exact, one of them by way of the source control.
 /// </para>
 /// <para>
 /// <c>DragEventArgs.Data</c> is deliberately <em>not</em> here even though Avalonia has a
@@ -82,6 +83,14 @@ public static class EventArgsMemberCatalog
             // which is exactly the argument Avalonia's GetPosition takes.
             [("PointerPressedEventArgs", "X")] = new("{0}.GetPosition({1}).X", NeedsSourceControl: true),
             [("PointerPressedEventArgs", "Y")] = new("{0}.GetPosition({1}).Y", NeedsSourceControl: true),
+            // WinForms reports the clicked cell as an index pair; Avalonia reports the row and
+            // column objects. The row knows its own index. The column does not - and its
+            // OwningGrid is not public - so the index comes from asking the grid that raised the
+            // event, which is why this one needs the source control.
+            [("DataGridCellPointerPressedEventArgs", "RowIndex")] = new("{0}.Row.Index"),
+            [("DataGridCellPointerPressedEventArgs", "ColumnIndex")] =
+                new("{1}.Columns.IndexOf({0}.Column)", NeedsSourceControl: true),
+
             [("PointerEventArgs", "X")] = new("{0}.GetPosition({1}).X", NeedsSourceControl: true),
             [("PointerEventArgs", "Y")] = new("{0}.GetPosition({1}).Y", NeedsSourceControl: true),
             [("PointerReleasedEventArgs", "X")] = new("{0}.GetPosition({1}).X", NeedsSourceControl: true),

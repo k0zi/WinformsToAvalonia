@@ -1,5 +1,5 @@
-using Avalonia;
 using Avalonia.Controls;
+using Avalonia;
 
 namespace __TARGET_NAMESPACE__;
 

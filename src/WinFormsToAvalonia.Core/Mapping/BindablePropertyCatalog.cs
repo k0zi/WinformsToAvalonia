@@ -153,7 +153,14 @@ public static class BindablePropertyCatalog
         // Content, not Text: a LinkLabel maps to a HyperlinkButton, which has no Text property.
         // Getting this wrong is an AVLN2000 in the *generated* project - see the consistency test
         // in BindablePropertyCatalogTests, which is what this table is checked against.
-        ["LinkLabel"] = new(StringComparer.Ordinal) { ["Text"] = new("Content", "string", " = string.Empty;", "object") },
+        ["LinkLabel"] = new(StringComparer.Ordinal)
+        {
+            ["Text"] = new("Content", "string", " = string.Empty;", "object"),
+
+            // A HyperlinkButton really does track this - it was written off as having no Avalonia
+            // counterpart until the API was actually read.
+            ["LinkVisited"] = new("IsVisited", "bool"),
+        },
         ["Button"] = new(StringComparer.Ordinal) { ["Text"] = new("Content", "string", " = string.Empty;", "object") },
         ["CheckBox"] = new(StringComparer.Ordinal)
         {

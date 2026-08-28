@@ -66,7 +66,11 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    a `Localizable=true` form's `resources.ApplyResources(...)` properties are indistinguishable
    downstream from designer-declared ones. Base64 payloads become `PropertyValue.ResourceReference`,
    which `ConversionPipeline.ResolveResourceAssets` turns into copied `Assets/` files via
-   `ResxImageExtractor`.
+   `ResxImageExtractor` - or, for an `ImageList.ImageStream`, via `ImageListExtractor`, which
+   decodes the whole strip into one PNG per image and lets `ResolveImageListReferences` rewrite
+   each `ImageIndex` into the asset path (the list is inherited from the owning control, as
+   WinForms resolves it). Only `MenuItem.Icon` can actually show one; everywhere else the file is
+   written and the warning names it.
 2. **Mapping** (`Core/Mapping`) — `ControlMappingRegistry` is a `WinFormsTypeName → IControlMapper`
    dictionary. `DefaultControlMappers.All` holds the built-in set: `SimplePropertyMapper` (Direct),
    `FallbackControlMapper` (bundled template), `UnsupportedControlMapper` (guidance-only warning),
@@ -85,8 +89,16 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    which is what a code-behind read has to come out as: see `ReadExpression`). The third feeds
    `AxamlEmitter`: `AvaloniaStylePropertySupport` says which
    of `Background`/`Foreground`/font/`Padding` each **target element name** can carry, and
-   `AvaloniaItemsSupport` which targets accept literal item children — both keyed on the Avalonia
-   element, not the WinForms type. **Adding a mapper with a new target element means adding it to
+   `AvaloniaItemsSupport` which targets accept literal item children, and
+   `AvaloniaAccessKeySupport` which of them render an underscore as a keyboard access key — all
+   keyed on the Avalonia element, not the WinForms type. That last one pairs with
+   `WinFormsMnemonicCatalog`, the one table here holding *two* facts at once: whether a WinForms
+   control's `Text` is a caption carrying an `&` mnemonic at all, and whether the element it
+   becomes can render one — `&File` on a menu item becomes `_File`, on a Label (a `TextBlock`)
+   just `File`, and on a TextBox nothing at all, because there it is the user's data.
+   Access-key support is the one table that *cannot* be read from Avalonia's metadata: it is a
+   template detail, so it was measured by rendering each element headlessly and looking for an
+   `AccessText`. **Adding a mapper with a new target element means adding it to
    those tables too**, or that element silently gets no styling (and its designer-declared items
    are reported as un-emitted). `FallbackControlMemberSupport` is the third: which catalog
    members each *bundled template* really exposes, which is what lets a fallback be written to or
@@ -164,9 +176,29 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
 ## Invariants worth not breaking
 
 - **Canvas-everywhere layout.** Every container emits a `Canvas`; children carry absolute
-  `Canvas.Left`/`Top`/`Width`/`Height`. `Anchor`/`Dock` are *preserved* as an XML comment plus the
+  `Canvas.Left`/`Top`/`Width`/`Height` - *except* where the parent holds items rather than
+  positioned children (`AxamlEmitter.HostsItems`: TabControl, Menu/MenuItem/ContextMenu,
+  `DataGrid.Columns`). There the WinForms bounds describe the parent's client area, and emitting
+  them sizes the wrong thing: nine 992x602 TabPages became nine 602-pixel-tall *tab headers*, so
+  the header strip filled the window and every page fell outside it. The sample built, started
+  and passed every test while showing nothing.
+  Every view also carries a `<Window.Styles>`/`<UserControl.Styles>` block pinning
+  `Canvas > :is(Control)` to `MinWidth`/`MinHeight` 0 and `Canvas > :is(TemplatedControl)` to
+  `Padding="4,1"`: absolute coordinates only describe a layout if the controls are the size they
+  were told to be, and Avalonia's touch-oriented theme makes a 23-pixel TextBox 32 pixels tall,
+  which silently covers whatever sits 26 pixels below it. Both numbers were measured headlessly;
+  the padding is needed too, or the smaller box just clips its text. A style rather than
+  attributes, so a designer-set Padding still wins.
+  `Anchor`/`Dock` are *preserved* as an XML comment plus the
   `w2a:LayoutHint` attached property (`xmlns:w2a` → the generated `Controls/Generated/LayoutHint.cs`),
   never auto-translated to Avalonia layout. This includes `TableLayoutPanel`/`FlowLayoutPanel`.
+- **A bundled fallback template that subclasses a templated control must override
+  `StyleKeyOverride`.** Avalonia resolves a theme by the *concrete* type, so a `TextBox` subclass
+  finds none, gets no template, and renders as **nothing** — the converted MaskedTextBox and
+  RichTextBox were simply absent from the window while the project compiled, started and passed
+  every test. `FallbackControlTemplateTests` reads Avalonia's metadata to work out which
+  templates are affected and requires the override; Panel-derived templates are exempt because a
+  Panel has no template to lose.
 - **Generated projects must always build and run — warning-free.** A handler body is emitted as
   real code only where `HandlerBodyRewriter` can prove equivalence; the rest stays a comment
   inside a correctly-signed method that calls `MigrationTodo.NotMigrated(...)`, which reports
@@ -181,11 +213,17 @@ per verb, with all output formatting isolated in `Cli/Rendering`.
   mapping and xmlns prefix. Forms need more than ordering: `BuildFormViews` resolves **every**
   Form to its View in a separate pass before emission, because a handler body that opens another
   Form must name a View whose Form may not be converted yet — ordering alone cannot fix a cycle.
-- **Extra NuGet packages are allowlisted twice.** A mapper declares `RequiredNuGetPackage` (e.g.
+- **Extra NuGet packages are allowlisted three times.** A mapper declares `RequiredNuGetPackage` (e.g.
   `Avalonia.Controls.DataGrid`) and `ComponentFieldCatalog` names one per component; both flow
   through the pipeline into `BuildProject`, but the csproj writer emits *only* packages present in
   `AvaloniaProjectScaffolder.ExtraPackageVersions`. Adding a
   package needs both, or it is silently dropped and the generated project fails to compile.
+  The third is `PackageStyleIncludes`: a control shipped outside core Avalonia brings its own
+  `ControlTheme` in a resource dictionary `App.axaml` has to ask for with a `StyleInclude`.
+  Referencing the package is not enough - without the include the control finds no theme, gets no
+  template, and renders as **nothing**. Same failure mode as a missing `StyleKeyOverride`, and
+  `GeneratedAppStartupTests` now catches the whole class: it walks the booted window and fails on
+  any `TemplatedControl` whose `Template` is still null.
   The generated project's Avalonia / CommunityToolkit.Mvvm versions are `const`s on that same class.
 - **App-level components are not per-View.** `NotifyIcon` becomes `TrayIcon.Icons` in `App.axaml`,
   and its icon bytes are copied into the VFS with `AddBinary` — it never reaches an emitter.

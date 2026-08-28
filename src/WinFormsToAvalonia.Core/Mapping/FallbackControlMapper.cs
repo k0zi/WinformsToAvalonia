@@ -25,6 +25,14 @@ public sealed class FallbackControlMapper : IControlMapper
 
     public string WinFormsTypeName { get; }
 
+    /// <summary>The bundled template this mapper emits - the fallback counterpart of
+    /// <see cref="SimplePropertyMapper.AvaloniaElementName"/>, exposed for the same reason.</summary>
+    public string FallbackTemplateKey => _fallbackTemplateKey;
+
+    /// <summary>Every attribute this mapper can emit, with the WinForms property it comes from.</summary>
+    public IReadOnlyList<(string WinFormsProperty, string AvaloniaAttribute)> DeclaredAttributes =>
+        [.. _propertyMappings.Select(m => (m.WinFormsProperty, m.AvaloniaAttribute))];
+
     public MappedControl Map(ControlModel control)
     {
         var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -33,7 +41,10 @@ public sealed class FallbackControlMapper : IControlMapper
         {
             if (control.Properties.TryGetValue(winFormsProperty, out var value) && format(value) is { } formatted)
             {
-                attributes[avaloniaAttribute] = formatted;
+                // Same as SimplePropertyMapper: a caption's mnemonic marker is notation, not text.
+                attributes[avaloniaAttribute] = winFormsProperty == "Text"
+                    ? WinFormsMnemonics.Convert(formatted, WinFormsMnemonicCatalog.For(control.ClrTypeName))
+                    : formatted;
             }
         }
 

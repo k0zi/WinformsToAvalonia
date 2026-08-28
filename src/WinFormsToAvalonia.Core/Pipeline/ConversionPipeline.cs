@@ -286,6 +286,8 @@ public sealed class ConversionPipeline
     private static void ResolveResourceAssets(
         FormModel formModel, ResxDocument resx, IDictionary<string, byte[]> assetsToCopy, List<string> warnings)
     {
+        var imageListAssets = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+
         foreach (var control in formModel.Controls.Values)
         {
             foreach (var (propertyName, value) in control.Properties.ToList())
@@ -306,6 +308,14 @@ public sealed class ConversionPipeline
                     continue;
                 }
 
+                // An ImageList is a whole strip of images in one payload rather than a single
+                // file, so it takes the reader that knows that structure - and produces N assets.
+                if (propertyName == "ImageStream")
+                {
+                    ResolveImageList(control, resourceKey, entry.Value, assetsToCopy, imageListAssets, warnings);
+                    continue;
+                }
+
                 if (!ResxImageExtractor.TryExtract(entry.Value, out var image))
                 {
                     warnings.Add(
@@ -320,6 +330,152 @@ public sealed class ConversionPipeline
                 control.Properties[propertyName] = new PropertyValue.Literal($"/{assetPath}");
             }
         }
+
+        ResolveImageListReferences(formModel, imageListAssets, warnings);
+    }
+
+    /// <summary>
+    /// Unpacks one <c>ImageList.ImageStream</c> into a numbered PNG per image under
+    /// <c>Assets/</c>, and remembers the list so <see cref="ResolveImageListReferences"/> can
+    /// turn an <c>ImageIndex</c> into one of those paths.
+    /// </summary>
+    /// <remarks>
+    /// The images are written even when nothing ends up referencing them. They are the one thing
+    /// in a WinForms project that a developer genuinely cannot get at by hand - the payload is a
+    /// BinaryFormatter blob no modern .NET can open - so having them sitting in <c>Assets/</c>,
+    /// named after the field and index the original code used, is worth more than the bytes cost.
+    /// </remarks>
+    private static void ResolveImageList(
+        ControlModel control,
+        string resourceKey,
+        string base64,
+        IDictionary<string, byte[]> assetsToCopy,
+        IDictionary<string, IReadOnlyList<string>> imageListAssets,
+        List<string> warnings)
+    {
+        if (ImageListExtractor.TryExtract(base64) is not { } imageList)
+        {
+            warnings.Add(
+                $"ImageList '{control.FieldName}': the .resx payload for '{resourceKey}' is not a readable " +
+                "ImageListStreamer - its images are not extracted. Export them from the original project by hand " +
+                "and reference them from Assets/.");
+            return;
+        }
+
+        var assetPaths = new List<string>(imageList.Images.Count);
+        for (var index = 0; index < imageList.Images.Count; index++)
+        {
+            var assetPath = $"Assets/{control.FieldName}_{index}.png";
+            assetsToCopy[assetPath] = imageList.Images[index];
+            assetPaths.Add(assetPath);
+        }
+
+        imageListAssets[control.FieldName] = assetPaths;
+        warnings.Add(
+            $"ImageList '{control.FieldName}': {assetPaths.Count} image(s) of {imageList.ImageWidth}x" +
+            $"{imageList.ImageHeight} were extracted to Assets/{control.FieldName}_0.png .. " +
+            $"{Path.GetFileName(assetPaths[^1])}. Controls that took an image from it by ImageIndex are wired up " +
+            "where Avalonia has somewhere to put one; the rest are listed separately.");
+    }
+
+    /// <summary>
+    /// Rewrites <c>SomeControl.ImageIndex</c> into the <c>Image</c> property the rest of the
+    /// pipeline already understands - the same shape a <c>pictureBox1.Image</c> resource ends up
+    /// in - so an extracted ImageList image reaches emission through the ordinary path.
+    /// </summary>
+    /// <remarks>
+    /// The list is inherited from the owner when the control does not name one itself, because
+    /// that is how WinForms resolves it: a <c>ToolStripItem</c> has an <c>ImageIndex</c> of its
+    /// own but takes the <c>ImageList</c> from the ToolStrip that owns it.
+    /// </remarks>
+    private static void ResolveImageListReferences(
+        FormModel formModel, IReadOnlyDictionary<string, IReadOnlyList<string>> imageListAssets, List<string> warnings)
+    {
+        var owners = BuildOwnerMap(formModel);
+
+        // Resolved for every control before any of them is rewritten: an owner's ImageList is
+        // still needed by its children, so consuming it as the owner is visited would leave
+        // whichever items happen to come later in the walk with nothing to look up.
+        var listsInScope = formModel.Controls.Values.ToDictionary(
+            control => control.FieldName,
+            control => OwnedImageListName(control, owners, imageListAssets),
+            StringComparer.Ordinal);
+
+        foreach (var control in formModel.Controls.Values)
+        {
+            var declaredList = listsInScope[control.FieldName];
+
+            // Both are consumed either way: leaving them behind would only make an emitter warn
+            // about a property it has no Avalonia counterpart for.
+            var hasIndex = control.Properties.TryGetValue("ImageIndex", out var indexValue);
+            var hasKey = control.Properties.ContainsKey("ImageKey");
+            control.Properties.Remove("ImageList");
+            control.Properties.Remove("ImageIndex");
+            control.Properties.Remove("ImageKey");
+
+            if (hasKey && !hasIndex)
+            {
+                warnings.Add(
+                    $"'{control.FieldName}.ImageKey' names an image by key, and an ImageList's keys live in the " +
+                    "designer rather than in the payload this conversion reads - set the image by hand from Assets/.");
+                continue;
+            }
+
+            if (!hasIndex || declaredList is null)
+            {
+                continue;
+            }
+
+            if (indexValue is not PropertyValue.Literal { Value: int imageIndex }
+                || imageIndex < 0
+                || imageIndex >= imageListAssets[declaredList].Count)
+            {
+                warnings.Add(
+                    $"'{control.FieldName}.ImageIndex' does not point at an image in '{declaredList}' - no image is " +
+                    "set on the generated element.");
+                continue;
+            }
+
+            control.Properties["Image"] = new PropertyValue.Literal($"/{imageListAssets[declaredList][imageIndex]}");
+        }
+    }
+
+    /// <summary>
+    /// The decoded ImageList this control draws from: its own if it names one, otherwise its
+    /// owner's, walking up until one is found.
+    /// </summary>
+    private static string? OwnedImageListName(
+        ControlModel control,
+        IReadOnlyDictionary<string, ControlModel> owners,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> imageListAssets)
+    {
+        for (var current = control; current is not null; current = owners.GetValueOrDefault(current.FieldName))
+        {
+            if (current.Properties.TryGetValue("ImageList", out var value)
+                && value is PropertyValue.ControlReference(var listFieldName)
+                && imageListAssets.ContainsKey(listFieldName))
+            {
+                return listFieldName;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Child field name to its parent - the link ControlModel deliberately does not carry.</summary>
+    private static Dictionary<string, ControlModel> BuildOwnerMap(FormModel formModel)
+    {
+        var owners = new Dictionary<string, ControlModel>(StringComparer.Ordinal);
+
+        foreach (var parent in formModel.Controls.Values)
+        {
+            foreach (var child in parent.Children.Concat(parent.Panel1Children).Concat(parent.Panel2Children))
+            {
+                owners[child.FieldName] = parent;
+            }
+        }
+
+        return owners;
     }
 
     /// <summary>"pictureBox1" for the resx key "pictureBox1.Image".</summary>

@@ -193,7 +193,7 @@ they were wrong before anything checked them.
 | `HelpProvider` | ❌ Unsupported | | No Avalonia analog — permanently guidance-only. |
 | `ErrorProvider` | ✅ Fallback | `ErrorProviderFallback` | An attached property rather than a control, so it has no element of its own — and `errorProvider1.SetError(ctrl, "…")` in a handler body is translated into a static call on the template. |
 | `NotifyIcon` | ❌ Unsupported | | Aggregated across all forms into App.axaml's `TrayIcon.Icons`. The icon is copied into `Assets/` from either a literal path or the form's `.resx`; only when it is neither — a computed `Icon`, or an undecodable payload — is the block emitted **commented out** with a TODO, because Avalonia resolves `TrayIcon.Icon` at run time and a dangling asset reference throws out of `App.Initialize()`. See [Implementation plan](#notifyicon). |
-| `ImageList` | ❌ Unsupported | | See [Implementation plan](#imagelist). |
+| `ImageList` | ❌ Unsupported | | The type has no element, but its images are extracted: the `.resx` `ImageStream` is decoded into `Assets/<field>_<index>.png`, and an `ImageIndex` into it becomes a `MenuItem.Icon` — the only per-item image slot Avalonia has. See [Implementation plan](#imagelist). |
 
 ## DataGridView Related Types
 
@@ -402,8 +402,23 @@ quietly meaning something else.
 
 ### ImageList
 
-Parse the image-add calls, copy the referenced image assets into the generated project, and
-rewrite `PictureBox.ImageList`+`ImageKey` property usage into an `Image.Source` reference.
+**Done, as far as Avalonia has somewhere to put the result.**
+`ImageListExtractor` reads the `.resx` `ImageStream` — a BinaryFormatter envelope around an
+RLE-compressed `ILHEAD` plus a bitmap strip and a 1bpp mask — and writes one PNG per image, with
+the mask applied as an alpha channel, to `Assets/<field>_<index>.png`. Every image is written,
+including ones nothing references: the payload is the one part of a WinForms project a developer
+cannot open by hand.
+
+`ConversionPipeline.ResolveImageListReferences` then turns `control.ImageIndex` into that asset
+path, inheriting the `ImageList` from the owner when the control does not name one itself — which
+is how WinForms resolves it for a `ToolStripItem`.
+
+**Where it stops:** `MenuItem.Icon` is the only element-level image slot in Avalonia.
+`TreeViewItem`, `ListBoxItem` and `TabItem` have no icon property at all, and a `Button`'s
+`Content` already holds its text — showing an image there means inventing a panel layout, which
+this converter does not do. Those controls' images are still extracted, and the warning names the
+file. `ImageKey` is not resolved: an ImageList's keys live in the designer's `SetKeyName` calls
+rather than in the payload.
 
 ### ToolTip
 

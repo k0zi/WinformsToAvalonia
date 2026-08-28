@@ -57,6 +57,126 @@ public class AxamlEmitterTests
         Assert.Contains("TODO(Winforms2Avalonia)", result.Axaml);
     }
 
+    /// <summary>
+    /// Absolute coordinates only describe a layout if the controls are the size they were told
+    /// to be. Avalonia's theme would rather they were bigger.
+    /// </summary>
+    /// <remarks>
+    /// Measured on the headless platform: a TextBox asked for 23 pixels renders 32 without
+    /// these, and 23 with them - so on a Canvas it silently covered whatever the designer put
+    /// 26 pixels below it.
+    /// </remarks>
+    [Fact]
+    public void EmitView_PinsCanvasChildrenToTheSizeTheDesignerRecorded()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<Window.Styles>", result.Axaml);
+        Assert.Contains("<Style Selector=\"Canvas &gt; :is(Control)\">", result.Axaml);
+        Assert.Contains("<Setter Property=\"MinWidth\" Value=\"0\" />", result.Axaml);
+        Assert.Contains("<Setter Property=\"MinHeight\" Value=\"0\" />", result.Axaml);
+
+        // The minimum alone only trades the overlap for clipped text - the theme's padding does
+        // not fit a line into 23 pixels either.
+        Assert.Contains("<Style Selector=\"Canvas &gt; :is(TemplatedControl)\">", result.Axaml);
+        Assert.Contains("<Setter Property=\"Padding\" Value=\"4,1\" />", result.Axaml);
+    }
+
+    /// <summary>
+    /// A caption's ampersand is a keyboard mnemonic, not a character - and the sample's menu
+    /// read "&amp;File" until this was handled.
+    /// </summary>
+    [Fact]
+    public void EmitView_TranslatesCaptionMnemonicsPerTarget()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+
+        var menu = new ControlModel { FieldName = "menuStrip1", ClrTypeName = "MenuStrip" };
+        var item = new ControlModel { FieldName = "fileMenuItem", ClrTypeName = "ToolStripMenuItem" };
+        item.Properties["Text"] = new PropertyValue.Literal("&File");
+        menu.Children.Add(item);
+
+        // A Label becomes a TextBlock, which renders an underscore literally - so the marker has
+        // to go rather than move.
+        var label = new ControlModel { FieldName = "label1", ClrTypeName = "Label" };
+        label.Properties["Text"] = new PropertyValue.Literal("&Name && title");
+
+        // ...and a TextBox's Text is the user's data, where an ampersand is just an ampersand.
+        var textBox = new ControlModel { FieldName = "textBox1", ClrTypeName = "TextBox" };
+        textBox.Properties["Text"] = new PropertyValue.Literal("Smith & Sons");
+
+        formModel.RootControls.Add(menu);
+        formModel.RootControls.Add(label);
+        formModel.RootControls.Add(textBox);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("Header=\"_File\"", result.Axaml);
+        Assert.Contains("Text=\"Name &amp; title\"", result.Axaml);
+        Assert.Contains("Text=\"Smith &amp; Sons\"", result.Axaml);
+    }
+
+    /// <summary>
+    /// A TabPage's WinForms bounds are the tab control's client area, not a position anyone
+    /// chose - and in Avalonia they would size the <em>tab</em> rather than the page.
+    /// </summary>
+    /// <remarks>
+    /// This is not a tidiness point. The sample's nine 992x602 pages each turned into a 602-pixel
+    /// tab header, so the header strip filled the window and every page was pushed out of it: the
+    /// converted app came up blank while building, starting and passing every test.
+    /// </remarks>
+    [Fact]
+    public void EmitView_TabPage_DoesNotCarryTheTabControlsClientBounds()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var tabControl = new ControlModel { FieldName = "tabControl1", ClrTypeName = "TabControl" };
+        tabControl.Properties["Location"] = new PropertyValue.PointValue(12, 58);
+        tabControl.Properties["Size"] = new PropertyValue.SizeValue(1000, 630);
+        var tabPage = new ControlModel { FieldName = "tabPage1", ClrTypeName = "TabPage" };
+        tabPage.Properties["Text"] = new PropertyValue.Literal("First");
+        tabPage.Properties["Location"] = new PropertyValue.PointValue(4, 24);
+        tabPage.Properties["Size"] = new PropertyValue.SizeValue(992, 602);
+        var button = new ControlModel { FieldName = "button1", ClrTypeName = "Button" };
+        button.Properties["Location"] = new PropertyValue.PointValue(10, 10);
+        button.Properties["Size"] = new PropertyValue.SizeValue(75, 23);
+        tabPage.Children.Add(button);
+        tabControl.Children.Add(tabPage);
+        formModel.RootControls.Add(tabControl);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<TabItem x:Name=\"tabPage1\" Header=\"First\">", result.Axaml);
+
+        // The TabControl itself is a child of the form's Canvas, and the button a child of the
+        // TabItem's - both keep the absolute layout the whole strategy rests on.
+        Assert.Contains("<TabControl x:Name=\"tabControl1\" Canvas.Left=\"12\" Canvas.Top=\"58\" Width=\"1000\" Height=\"630\">", result.Axaml);
+        Assert.Contains("<Button x:Name=\"button1\" Canvas.Left=\"10\" Canvas.Top=\"10\" Width=\"75\" Height=\"23\" />", result.Axaml);
+    }
+
+    /// <summary>
+    /// The counterpart: a menu item is an item too, and a designer that recorded bounds for one
+    /// must not have them turned into a fixed-size menu entry.
+    /// </summary>
+    [Fact]
+    public void EmitView_MenuItem_DoesNotCarryAbsoluteLayout()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var menu = new ControlModel { FieldName = "menuStrip1", ClrTypeName = "MenuStrip" };
+        menu.Properties["Location"] = new PropertyValue.PointValue(0, 0);
+        menu.Properties["Size"] = new PropertyValue.SizeValue(240, 24);
+        var item = new ControlModel { FieldName = "fileMenuItem", ClrTypeName = "ToolStripMenuItem" };
+        item.Properties["Text"] = new PropertyValue.Literal("File");
+        item.Properties["Size"] = new PropertyValue.SizeValue(37, 20);
+        menu.Children.Add(item);
+        formModel.RootControls.Add(menu);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<MenuItem x:Name=\"fileMenuItem\" Header=\"File\" />", result.Axaml);
+    }
+
     [Fact]
     public void EmitView_TabPageWithChildren_WrapsChildrenInCanvas()
     {

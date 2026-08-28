@@ -77,7 +77,12 @@ public sealed class SimplePropertyMapper : IControlMapper
             if (control.Properties.TryGetValue(winFormsProperty, out var value)
                 && format(value) is { } formatted)
             {
-                attributes[avaloniaAttribute] = formatted;
+                // The one property whose designer value is not the value: a WinForms caption
+                // carries its keyboard mnemonic inline, in a notation Avalonia spells differently
+                // and half the targets cannot render at all.
+                attributes[avaloniaAttribute] = winFormsProperty == "Text"
+                    ? WinFormsMnemonics.Convert(formatted, WinFormsMnemonicCatalog.For(control.ClrTypeName))
+                    : formatted;
             }
         }
 

@@ -15,6 +15,7 @@ using All_In_One_WinForms.Views.Forms;
 using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using System.Linq;
 using All_In_One_WinForms.Controls;
 using All_In_One_WinForms.Generated;
 using All_In_One_WinForms.ViewModels;
@@ -230,15 +231,6 @@ public partial class MainView : Window
         statusInfoLabel.Text = ((tabControl1.SelectedItem as TabItem)?.Header as string) ?? string.Empty;
     }
 
-    private void linkLabel1_LinkClicked(object? sender, RoutedEventArgs e)
-    {
-        /* ORIGINAL WINFORMS BODY of 'linkLabel1_LinkClicked' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.linkLabel1.LinkVisited = true;
-        this.statusLabel.Text = "Link clicked";
-        */
-        MigrationTodo.NotMigrated(nameof(linkLabel1_LinkClicked), "linkLabel1_LinkClicked");
-    }
-
     private async void demoButton_Click(object? sender, RoutedEventArgs e)
     {
         await MessageBoxFallback.ShowAsync(this, $"Hello, {(titleTextBox.Text ?? string.Empty)}!", "All-In-One");
@@ -279,19 +271,15 @@ public partial class MainView : Window
         itemsTreeView.Items.Add(root);
         root.Items.Add(new TreeViewItem { Header = "Child one" });
         root.Items.Add(new TreeViewItem { Header = "Child two" });
-
-        /* REMAINING WINFORMS BODY of 'refreshButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.itemsTreeView.ExpandAll();
-        */
-        MigrationTodo.NotMigrated(nameof(refreshButton_Click), "refreshButton_Click");
+        foreach (var w2aNode in itemsTreeView.Items.OfType<TreeViewItem>())
+        {
+            itemsTreeView.ExpandSubTree(w2aNode);
+        }
     }
 
     private void dataGridView1_CellClick(object? sender, DataGridCellPointerPressedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'dataGridView1_CellClick' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.gridInfoLabel.Text = $"Cell clicked: row {e.RowIndex}, column {e.ColumnIndex}";
-        */
-        MigrationTodo.NotMigrated(nameof(dataGridView1_CellClick), "dataGridView1_CellClick");
+        gridInfoLabel.Text = $"Cell clicked: row {e.Row.Index}, column {dataGridView1.Columns.IndexOf(e.Column)}";
     }
 
     private void clockToggleButton_Click(object? sender, RoutedEventArgs e)
@@ -490,11 +478,8 @@ public partial class MainView : Window
 
     private void contextPanel_DragDrop(object? sender, DragEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'contextPanel_DragDrop' - TODO(Winforms2Avalonia): migrate it into this method.
-        var files = (string[])e.Data!.GetData(DataFormats.FileDrop)!;
-        this.contextPanelLabel.Text = string.Join(", ", files);
-        */
-        MigrationTodo.NotMigrated(nameof(contextPanel_DragDrop), "contextPanel_DragDrop");
+        var files = e.DataTransfer.TryGetFiles()!.Select(w2aFile => w2aFile.Path.LocalPath).ToArray();
+        contextPanelLabel.Text = string.Join(", ", files);
     }
 
     private void contextPanel_DragEnter(object? sender, DragEventArgs e)

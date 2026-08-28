@@ -1300,11 +1300,18 @@ public sealed class FormMigrationPlanner
         control.Properties.TryGetValue(winFormsPropertyName, out var value) && value is PropertyValue.Literal literal
             ? literal.Value switch
             {
-                string text => $" = {SymbolDisplay.FormatLiteral(text, quote: true)};",
+                // Through the same mnemonic conversion the AXAML attribute gets: a bound caption
+                // is the same caption, it just reaches the element from the ViewModel instead.
+                string text => $" = {SymbolDisplay.FormatLiteral(MnemonicAware(control, winFormsPropertyName, text), quote: true)};",
                 bool flag => $" = {(flag ? "true" : "false")};",
                 _ => catalogDefault,
             }
             : catalogDefault;
+
+    private static string MnemonicAware(ControlModel control, string winFormsPropertyName, string text) =>
+        winFormsPropertyName == "Text"
+            ? WinFormsMnemonics.Convert(text, WinFormsMnemonicCatalog.For(control.ClrTypeName))
+            : text;
 
     /// <summary>
     /// One generated method per distinct Avalonia signature. A handler shared by controls whose

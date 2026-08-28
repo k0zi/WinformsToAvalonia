@@ -1,4 +1,13 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:All_In_One_WinForms.ViewModels.Forms" xmlns:controls="using:All_In_One_WinForms.Controls" xmlns:w2a="clr-namespace:All_In_One_WinForms.Controls.Generated" xmlns:uc0="using:All_In_One_WinForms.Views.Controls" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="All_In_One_WinForms.Views.Forms.DialogView" x:DataType="vm:DialogViewModel" Width="360" Height="96" Title="Dialog">
+    <Window.Styles>
+        <Style Selector="Canvas &gt; :is(Control)">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="Canvas &gt; :is(TemplatedControl)">
+            <Setter Property="Padding" Value="4,1" />
+        </Style>
+    </Window.Styles>
     <Design.DataContext>
         <vm:DialogViewModel />
     </Design.DataContext>

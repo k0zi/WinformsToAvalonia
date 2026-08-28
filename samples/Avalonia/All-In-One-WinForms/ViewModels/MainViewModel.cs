@@ -15,6 +15,10 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial string StatusLabelText { get; set; } = "Ready";
 
+    /// <summary>Bound to linkLabel1.IsVisited in the view.</summary>
+    [ObservableProperty]
+    public partial bool LinkLabel1IsVisited { get; set; }
+
     /// <summary>Bound to captionLabel.Text in the view.</summary>
     [ObservableProperty]
     public partial string CaptionLabelText { get; set; } = "Label - plain static text";
@@ -40,6 +44,13 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         ToolStripProgressBar1Value = Math.Min(100, ToolStripProgressBar1Value + 10);
         StatusLabelText = "Toolbar: new";
+    }
+
+    [RelayCommand]
+    private void LinkLabel1()
+    {
+        LinkLabel1IsVisited = true;
+        StatusLabelText = "Link clicked";
     }
 
     [RelayCommand]

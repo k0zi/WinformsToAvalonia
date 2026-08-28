@@ -1,6 +1,8 @@
-using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Styling;
+using Avalonia;
 
 namespace All_In_One_WinForms.Controls;
 
@@ -27,10 +29,24 @@ public class BindingNavigatorFallback : StackPanel
     public static readonly StyledProperty<int> CountProperty =
         AvaloniaProperty.Register<BindingNavigatorFallback, int>(nameof(Count));
 
+    /// <remarks>
+    /// The spacing and the centring are the strip: without them a horizontal StackPanel butts
+    /// its children straight up against each other and stretches them to its full height, so
+    /// the sample's two status labels rendered as the single word "ReadyAll-In-One WinForms
+    /// control gallery" pinned to the top edge. WinForms lays these out with a margin per item
+    /// and centres them in the strip; this is that, in the two properties Avalonia spells it
+    /// with.
+    /// </remarks>
     public BindingNavigatorFallback()
     {
         Orientation = Avalonia.Layout.Orientation.Horizontal;
+        Spacing = 6;
         Background = Brushes.WhiteSmoke;
+
+        Styles.Add(new Style(x => x.OfType<BindingNavigatorFallback>().Child().Is<Control>())
+        {
+            Setters = { new Setter(VerticalAlignmentProperty, VerticalAlignment.Center) },
+        });
     }
 
     /// <summary>Zero-based current record index - the WinForms BindingSource.Position equivalent.</summary>

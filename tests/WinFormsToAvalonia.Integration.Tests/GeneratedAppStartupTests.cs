@@ -47,6 +47,10 @@ public class GeneratedAppStartupTests
     // An app-level TrayIcon: built by App.axaml during Initialize, before any View exists, and
     // reached from a handler through the accessor the generated App declares for it.
     [InlineData("TrayIconApp")]
+    // Images extracted out of an ImageList and referenced from the AXAML by asset path. Building
+    // proves nothing here: an asset the conversion named but never wrote is not a compile error,
+    // it is Avalonia failing to load the Image while the View is being constructed.
+    [InlineData("ImageListApp")]
     public Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName) =>
         AssertStarts(
             Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj"),
@@ -126,6 +130,7 @@ public class GeneratedAppStartupTests
             using Avalonia;
             using Avalonia.Controls;
             using Avalonia.Controls.ApplicationLifetimes;
+            using Avalonia.Controls.Primitives;
             using Avalonia.Headless;
             using Avalonia.Interactivity;
             using Avalonia.LogicalTree;
@@ -153,6 +158,7 @@ public class GeneratedAppStartupTests
                     lifetime.MainWindow?.Show();
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
+                    AssertEveryControlGotItsTemplate(lifetime.MainWindow);
                     ExecutePromotedCommands(lifetime.MainWindow?.DataContext);
                     {{(clickButtons ? "ClickEveryButton(lifetime.MainWindow);" : "")}}
 
@@ -210,6 +216,48 @@ public class GeneratedAppStartupTests
                     }
 
                     return false;
+                }
+
+                /// <summary>
+                /// Every templated control in the window has to have found a theme.
+                /// </summary>
+                /// <remarks>
+                /// <para>
+                /// Avalonia resolves a ControlTheme by the control's concrete type, and when it
+                /// finds none the control gets no template and draws *nothing* - not an unstyled
+                /// box, nothing. Two separate causes produced exactly that in this converter: a
+                /// bundled fallback subclassing TextBox without a StyleKeyOverride, and a control
+                /// from a package whose own theme App.axaml never included. Both compiled, both
+                /// started, both passed every test in this suite, and both were invisible.
+                /// </para>
+                /// <para>
+                /// This is the assertion that catches the class rather than the two instances.
+                /// It runs after the first render tick, so anything reachable has been templated
+                /// by now.
+                /// </para>
+                /// </remarks>
+                private static void AssertEveryControlGotItsTemplate(Window? window)
+                {
+                    if (window is null)
+                    {
+                        return;
+                    }
+
+                    var untemplated = Descendants(window)
+                        .OfType<TemplatedControl>()
+                        .Where(c => c.IsVisible && c.Template is null)
+                        .Select(c => $"{c.GetType().Name} '{c.Name}'")
+                        .Distinct()
+                        .ToList();
+
+                    if (untemplated.Count > 0)
+                    {
+                        throw new InvalidOperationException(
+                            "These controls found no ControlTheme and would render as nothing: "
+                            + string.Join(", ", untemplated)
+                            + ". Either the type needs a StyleKeyOverride, or its package's theme "
+                            + "is missing from App.axaml (AvaloniaProjectScaffolder.PackageStyleIncludes).");
+                    }
                 }
 
                 private static IEnumerable<Control> Descendants(Control root)
