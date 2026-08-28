@@ -28,6 +28,8 @@ namespace DataGridViewColumnsApp
             this.splitButton1 = new ToolStripSplitButton();
             this.splitItemA = new ToolStripMenuItem();
             this.detailsListView = new ListView();
+            this.flatListView = new ListView();
+            this.fillButton = new Button();
             this.listViewNameColumn = new ColumnHeader();
             this.SuspendLayout();
             //
@@ -123,12 +125,28 @@ namespace DataGridViewColumnsApp
             this.detailsListView.Size = new System.Drawing.Size(300, 100);
             this.detailsListView.View = View.Details;
             //
+            // flatListView - no columns and no Details, so it becomes a ListBox rather than a grid
+            //
+            this.flatListView.Location = new System.Drawing.Point(12, 306);
+            this.flatListView.Name = "flatListView";
+            this.flatListView.Size = new System.Drawing.Size(300, 60);
+            //
+            // fillButton
+            //
+            this.fillButton.Location = new System.Drawing.Point(12, 372);
+            this.fillButton.Name = "fillButton";
+            this.fillButton.Size = new System.Drawing.Size(120, 28);
+            this.fillButton.Text = "Fill";
+            this.fillButton.Click += new System.EventHandler(this.fillButton_Click);
+            //
             // MainForm
             //
             this.ClientSize = new System.Drawing.Size(320, 320);
             this.Controls.Add(this.toolStrip1);
             this.Controls.Add(this.dataGridView1);
             this.Controls.Add(this.detailsListView);
+            this.Controls.Add(this.flatListView);
+            this.Controls.Add(this.fillButton);
             this.Name = "MainForm";
             this.Text = "DataGridView Columns Demo";
             this.ResumeLayout(false);
@@ -147,6 +165,8 @@ namespace DataGridViewColumnsApp
         private ToolStripSplitButton splitButton1;
         private ToolStripMenuItem splitItemA;
         private ListView detailsListView;
+        private ListView flatListView;
+        private Button fillButton;
         private ColumnHeader listViewNameColumn;
     }
 }

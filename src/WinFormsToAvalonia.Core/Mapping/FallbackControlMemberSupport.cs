@@ -41,8 +41,20 @@ public static class FallbackControlMemberSupport
         {
             // Both derive from Avalonia's TextBox, so these are inherited and real.
             ["RichTextBoxFallback"] = TextBoxMembers,
-            ["MaskedTextBoxFallback"] = TextBoxMembers,
+
+            // ...and MaskedTextBox adds the one property the template declares itself.
+            ["MaskedTextBoxFallback"] = new HashSet<string>(TextBoxMembers, StringComparer.Ordinal) { "Mask" },
+
+            // A template's *own* properties. These were invisible for as long as this table
+            // existed, so every handler line touching one refused - not because there was nowhere
+            // to translate it, but because nobody had written the name down.
+            ["GroupBoxFallback"] = Only("Header"),
+            ["PropertyGridFallback"] = Only("SelectedObject"),
+                        ["DomainUpDownFallback"] = new HashSet<string>(StringComparer.Ordinal) { "SelectedIndex", "Wrap" },
         };
+
+    private static IReadOnlySet<string> Only(string memberName) =>
+        new HashSet<string>(StringComparer.Ordinal) { memberName };
 
     public static bool Exposes(string? fallbackTemplateKey, string avaloniaMemberName) =>
         fallbackTemplateKey is not null

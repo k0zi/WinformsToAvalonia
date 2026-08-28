@@ -304,7 +304,7 @@ public class FormMigrationPlannerTests
 
                     private void Refresh1()
                     {
-                        treeView1.Nodes.Clear();
+                        treeView1.ExpandAll();
                     }
                 }
             }
@@ -312,7 +312,7 @@ public class FormMigrationPlannerTests
 
         Assert.Empty(plan.ViewModelCommands);
         Assert.Empty(plan.ViewModelHelpers);
-        Assert.Contains(plan.Warnings, w => w.Contains("treeView1.Nodes"));
+        Assert.Contains(plan.Warnings, w => w.Contains("treeView1.ExpandAll"));
     }
 
     /// <summary>
@@ -472,7 +472,7 @@ public class FormMigrationPlannerTests
                     private void SetBusy(bool busy)
                     {
                         loginButton.Enabled = !busy;
-                        treeView1.Nodes.Clear();
+                        treeView1.ExpandAll();
                     }
                 }
             }

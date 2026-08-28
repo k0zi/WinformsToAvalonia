@@ -131,7 +131,23 @@ public static class BindablePropertyCatalog
     private static readonly Dictionary<string, Dictionary<string, BindableProperty>> ByControlType = new(StringComparer.Ordinal)
     {
         ["TextBox"] = TextBoxProperties,
-        ["MaskedTextBox"] = TextBoxProperties,
+        ["MaskedTextBox"] = new(TextBoxProperties, StringComparer.Ordinal)
+        {
+            // The bundled template's own, and the reason a WinForms mask survives at all.
+            ["Mask"] = new("Mask", "string", " = string.Empty;"),
+        },
+
+        // Three controls whose Avalonia side is a bundled template rather than an in-box element.
+        // The template ships in this repo, so what it exposes is a known fact - the same argument
+        // FallbackControlMemberSupport is built on, finally applied to the templates' own
+        // properties instead of only what they inherit.
+        ["GroupBox"] = new(StringComparer.Ordinal) { ["Text"] = new("Header", "string", " = string.Empty;") },
+        ["PropertyGrid"] = new(StringComparer.Ordinal) { ["SelectedObject"] = new("SelectedObject", "object?") },
+        ["DomainUpDown"] = new(StringComparer.Ordinal)
+        {
+            ["SelectedIndex"] = new("SelectedIndex", "int"),
+            ["Wrap"] = new("Wrap", "bool"),
+        },
         ["RichTextBox"] = TextBoxProperties,
         ["Label"] = new(StringComparer.Ordinal) { ["Text"] = new("Text", "string", " = string.Empty;") },
         // Content, not Text: a LinkLabel maps to a HyperlinkButton, which has no Text property.

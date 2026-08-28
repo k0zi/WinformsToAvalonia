@@ -836,10 +836,10 @@ public class HandlerBodyRewriterTests
     {
         var form = FormWith(("treeView1", "TreeView"));
 
-        var result = Rewriter.RewriteForView("this.treeView1.Nodes.Add(\"x\");", form);
+        var result = Rewriter.RewriteForView("this.treeView1.ExpandAll();", form);
 
         Assert.Empty(result.MigratedStatements);
-        Assert.Equal("this.treeView1.Nodes.Add(\"x\");", result.RemainingBody);
+        Assert.Equal("this.treeView1.ExpandAll();", result.RemainingBody);
     }
 
     /// <summary>
@@ -2767,6 +2767,167 @@ public class HandlerBodyRewriterTests
 
         var result = Rewriter.RewriteForView(
             "this.statusLabel.Text = this.listBox1.SelectedTab?.Text ?? string.Empty;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A bundled template's <em>own</em> properties, which were invisible for as long as the
+    /// member table existed - so a line touching one refused, not because there was nowhere to
+    /// translate it, but because nobody had written the name down.
+    /// </summary>
+    [Theory]
+    [InlineData("PropertyGrid", "propertyGrid1", "this.propertyGrid1.SelectedObject = null;", "propertyGrid1.SelectedObject = null;")]
+    [InlineData("GroupBox", "groupBox1", "this.groupBox1.Text = \"Options\";", "groupBox1.Header = \"Options\";")]
+    [InlineData("MaskedTextBox", "maskedTextBox1", "this.maskedTextBox1.Mask = \"000-000\";", "maskedTextBox1.Mask = \"000-000\";")]
+    [InlineData("DomainUpDown", "domainUpDown1", "this.domainUpDown1.Wrap = true;", "domainUpDown1.Wrap = true;")]
+    public void RewriteForView_FallbackTemplatesOwnProperty_IsTranslated(
+        string winFormsType, string fieldName, string body, string expected)
+    {
+        var form = FormWith((fieldName, winFormsType), ("nameTextBox", "TextBox"));
+
+        var result = Rewriter.RewriteForView(body, form);
+
+        Assert.Equal([expected], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The table stays a whitelist: a property the template does not have is still refused, which
+    /// is what keeps a fallback control from being written to at random.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_PropertyAFallbackTemplateDoesNotHave_IsNotMigrated()
+    {
+        var form = FormWith(("groupBox1", "GroupBox"));
+
+        var result = Rewriter.RewriteForView("this.groupBox1.SelectedObject = null;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A tree built at run time, which is most of what a Form_Load does to one. Avalonia's
+    /// `ItemsControl.Items` is a real mutable collection and a `TreeViewItem.Header` is an
+    /// `object`, so this has an exact counterpart - which is worth a test, because the converter
+    /// refused it for a long time as "an application design decision".
+    /// </summary>
+    [Fact]
+    public void RewriteForView_TreeNodesBuiltAtRunTime_BecomeTreeViewItems()
+    {
+        var form = FormWith(("itemsTreeView", "TreeView"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.itemsTreeView.Nodes.Clear();
+            this.itemsTreeView.Nodes.Add("Documents");
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                "itemsTreeView.Items.Clear();",
+                "itemsTreeView.Items.Add(new TreeViewItem { Header = \"Documents\" });",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// WinForms hands back the node it just made, and Avalonia has no such call - so the one
+    /// statement becomes the two it stood for, and the local is the same node either way.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_NodeReturnedByAdd_IsUsableAsAParent()
+    {
+        var form = FormWith(("itemsTreeView", "TreeView"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var root = this.itemsTreeView.Nodes.Add("Reloaded");
+            root.Nodes.Add("Child one");
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                "var root = new TreeViewItem { Header = \"Reloaded\" };\nitemsTreeView.Items.Add(root);",
+                "root.Items.Add(new TreeViewItem { Header = \"Child one\" });",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Only a string header. A `TreeNode` carries an image index, a tag and children of its own,
+    /// none of which a bare TreeViewItem has - so the shape is refused rather than half-translated.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_NodeBuiltFromATreeNodeObject_IsNotMigrated()
+    {
+        var form = FormWith(("itemsTreeView", "TreeView"));
+
+        var result = Rewriter.RewriteForView(
+            "this.itemsTreeView.Nodes.Add(new TreeNode(\"Documents\"));", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>`Nodes` on something that is not a TreeView is not this shape.</summary>
+    [Fact]
+    public void RewriteForView_NodesOnAnotherControlType_IsNotMigrated()
+    {
+        var form = FormWith(("listBox1", "ListBox"));
+
+        var result = Rewriter.RewriteForView("this.listBox1.Nodes.Add(\"x\");", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A ListView that became a ListBox: a single-column item has an exact answer.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ListViewItemsOnAListBoxMapping_BecomeListBoxItems()
+    {
+        var form = FormWith(("itemsListView", "ListView"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.itemsListView.Items.Clear();
+            this.itemsListView.Items.Add(new ListViewItem("readme.txt"));
+            """,
+            form);
+
+        Assert.Equal(
+            [
+                "itemsListView.Items.Clear();",
+                "itemsListView.Items.Add(new ListBoxItem { Content = \"readme.txt\" });",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The same ListView in Details mode is a DataGrid, whose rows are data objects bound through
+    /// columns - turning a ListViewItem into one would mean inventing a row type, so it refuses.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ListViewItemsOnADataGridMapping_IsNotMigrated()
+    {
+        var form = FormWith(("itemsListView", "ListView"));
+        form.Controls["itemsListView"].Properties["View"] = new PropertyValue.EnumMembers(["Details"]);
+
+        var result = Rewriter.RewriteForView(
+            "this.itemsListView.Items.Add(new ListViewItem(\"readme.txt\"));", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A multi-column item has no counterpart on a ListBox either.</summary>
+    [Fact]
+    public void RewriteForView_MultiColumnListViewItem_IsNotMigrated()
+    {
+        var form = FormWith(("itemsListView", "ListView"));
+
+        var result = Rewriter.RewriteForView(
+            "this.itemsListView.Items.Add(new ListViewItem(new[] { \"readme.txt\", \"2 KB\" }));", form);
 
         Assert.Empty(result.MigratedStatements);
     }

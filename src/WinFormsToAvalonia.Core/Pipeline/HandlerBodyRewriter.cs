@@ -1250,6 +1250,25 @@ public sealed class HandlerBodyRewriter
         // provably *is* that control, so the local becomes another name for its field and the
         // cast disappears. Casting it to the Avalonia element type instead would need the type
         // this converter deliberately does not have a semantic model for.
+        // `var root = this.treeView1.Nodes.Add("Reloaded");` - WinForms hands back the node it
+        // just made. Avalonia has no such call, so the one statement becomes the two it stood for:
+        // make the item, then add it. The local is the same node either way.
+        if (!isUsing
+            && initializer is InvocationExpressionSyntax nodeAdd
+            && TrySplitInvocation(nodeAdd, out var nodeReceiver, out var nodeMethod)
+            && nodeMethod == "Add"
+            && nodeReceiver is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Nodes" } nodesAccess
+            && TryResolveTreeReceiver(nodesAccess.Expression, target, out var nodeOwner)
+            && nodeAdd.ArgumentList.Arguments is [{ Expression: { } nodeHeader }]
+            && TryRewriteExpression(nodeHeader, target, out var nodeHeaderText))
+        {
+            target.Locals.Declare(name, LocalKind.TreeNode);
+            rewritten = new RewrittenStatement(
+                $"var {name} = new TreeViewItem {{ Header = {nodeHeaderText} }};\n"
+                + $"{nodeOwner}.Items.Add({name});");
+            return true;
+        }
+
         if (!isUsing
             && StripSuppression(initializer) is CastExpressionSyntax cast
             && StripSuppression(cast.Expression) is IdentifierNameSyntax { Identifier.ValueText: var castOperand }
@@ -1685,6 +1704,20 @@ public sealed class HandlerBodyRewriter
             return TryRewriteViewNavigationCall(dialogLocal, methodName, invocation, target, out rewritten);
         }
 
+        // `itemsTreeView.Nodes.Add("Documents");` / `.Nodes.Clear();` - building a tree at run
+        // time, which is most of what a Form_Load does to one.
+        if (TryRewriteTreeNodeCall(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
+        }
+
+        // `listView1.Items.Add(new ListViewItem("x"));` - only where the ListView became a
+        // ListBox, which is the only shape with a faithful answer.
+        if (TryRewriteListViewItemCall(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
+        }
+
         // `clockTimer.Start();` - a DispatcherTimer keeps the same two verbs.
         if (invocation.ArgumentList.Arguments.Count == 0
             && receiver is not null
@@ -2092,6 +2125,131 @@ public sealed class HandlerBodyRewriter
         // would turn a safe call into a NullReferenceException.
         text = $"{receiver}{conditional.OperatorToken}{conditional.WhenNotNull}";
         return true;
+    }
+
+    /// <summary>
+    /// <c>treeView.Nodes.Add("x")</c> and <c>Nodes.Clear()</c>, on the control or on a node.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Avalonia's <c>ItemsControl.Items</c> is a real, mutable collection, and a
+    /// <c>TreeViewItem.Header</c> is an <c>object</c> - so a WinForms tree built at run time has
+    /// an exact counterpart, which is worth saying because this converter refused it for a long
+    /// time as "an application design decision". Populating an <c>ObservableCollection</c> and
+    /// binding <c>ItemsSource</c> is the better *end state*; it is not what the original said.
+    /// </para>
+    /// <para>
+    /// Only a string header. <c>Nodes.Add(new TreeNode(...))</c> carries an image index, a tag and
+    /// child nodes of its own, none of which has a counterpart on a bare TreeViewItem.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteTreeNodeCall(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (receiver is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Nodes" } nodes
+            || !TryResolveTreeReceiver(nodes.Expression, target, out var owner))
+        {
+            return false;
+        }
+
+        if (methodName == "Clear" && invocation.ArgumentList.Arguments.Count == 0)
+        {
+            rewritten = new RewrittenStatement($"{owner}.Items.Clear();");
+            return true;
+        }
+
+        if (methodName == "Add"
+            && invocation.ArgumentList.Arguments is [{ Expression: { } header }]
+            && TryRewriteExpression(header, target, out var headerText))
+        {
+            rewritten = new RewrittenStatement($"{owner}.Items.Add(new TreeViewItem {{ Header = {headerText} }});");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// <c>listView1.Items.Add(new ListViewItem("x"))</c> and <c>Items.Clear()</c>, on a ListView
+    /// that became a <c>ListBox</c>.
+    /// </summary>
+    /// <remarks>
+    /// Only that half of the ListView mapping. In <c>View.Details</c> - or with any parsed
+    /// <c>ColumnHeader</c> - a ListView becomes a <c>DataGrid</c>, whose rows are data objects
+    /// bound through columns, and turning <c>new ListViewItem(new[] { "a", "b" })</c> into one
+    /// would mean inventing a row type. A single-column item on a ListBox has an exact answer;
+    /// a multi-column one does not, so it is refused rather than flattened.
+    /// </remarks>
+    private static bool TryRewriteListViewItemCall(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (receiver is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Items" } items
+            || !target.TryResolveControlField(items.Expression, out var fieldName)
+            || !target.TryResolveControlTypeName(fieldName, out var typeName)
+            || typeName != "ListView"
+            || !target.TryResolveMappedElementName(fieldName, out var elementName)
+            || elementName != "ListBox")
+        {
+            return false;
+        }
+
+        if (methodName == "Clear" && invocation.ArgumentList.Arguments.Count == 0)
+        {
+            rewritten = new RewrittenStatement($"{fieldName}.Items.Clear();");
+            return true;
+        }
+
+        // `new ListViewItem("text")` only - the one-argument, one-column form.
+        if (methodName == "Add"
+            && invocation.ArgumentList.Arguments is
+                [{ Expression: ObjectCreationExpressionSyntax { ArgumentList.Arguments: [{ Expression: { } content }] } creation }]
+            && RoslynTypeNameHelper.GetSimpleTypeName(creation.Type) == "ListViewItem"
+            && TryRewriteExpression(content, target, out var contentText))
+        {
+            rewritten = new RewrittenStatement($"{fieldName}.Items.Add(new ListBoxItem {{ Content = {contentText} }});");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// What a <c>.Nodes</c> hangs off: a TreeView this View has a field for, or a local holding a
+    /// node that an earlier <c>Nodes.Add</c> returned.
+    /// </summary>
+    private static bool TryResolveTreeReceiver(ExpressionSyntax expression, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (expression is IdentifierNameSyntax { Identifier.ValueText: var localName }
+            && target.Locals.TryGet(localName, out var kind)
+            && kind == LocalKind.TreeNode)
+        {
+            text = localName;
+            return true;
+        }
+
+        if (target.TryResolveControlField(expression, out var fieldName)
+            && target.TryResolveControlTypeName(fieldName, out var typeName)
+            && typeName == "TreeView")
+        {
+            text = fieldName;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -2794,6 +2952,12 @@ public sealed class HandlerBodyRewriter
         /// supports works through it, because it *is* that field.
         /// </summary>
         Control,
+
+        /// <summary>
+        /// A tree node an earlier `Nodes.Add` returned, emitted as a TreeViewItem. Only
+        /// `Nodes.Add`/`Nodes.Clear` go through it - it is a node, not a control.
+        /// </summary>
+        TreeNode,
     }
 
     /// <summary>
@@ -2931,6 +3095,13 @@ public sealed class HandlerBodyRewriter
 
         /// <summary>The WinForms type of a control this body may name, when it names one.</summary>
         bool TryResolveControlTypeName(string fieldName, out string winFormsTypeName);
+
+        /// <summary>
+        /// The Avalonia element a control was mapped to - which a per-instance mapper decides, so
+        /// it cannot be read off the WinForms type alone. A ListView is the reason: it becomes a
+        /// DataGrid or a ListBox depending on the instance.
+        /// </summary>
+        bool TryResolveMappedElementName(string fieldName, out string avaloniaElementName);
 
         /// <summary>
         /// A NotifyIcon this run emitted into App.axaml, reached through the accessor the
@@ -3245,6 +3416,16 @@ public sealed class HandlerBodyRewriter
             TryGetControl(fieldName, out var control)
             && controlMappings.Map(control).Status is MappingStatus.Direct or MappingStatus.Fallback;
 
+        public bool TryResolveMappedElementName(string fieldName, out string avaloniaElementName)
+        {
+            avaloniaElementName = TryGetControl(fieldName, out var control)
+                && controlMappings.Map(control) is { Status: MappingStatus.Direct, AvaloniaElementName: { } name }
+                ? name
+                : "";
+
+            return avaloniaElementName.Length > 0;
+        }
+
         /// <summary>
         /// Direct-mapped controls only. A fallback control gets no styling anywhere in this
         /// converter - its bundled template need not expose the property at all - and that rule
@@ -3499,6 +3680,13 @@ public sealed class HandlerBodyRewriter
         }
 
         public bool IsMappedElement(string fieldName) => false;
+
+        /// <summary>A promoted body names no elements, only ViewModel properties.</summary>
+        public bool TryResolveMappedElementName(string fieldName, out string avaloniaElementName)
+        {
+            avaloniaElementName = "";
+            return false;
+        }
 
         /// <summary>Styling is an element concern, and a ViewModel has no elements.</summary>
         public bool SupportsStyleProperty(string fieldName, AvaloniaStyleProperties property) => false;

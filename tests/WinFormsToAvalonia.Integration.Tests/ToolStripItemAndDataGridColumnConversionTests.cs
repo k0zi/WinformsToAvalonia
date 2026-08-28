@@ -100,6 +100,14 @@ public class ToolStripItemAndDataGridColumnConversionTests
             Assert.Contains("<DataGrid x:Name=\"detailsListView\"", axaml);
             Assert.Contains("<DataGridTextColumn Header=\"File\" Width=\"200\" />", axaml);
 
+            // The same control type with neither columns nor Details is a ListBox instead - and
+            // that is the only half where adding an item at run time has an exact answer. On the
+            // grid half the rows are data objects bound through columns, so it stays for a human.
+            vfs.TryGetText("Views/MainView.axaml.cs", out var codeBehind);
+            Assert.Contains("flatListView.Items.Add(new ListBoxItem { Content = \"readme.txt\" });", codeBehind);
+            Assert.Contains("this.detailsListView.Items.Add(new ListViewItem(\"notes.txt\"));", codeBehind);
+            Assert.Contains("MigrationTodo.NotMigrated(nameof(fillButton_Click)", codeBehind);
+
             // DropDownItems nest through Button.Flyout > MenuFlyout instead of being dropped.
             Assert.Contains("<Button.Flyout>", axaml);
             Assert.Contains("<SplitButton x:Name=\"splitButton1\" Content=\"Run\">", axaml);

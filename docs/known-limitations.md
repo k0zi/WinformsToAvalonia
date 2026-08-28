@@ -681,13 +681,45 @@ rule itself; what follows is what the rule does *not* cover yet.
   XAML compile time. `NumericUpDown.ValueChanged` and a slider's are two different events with
   two different args types, and the split gets that right too.
 
+- **A tree built at run time comes across.** `treeView1.Nodes.Add("x")` becomes
+  `treeView1.Items.Add(new TreeViewItem { Header = "x" })`, `Nodes.Clear()` becomes
+  `Items.Clear()`, and the node an `Add` hands back is usable as a parent - the one statement
+  becomes the two it stood for (`var root = new TreeViewItem { … }; treeView1.Items.Add(root);`).
+  This was refused for a long time as "an application design decision", which was wrong: Avalonia's
+  `ItemsControl.Items` is a real mutable collection and a `TreeViewItem.Header` is an `object`, so
+  the shape has an exact counterpart. Populating an `ObservableCollection` and binding
+  `ItemsSource` is the better *end state*, but it is not what the original said.
+
+  Only a string header - a `TreeNode` object carries an image index, a tag and children of its own,
+  none of which a bare TreeViewItem has. `TreeView.ExpandAll()` has no counterpart either
+  (Avalonia has only `ExpandSubTree(item)`), so a handler ending in it keeps that last line.
+
+- **A ListView's items, on the half of the mapping that has an answer.** A ListView with neither
+  `View.Details` nor parsed `ColumnHeader`s becomes a `ListBox`, and there
+  `listView1.Items.Add(new ListViewItem("x"))` is exactly
+  `listBox.Items.Add(new ListBoxItem { Content = "x" })`. The *other* half becomes a `DataGrid`,
+  whose rows are data objects bound through columns - turning a `ListViewItem` into one would mean
+  inventing a row type, so it is refused rather than flattened. A multi-column item is refused on
+  both halves.
+
 - **Fallback controls expose only what their template demonstrably has**
   (`FallbackControlMemberSupport`). Everything else about them stays conservative - no styling,
   no event wiring, no item children - because a template need not have the member a mapping
   names. Catalog members are the one safe exception, since these templates ship in this repo:
   `RichTextBoxFallback` and `MaskedTextBoxFallback` derive from Avalonia's `TextBox`, so their
   `Text`, `Clear()`, `SelectAll()` and the four font properties they inherit from
-  `TemplatedControl` are known facts. A template absent from that table behaves as before, and a binding
+  `TemplatedControl` are known facts.
+
+  The templates' **own** properties were missing from that table for as long as it existed, so
+  `propertyGrid1.SelectedObject = x`, `groupBox1.Text = "…"`, `maskedTextBox1.Mask = "…"` and the
+  DomainUpDown pair all refused - not because there was nowhere to translate them, but because
+  nobody had written the names down. They are registered now, and
+  `FallbackControlMemberSupportTests` checks the reverse direction too: a property a template
+  declares is either registered or listed as deliberately out of reach with the reason. Three are:
+  `WebBrowser.Url` (a `Uri` in WinForms, a `string` on the template - a change of value shape, and
+  half a pair is worse than none), `BindingNavigator.Position`/`Count` (the template's own display
+  state; WinForms' BindingNavigator has no such property), and `PrintPreviewControl.Document`
+  (a `PrintDocument`, which the converted code cannot produce). A template absent from that table behaves as before, and a binding
   dropped because of it is reported rather than emitted as a broken attribute.
 - **`CanExecute` is derived, but only from the one shape that provably means a guard.** A handler
   whose *entire body* is `someButton.Enabled = <condition>;`, that ignores sender/EventArgs, is

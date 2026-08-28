@@ -78,7 +78,7 @@ namespace HelperMethodApp
         private void PersistToDisk()
         {
             this.statusLabel.Text = "Persisting";
-            this.itemsTreeView.Nodes.Clear();
+            this.itemsTreeView.ExpandAll();
         }
     }
 }

@@ -134,9 +134,10 @@ public partial class MainView : Window
 
     private void MainForm_Load(object? sender, EventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'MainForm_Load' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.itemsTreeView.Nodes.Add("Documents");
-        this.itemsTreeView.Nodes.Add("Pictures");
+        itemsTreeView.Items.Add(new TreeViewItem { Header = "Documents" });
+        itemsTreeView.Items.Add(new TreeViewItem { Header = "Pictures" });
+
+        /* REMAINING WINFORMS BODY of 'MainForm_Load' - TODO(Winforms2Avalonia): migrate it into this method.
         this.itemsListView.Items.Add(new ListViewItem(new[] { "readme.txt", "2 KB" }));
         this.itemsListView.Items.Add(new ListViewItem(new[] { "notes.txt", "11 KB" }));
 
@@ -273,11 +274,13 @@ public partial class MainView : Window
 
     private void refreshButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'refreshButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.itemsTreeView.Nodes.Clear();
-        var root = this.itemsTreeView.Nodes.Add("Reloaded");
-        root.Nodes.Add("Child one");
-        root.Nodes.Add("Child two");
+        itemsTreeView.Items.Clear();
+        var root = new TreeViewItem { Header = "Reloaded" };
+        itemsTreeView.Items.Add(root);
+        root.Items.Add(new TreeViewItem { Header = "Child one" });
+        root.Items.Add(new TreeViewItem { Header = "Child two" });
+
+        /* REMAINING WINFORMS BODY of 'refreshButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
         this.itemsTreeView.ExpandAll();
         */
         MigrationTodo.NotMigrated(nameof(refreshButton_Click), "refreshButton_Click");

@@ -25,7 +25,7 @@ public class ViewCodeBehindEmitterTests
                 {
                     private void treeView1_DragOver(object sender, DragEventArgs e)
                     {
-                        this.treeView1.Nodes.Add("dropped");
+                        this.treeView1.ExpandAll();
                     }
                 }
             }
@@ -38,8 +38,8 @@ public class ViewCodeBehindEmitterTests
         Assert.Equal(["object?", "DragEventArgs"], method.ParameterList.Parameters.Select(p => p.Type!.ToString()));
 
         // The original body is preserved inside the method, but never as compiling code.
-        Assert.Contains("this.treeView1.Nodes.Add(\"dropped\");", source);
-        Assert.DoesNotContain("Nodes.Add(\"dropped\");\n        MigrationTodo", source.Replace("\r\n", "\n"));
+        Assert.Contains("this.treeView1.ExpandAll();", source);
+        Assert.DoesNotContain("ExpandAll();\n        MigrationTodo", source.Replace("\r\n", "\n"));
 
         // Reported, not thrown: Avalonia raises these from the framework - including during XAML
         // initialization - so a throwing stub took the generated app down before it was visible.
