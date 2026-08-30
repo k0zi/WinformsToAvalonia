@@ -192,4 +192,70 @@ public static class PropertyValueFormatters
         value is PropertyValue.PaddingValue(var left, var top, var right, var bottom)
             ? string.Create(CultureInfo.InvariantCulture, $"{left},{top},{right},{bottom}")
             : null;
+
+    /// <summary>
+    /// A <c>char</c> designer literal as the one-character string an attribute needs.
+    /// </summary>
+    /// <remarks>
+    /// NUL is refused rather than emitted: it is not a legal XML character at all, so an explicit
+    /// <c>PromptChar = '\0'</c> would produce a document that cannot be parsed - and escaping
+    /// cannot help, because XML 1.0 has no representation for it.
+    /// </remarks>
+    public static string? AsChar(PropertyValue value) =>
+        value is PropertyValue.Literal { Value: char c } && c != '\0'
+            ? c.ToString(CultureInfo.InvariantCulture)
+            : null;
+
+    /// <summary>
+    /// A single enum member, passed through by name - for the pairs whose members Avalonia spells
+    /// identically, like WinForms' <c>HorizontalAlignment</c> and Avalonia's <c>TextAlignment</c>.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does not translate: a name that does not exist on the Avalonia side would be
+    /// an AVLN error in the generated project, so this is only ever used where the two enums have
+    /// been checked to agree - and <c>ControlMapperTests</c> checks the property itself exists.
+    /// </remarks>
+    public static string? AsEnumMember(PropertyValue value) =>
+        value is PropertyValue.EnumMembers { MemberNames: [var member] } ? member : null;
+
+    /// <summary>
+    /// The horizontal third of a WinForms <c>ContentAlignment</c> (<c>MiddleLeft</c> -> <c>Left</c>).
+    /// </summary>
+    public static string? AsContentAlignmentHorizontal(PropertyValue value) =>
+        AsEnumMember(value) switch
+        {
+            "TopLeft" or "MiddleLeft" or "BottomLeft" => "Left",
+            "TopCenter" or "MiddleCenter" or "BottomCenter" => "Center",
+            "TopRight" or "MiddleRight" or "BottomRight" => "Right",
+            _ => null,
+        };
+
+    /// <summary>
+    /// The vertical third of a WinForms <c>ContentAlignment</c> (<c>MiddleLeft</c> -> <c>Center</c>).
+    /// </summary>
+    public static string? AsContentAlignmentVertical(PropertyValue value) =>
+        AsEnumMember(value) switch
+        {
+            "TopLeft" or "TopCenter" or "TopRight" => "Top",
+            "MiddleLeft" or "MiddleCenter" or "MiddleRight" => "Center",
+            "BottomLeft" or "BottomCenter" or "BottomRight" => "Bottom",
+            _ => null,
+        };
+
+    /// <summary>
+    /// WinForms' <c>BorderStyle</c> as an Avalonia <c>BorderThickness</c>.
+    /// </summary>
+    /// <remarks>
+    /// Avalonia draws one border, not three styles, so <c>Fixed3D</c> and <c>FixedSingle</c> both
+    /// become a one-pixel border - the sunken 3D look is a Win32 chrome convention with no
+    /// counterpart here. <c>None</c> is the one that carries real information: it turns off the
+    /// border the theme would otherwise draw.
+    /// </remarks>
+    public static string? AsBorderThickness(PropertyValue value) =>
+        AsEnumMember(value) switch
+        {
+            "None" => "0",
+            "FixedSingle" or "Fixed3D" => "1",
+            _ => null,
+        };
 }

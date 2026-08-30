@@ -23,7 +23,24 @@ public class TrayIconConversionTests
 
             // The icon file resolved, so the TrayIcon is emitted live rather than commented out.
             vfs.TryGetText("App.axaml", out var appAxaml);
-            Assert.Contains("<TrayIcon Icon=\"/Assets/app.ico\" ToolTipText=\"Tray demo\" />", appAxaml);
+            Assert.Contains("<TrayIcon Icon=\"/Assets/app.ico\" ToolTipText=\"Tray demo\">", appAxaml);
+
+            // The NotifyIcon's ContextMenuStrip becomes TrayIcon.Menu - a *native* menu, drawn by
+            // the OS, so it carries a caption, an enabled flag and a submenu and nothing else.
+            // The `&` mnemonic is stripped rather than converted: there is no AccessText to
+            // render one, so an underscore would just be a stray character in the caption.
+            Assert.Contains("<TrayIcon.Menu>", appAxaml);
+            Assert.Contains("<NativeMenuItem Header=\"Open\" />", appAxaml);
+            Assert.Contains("<NativeMenuItemSeparator />", appAxaml);
+            Assert.Contains("<NativeMenuItem Header=\"Settings...\" IsEnabled=\"False\" />", appAxaml);
+            Assert.Contains("<NativeMenuItem.Menu>", appAxaml);
+
+            // NativeMenuItem raises Click as an event, which XAML cannot point at a method - so
+            // the item is emitted and the handler is reported rather than silently dropped.
+            Assert.Contains(
+                result.Report.Warnings,
+                w => w.Contains("openMenuItem", StringComparison.Ordinal)
+                    && w.Contains("NativeMenuItem", StringComparison.Ordinal));
 
             // ...and the App exposes it, named after the WinForms field it came from.
             vfs.TryGetText("App.axaml.cs", out var appCodeBehind);

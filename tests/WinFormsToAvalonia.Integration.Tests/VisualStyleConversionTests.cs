@@ -57,10 +57,12 @@ public class VisualStyleConversionTests
             Assert.Contains("Source=\"/Assets/logoPictureBox_Image.png\"", imageElement);
             Assert.Contains("Assets/logoPictureBox_Image.png", vfs.RelativePaths);
 
-            // A bundled fallback control does not necessarily expose these properties either.
+            // GroupBox stopped being a bundled fallback when Avalonia 12 shipped a real one, and
+            // a real TemplatedControl carries the whole styling surface - so the designer's
+            // BackColor and bold Font, previously dropped on the floor, now come through.
             var groupBoxElement = SingleElementContaining(axaml, "x:Name=\"styledGroupBox\"");
-            Assert.DoesNotContain("Background=", groupBoxElement);
-            Assert.DoesNotContain("FontWeight=", groupBoxElement);
+            Assert.Contains("Background=", groupBoxElement);
+            Assert.Contains("FontWeight=", groupBoxElement);
 
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 

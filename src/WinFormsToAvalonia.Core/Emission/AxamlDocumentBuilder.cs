@@ -73,7 +73,12 @@ public sealed class AxamlDocumentBuilder
 
     private void WriteIndent() => _text.Append(' ', _indentLevel * 4);
 
-    private static string Escape(string value) => value
+    /// <summary>
+    /// XML-escapes an attribute value. Internal because App.axaml is assembled as text by
+    /// <c>AvaloniaProjectScaffolder</c> rather than through this builder, and the two must not
+    /// disagree about what needs escaping.
+    /// </summary>
+    internal static string Escape(string value) => value
         .Replace("&", "&amp;")
         .Replace("<", "&lt;")
         .Replace(">", "&gt;")

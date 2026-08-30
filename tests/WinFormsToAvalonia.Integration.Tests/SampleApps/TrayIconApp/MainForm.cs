@@ -26,6 +26,13 @@ namespace TrayIconApp
             this.notifyIcon1.Text = "Clicked";
         }
 
+        // A tray menu item's Click. Avalonia's NativeMenuItem raises Click as an event, which XAML
+        // cannot point at a method - so the item is emitted and this is reported as unwired.
+        private void openMenuItem_Click(object sender, EventArgs e)
+        {
+            this.notifyIcon1.Text = "Opened";
+        }
+
         // Avalonia's TrayIcon has no double-click, and a single click is not one - so this stays
         // a method nobody subscribes, and the conversion has to say so.
         private void notifyIcon1_DoubleClick(object sender, EventArgs e)

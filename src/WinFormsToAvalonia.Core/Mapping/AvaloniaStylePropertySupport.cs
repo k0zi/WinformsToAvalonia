@@ -76,8 +76,15 @@ public static class AvaloniaStylePropertySupport
             ["ComboBox"] = AvaloniaStyleProperties.Templated,
             ["DataGrid"] = AvaloniaStyleProperties.Templated,
             ["GridSplitter"] = AvaloniaStyleProperties.Templated,
+            // Everything a TemplatedControl has except Padding, which the mapper owns outright -
+            // see DefaultControlMappers. Two writers for one attribute would emit it twice, and a
+            // duplicate XML attribute does not merge, it fails to parse.
+            ["GroupBox"] = AvaloniaStyleProperties.Background
+                | AvaloniaStyleProperties.Foreground
+                | AvaloniaStyleProperties.Font,
             ["HyperlinkButton"] = AvaloniaStyleProperties.Templated,
             ["ListBox"] = AvaloniaStyleProperties.Templated,
+            ["MaskedTextBox"] = AvaloniaStyleProperties.Templated,
             ["Menu"] = AvaloniaStyleProperties.Templated,
             ["MenuItem"] = AvaloniaStyleProperties.Templated,
             ["NumericUpDown"] = AvaloniaStyleProperties.Templated,
@@ -90,6 +97,7 @@ public static class AvaloniaStylePropertySupport
             ["TabControl"] = AvaloniaStyleProperties.Templated,
             ["TabItem"] = AvaloniaStyleProperties.Templated,
             ["TextBox"] = AvaloniaStyleProperties.Templated,
+            ["TimePicker"] = AvaloniaStyleProperties.Templated,
             ["TreeView"] = AvaloniaStyleProperties.Templated,
         };
 

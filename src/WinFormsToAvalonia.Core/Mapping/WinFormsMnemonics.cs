@@ -95,8 +95,13 @@ public static class WinFormsMnemonicCatalog
             ["ToolStripLabel"] = MnemonicHandling.Strip,
             ["ToolStripStatusLabel"] = MnemonicHandling.Strip,
 
-            // A GroupBox's caption is a mnemonic in WinForms, but GroupBoxFallback is a Canvas
-            // with a Header property nothing draws an AccessText for.
+            // A GroupBox's caption is a mnemonic in WinForms - it moves focus to the first child
+            // in the group. Avalonia's GroupBox arrived in 12 and its Simple theme does set
+            // RecognizesAccessKey on the header presenter, so this could become AccessKey; that
+            // is a template detail, and this table's rule is that AccessKey is only claimed once
+            // the element has been measured rendering an AccessText (see AvaloniaAccessKeySupport,
+            // whose membership MnemonicCatalogTests asserts must match this decision exactly).
+            // Until then Strip, which loses the shortcut but never emits a stray underscore.
             ["GroupBox"] = MnemonicHandling.Strip,
         };
 

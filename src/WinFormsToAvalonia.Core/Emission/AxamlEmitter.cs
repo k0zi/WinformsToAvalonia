@@ -255,6 +255,22 @@ public sealed class AxamlEmitter
 
         EmitLayoutHintComment(builder, control);
 
+        // A Direct mapping can still have lost something - a CheckedListBox's per-item check
+        // state, say - and until now those warnings were dropped on the floor, because only the
+        // not-emitted branch above read them. They belong in both places a human looks: the
+        // conversion report (via state.Warnings, which reaches MIGRATION.md) and the AXAML itself.
+        //
+        // Direct only. A fallback's warning is boilerplate saying it is a fallback, which the
+        // emitted `controls:XFallback` element name already says, once per instance.
+        if (mapped.Status == MappingStatus.Direct)
+        {
+            foreach (var warning in mapped.Warnings)
+            {
+                builder.Comment($"TODO(Winforms2Avalonia): {warning}");
+                state.Warnings.Add(warning);
+            }
+        }
+
         var elementName = treatAsFallback ? $"controls:{mapped.FallbackTemplateKey}" : mapped.AvaloniaElementName!;
         if (treatAsFallback)
         {
@@ -306,11 +322,18 @@ public sealed class AxamlEmitter
             : [];
         var boundAttributeNames = boundProperties.Select(p => p.AvaloniaPropertyName).ToHashSet(StringComparer.Ordinal);
 
+        // Everything already written to this element. The universal passes below have to skip
+        // these or they would write the same attribute twice, which is not a losing merge but a
+        // malformed document: AxamlDocumentBuilder appends, and a duplicate XML attribute fails
+        // to parse at all.
+        var emittedAttributeNames = new HashSet<string>(boundAttributeNames, StringComparer.Ordinal);
+
         foreach (var (attributeName, value) in mapped.Attributes)
         {
             if (!boundAttributeNames.Contains(attributeName))
             {
                 builder.Attribute(attributeName, value);
+                emittedAttributeNames.Add(attributeName);
             }
         }
 
@@ -328,9 +351,7 @@ public sealed class AxamlEmitter
             // `SupportsName` is this project's existing flag for "this target is not one" - the
             // DataGrid column types. Setting one on a DataGridTextColumn is an AVLN2000 in the
             // generated project and nowhere else.
-            if (!mapped.SupportsName
-                || boundAttributeNames.Contains(setter.AvaloniaAttributeName)
-                || mapped.Attributes.ContainsKey(setter.AvaloniaAttributeName))
+            if (!mapped.SupportsName || emittedAttributeNames.Contains(setter.AvaloniaAttributeName))
             {
                 continue;
             }
@@ -346,7 +367,7 @@ public sealed class AxamlEmitter
         // every WinForms Control, so they belong here rather than in each mapper's property
         // list. Which of them actually reach the AXAML is decided by the *target* element
         // (AvaloniaStylePropertySupport), not by the WinForms type.
-        EmitVisualStyleAttributes(builder, control.Properties, elementName, boundAttributeNames);
+        EmitVisualStyleAttributes(builder, control.Properties, elementName, emittedAttributeNames);
 
         foreach (var nested in mapped.NestedElements)
         {
@@ -610,6 +631,18 @@ public sealed class AxamlEmitter
     {
         foreach (var bound in state.Plan.BoundPropertiesFor(control.FieldName))
         {
+            // A mapper that narrowed the target element to one of several says so here - the
+            // catalog only knows the WinForms type, which is not enough to answer for both.
+            if (mapped.UnreachableBindableMembers.Contains(bound.AvaloniaPropertyName, StringComparer.Ordinal))
+            {
+                state.Warnings.Add(
+                    $"field '{control.FieldName}' ({control.ClrTypeName}) maps to a " +
+                    $"'{mapped.AvaloniaElementName}', which has no '{bound.AvaloniaPropertyName}' - the " +
+                    $"ViewModel's '{bound.ViewModelPropertyName}' is generated but not bound to anything. " +
+                    "Wire it up by hand.");
+                continue;
+            }
+
             if (mapped.Status != MappingStatus.Fallback
                 || FallbackControlMemberSupport.Exposes(mapped.FallbackTemplateKey, bound.AvaloniaPropertyName))
             {

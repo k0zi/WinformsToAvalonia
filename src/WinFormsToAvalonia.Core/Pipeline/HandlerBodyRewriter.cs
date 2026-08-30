@@ -3860,6 +3860,11 @@ public sealed class HandlerBodyRewriter
                 return false;
             }
 
+            if (mapped.UnreachableBindableMembers.Contains(avaloniaMemberName, StringComparer.Ordinal))
+            {
+                return false;
+            }
+
             return mapped.Status == MappingStatus.Direct
                 || (mapped.Status == MappingStatus.Fallback
                     && FallbackControlMemberSupport.Exposes(mapped.FallbackTemplateKey, avaloniaMemberName));

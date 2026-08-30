@@ -184,7 +184,10 @@ public class ControlMapperTests
             .SelectMany(m => m.DeclaredAttributes)
             .Select(a => a.WinFormsProperty)
             .OfType<string>()
-            .Concat(["Text", "Checked", "Value", "Name", "Size", "Location", "View", "Columns"])
+            // "Format" is what a DateTimePicker switches its target element on, the same way
+            // "View" is for a ListView - without it a bespoke mapper's other branch is never
+            // probed, and its element and attributes are never held up against Avalonia at all.
+            .Concat(["Text", "Checked", "Value", "Name", "Size", "Location", "View", "Columns", "Format"])
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal),
     ];
@@ -203,6 +206,16 @@ public class ControlMapperTests
         new PropertyValue.ColorValue(null, 255, 16, 32, 48),
         new PropertyValue.FontValue("Segoe UI", 9f, ["Bold"]),
         new PropertyValue.EnumMembers(["Fixed3D"]),
+
+        // The enum members the per-instance mappers actually branch on. A mapper that picks a
+        // different element for one of these is only checked against Avalonia if the probe
+        // reaches that branch.
+        new PropertyValue.EnumMembers(["Time"]),
+        new PropertyValue.EnumMembers(["Custom"]),
+        new PropertyValue.EnumMembers(["Details"]),
+        new PropertyValue.EnumMembers(["MiddleRight"]),
+        new PropertyValue.EnumMembers(["None"]),
+
         new PropertyValue.ControlReference("otherField"),
     ];
 }

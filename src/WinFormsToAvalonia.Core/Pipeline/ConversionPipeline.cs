@@ -163,7 +163,8 @@ public sealed class ConversionPipeline
 
                 if (component.ClrTypeName == "NotifyIcon")
                 {
-                    notifyIcons.Add(BuildNotifyIconInfo(component, project.ProjectDirectory, assetsToCopy, allWarnings));
+                    notifyIcons.Add(BuildNotifyIconInfo(
+                        component, formModel, project.ProjectDirectory, assetsToCopy, allWarnings));
                 }
             }
 
@@ -826,12 +827,92 @@ public sealed class ConversionPipeline
     /// FileNotFoundException thrown out of App.Initialize(), before any window opens, which
     /// took down the whole generated app.
     /// </remarks>
+    /// <summary>
+    /// A NotifyIcon's <c>ContextMenuStrip</c> as Avalonia's <c>TrayIcon.Menu</c> wants it.
+    /// </summary>
+    /// <remarks>
+    /// The item tree itself is already parsed - it is the same <c>ContextMenuStrip</c> control a
+    /// regular control's <c>ContextMenuStrip</c> property points at, and AxamlEmitter emits that
+    /// one as a <c>Control.ContextMenu</c>. A tray icon cannot use that: it lives in App.axaml,
+    /// outside any View, and the OS draws its menu - hence the separate, much smaller shape.
+    /// </remarks>
+    private static IReadOnlyList<TrayMenuItemInfo> BuildTrayMenu(
+        ControlModel component, FormModel formModel, List<string> warnings)
+    {
+        if (!component.Properties.TryGetValue("ContextMenuStrip", out var value)
+            || value is not PropertyValue.ControlReference(var fieldName)
+            || !formModel.Controls.TryGetValue(fieldName, out var menu)
+            || menu.ClrTypeName != "ContextMenuStrip")
+        {
+            return [];
+        }
+
+        var items = ConvertTrayMenuItems(menu.Children, component.FieldName, warnings);
+        return items;
+    }
+
+    private static IReadOnlyList<TrayMenuItemInfo> ConvertTrayMenuItems(
+        IEnumerable<ControlModel> children, string notifyIconFieldName, List<string> warnings)
+    {
+        var items = new List<TrayMenuItemInfo>();
+
+        foreach (var child in children)
+        {
+            if (child.ClrTypeName == "ToolStripSeparator")
+            {
+                items.Add(new TrayMenuItemInfo("", IsSeparator: true));
+                continue;
+            }
+
+            if (child.ClrTypeName != "ToolStripMenuItem")
+            {
+                warnings.Add(
+                    $"NotifyIcon '{notifyIconFieldName}': its context menu contains a "
+                    + $"'{child.ClrTypeName}' ('{child.FieldName}'), which a native tray menu cannot host - "
+                    + "only menu items and separators. It was not emitted.");
+                continue;
+            }
+
+            // A native menu item is drawn by the OS: a caption and nothing else. The `&` mnemonic
+            // is stripped rather than converted, since there is no AccessText to render one.
+            var header = child.Properties.TryGetValue("Text", out var text)
+                    && text is PropertyValue.Literal { Value: string caption }
+                ? WinFormsMnemonics.Convert(caption, MnemonicHandling.Strip)
+                : child.FieldName;
+
+            var enabled = !child.Properties.TryGetValue("Enabled", out var enabledValue)
+                || enabledValue is not PropertyValue.Literal { Value: false };
+
+            if (child.Events.Any(e => e.EventName == "Click"))
+            {
+                warnings.Add(
+                    $"NotifyIcon '{notifyIconFieldName}': the tray menu item '{child.FieldName}' had a Click "
+                    + "handler. Avalonia's NativeMenuItem raises Click as an event, not a XAML attribute, so it "
+                    + "is not wired - subscribe to it, or set its Command, from App.axaml.cs.");
+            }
+
+            items.Add(new TrayMenuItemInfo(
+                header,
+                IsSeparator: false,
+                IsEnabled: enabled,
+                Children: ConvertTrayMenuItems(child.Children, notifyIconFieldName, warnings)));
+        }
+
+        return items;
+    }
+
     private static NotifyIconInfo BuildNotifyIconInfo(
-        ControlModel component, string projectDirectory, IDictionary<string, byte[]> assetsToCopy, List<string> warnings)
+        ControlModel component,
+        FormModel formModel,
+        string projectDirectory,
+        IDictionary<string, byte[]> assetsToCopy,
+        List<string> warnings)
     {
         var tooltip = component.Properties.TryGetValue("Text", out var textValue) && textValue is PropertyValue.Literal { Value: string text }
             ? text
             : null;
+
+        var menuItems = BuildTrayMenu(component, formModel, warnings);
 
         // ResolveResourceAssets already recovered this icon from the .resx and staged it under
         // Assets/ - the common real-world shape, and the one this used to give up on. The
@@ -840,7 +921,7 @@ public sealed class ConversionPipeline
             && resolvedIcon is PropertyValue.Literal { Value: string assetReference }
             && assetReference.StartsWith("/Assets/", StringComparison.Ordinal))
         {
-            return new NotifyIconInfo(component.FieldName, assetReference[1..], tooltip);
+            return new NotifyIconInfo(component.FieldName, assetReference[1..], tooltip, menuItems);
         }
 
         if (component.Properties.TryGetValue("Icon", out var iconValue)
@@ -852,20 +933,20 @@ public sealed class ConversionPipeline
             {
                 var assetPath = $"Assets/{Path.GetFileName(iconPath)}";
                 assetsToCopy[assetPath] = File.ReadAllBytes(sourcePath);
-                return new NotifyIconInfo(component.FieldName, assetPath, tooltip);
+                return new NotifyIconInfo(component.FieldName, assetPath, tooltip, menuItems);
             }
 
             warnings.Add(
                 $"NotifyIcon '{component.FieldName}': Designer.cs names icon file '{iconPath}', but it was not found at " +
                 $"'{sourcePath}' - App.axaml's TrayIcon is emitted commented out; add the icon to Assets/ and uncomment it.");
-            return new NotifyIconInfo(component.FieldName, null, tooltip);
+            return new NotifyIconInfo(component.FieldName, null, tooltip, menuItems);
         }
 
         warnings.Add(
             $"NotifyIcon '{component.FieldName}': couldn't resolve a literal icon file path from Designer.cs (it is usually a " +
             "resx resource) - App.axaml's TrayIcon is emitted commented out, since referencing an icon file the conversion " +
             "cannot produce would throw at startup. Copy the real icon into Assets/ and uncomment the block.");
-        return new NotifyIconInfo(component.FieldName, null, tooltip);
+        return new NotifyIconInfo(component.FieldName, null, tooltip, menuItems);
     }
 
     internal static string GetRelativeFolder(string projectDirectory, string filePath)

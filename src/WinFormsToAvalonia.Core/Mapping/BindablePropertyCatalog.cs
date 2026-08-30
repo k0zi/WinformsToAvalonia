@@ -133,15 +133,22 @@ public static class BindablePropertyCatalog
         ["TextBox"] = TextBoxProperties,
         ["MaskedTextBox"] = new(TextBoxProperties, StringComparer.Ordinal)
         {
-            // The bundled template's own, and the reason a WinForms mask survives at all.
+            // Avalonia's own MaskedTextBox really masks with this, so binding it changes what the
+            // control accepts rather than just recording what it used to accept.
             ["Mask"] = new("Mask", "string", " = string.Empty;"),
         },
 
-        // Three controls whose Avalonia side is a bundled template rather than an in-box element.
+        // A HeaderedContentControl, so the caption is an `object` on the Avalonia side even though
+        // the ViewModel property that feeds it is a string - the same split Button.Content has.
+        ["GroupBox"] = new(StringComparer.Ordinal)
+        {
+            ["Text"] = new("Header", "string", " = string.Empty;", "object"),
+        },
+
+        // Two controls whose Avalonia side is a bundled template rather than an in-box element.
         // The template ships in this repo, so what it exposes is a known fact - the same argument
         // FallbackControlMemberSupport is built on, finally applied to the templates' own
         // properties instead of only what they inherit.
-        ["GroupBox"] = new(StringComparer.Ordinal) { ["Text"] = new("Header", "string", " = string.Empty;") },
         ["PropertyGrid"] = new(StringComparer.Ordinal) { ["SelectedObject"] = new("SelectedObject", "object?") },
         ["DomainUpDown"] = new(StringComparer.Ordinal)
         {

@@ -272,13 +272,109 @@ public class ControlMappingRegistryTests
     public void Map_FallbackControl_ReturnsFallbackStatusAndTemplateKey()
     {
         var registry = new ControlMappingRegistry();
+        var richTextBox = new ControlModel { FieldName = "richTextBox1", ClrTypeName = "RichTextBox" };
+
+        var mapped = registry.Map(richTextBox);
+
+        Assert.Equal(MappingStatus.Fallback, mapped.Status);
+        Assert.Equal("RichTextBoxFallback", mapped.FallbackTemplateKey);
+        Assert.NotEmpty(mapped.Warnings);
+    }
+
+    /// <summary>
+    /// Avalonia 12 ships both of these, so they stopped being fallbacks. GroupBox wraps its
+    /// children in a Canvas like every other converted container, and MaskedTextBox finally
+    /// carries the mask itself instead of storing it for a human to re-apply.
+    /// </summary>
+    [Fact]
+    public void Map_GroupBox_IsADirectGroupBoxWrappingItsChildrenInACanvas()
+    {
+        var registry = new ControlMappingRegistry();
         var groupBox = new ControlModel { FieldName = "groupBox1", ClrTypeName = "GroupBox" };
+        groupBox.Properties["Text"] = new PropertyValue.Literal("Options");
 
         var mapped = registry.Map(groupBox);
 
-        Assert.Equal(MappingStatus.Fallback, mapped.Status);
-        Assert.Equal("GroupBoxFallback", mapped.FallbackTemplateKey);
-        Assert.NotEmpty(mapped.Warnings);
+        Assert.Equal(MappingStatus.Direct, mapped.Status);
+        Assert.Equal("GroupBox", mapped.AvaloniaElementName);
+        Assert.Equal("Options", mapped.Attributes["Header"]);
+        Assert.Equal(["Canvas"], mapped.ChildWrapperElementNames);
+        Assert.Null(mapped.FallbackTemplateKey);
+    }
+
+    /// <summary>
+    /// The half of DateTimePicker that used to be thrown away: a Format=Time picker is a clock,
+    /// and a CalendarDatePicker cannot hold a time of day at all.
+    /// </summary>
+    [Theory]
+    [InlineData("Time", "TimePicker")]
+    [InlineData("Short", "CalendarDatePicker")]
+    [InlineData("Long", "CalendarDatePicker")]
+    public void Map_DateTimePicker_PicksTheControlTheFormatAsksFor(string format, string expectedElement)
+    {
+        var control = new ControlModel { FieldName = "picker1", ClrTypeName = "DateTimePicker" };
+        control.Properties["Format"] = new PropertyValue.EnumMembers([format]);
+
+        var mapped = new ControlMappingRegistry().Map(control);
+
+        Assert.Equal(MappingStatus.Direct, mapped.Status);
+        Assert.Equal(expectedElement, mapped.AvaloniaElementName);
+        Assert.Empty(mapped.Warnings);
+    }
+
+    /// <summary>No Format at all is WinForms' default, which is a date.</summary>
+    [Fact]
+    public void Map_DateTimePickerWithNoFormat_IsADatePicker()
+    {
+        var mapped = new ControlMappingRegistry()
+            .Map(new ControlModel { FieldName = "picker1", ClrTypeName = "DateTimePicker" });
+
+        Assert.Equal("CalendarDatePicker", mapped.AvaloniaElementName);
+    }
+
+    [Fact]
+    public void Map_DateTimePickerWithCustomFormat_KeepsTheDatePickerAndReportsTheFormatString()
+    {
+        var control = new ControlModel { FieldName = "picker1", ClrTypeName = "DateTimePicker" };
+        control.Properties["Format"] = new PropertyValue.EnumMembers(["Custom"]);
+
+        var mapped = new ControlMappingRegistry().Map(control);
+
+        Assert.Equal("CalendarDatePicker", mapped.AvaloniaElementName);
+        Assert.Contains(mapped.Warnings, w => w.Contains("CustomFormat", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The check state is the whole point of a CheckedListBox, and it used to vanish in silence.
+    /// </summary>
+    [Fact]
+    public void Map_CheckedListBox_IsAMultiSelectListBoxAndSaysWhatItLost()
+    {
+        var mapped = new ControlMappingRegistry()
+            .Map(new ControlModel { FieldName = "optionsList", ClrTypeName = "CheckedListBox" });
+
+        Assert.Equal(MappingStatus.Direct, mapped.Status);
+        Assert.Equal("ListBox", mapped.AvaloniaElementName);
+        Assert.Equal("Multiple", mapped.Attributes["SelectionMode"]);
+        Assert.Contains(mapped.Warnings, w => w.Contains("optionsList", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Map_MaskedTextBox_IsADirectMaskedTextBoxCarryingTheMask()
+    {
+        var registry = new ControlMappingRegistry();
+        var masked = new ControlModel { FieldName = "phoneBox", ClrTypeName = "MaskedTextBox" };
+        masked.Properties["Mask"] = new PropertyValue.Literal("(000) 000-0000");
+        masked.Properties["PromptChar"] = new PropertyValue.Literal('_');
+        masked.Properties["AsciiOnly"] = new PropertyValue.Literal(true);
+
+        var mapped = registry.Map(masked);
+
+        Assert.Equal(MappingStatus.Direct, mapped.Status);
+        Assert.Equal("MaskedTextBox", mapped.AvaloniaElementName);
+        Assert.Equal("(000) 000-0000", mapped.Attributes["Mask"]);
+        Assert.Equal("_", mapped.Attributes["PromptChar"]);
+        Assert.Equal("True", mapped.Attributes["AsciiOnly"]);
     }
 
     [Fact]

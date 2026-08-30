@@ -327,8 +327,7 @@ public sealed partial class AvaloniaProjectScaffolder
 
         if (resolved.Count > 0)
         {
-            var trayIconLines = string.Concat(resolved.Select(icon =>
-                $"            <TrayIcon Icon=\"/{icon.IconAssetPath}\"{ToolTipAttribute(icon)} />\n"));
+            var trayIconLines = string.Concat(resolved.Select(BuildTrayIconElement));
             section += $"    <TrayIcon.Icons>\n        <TrayIcons>\n{trayIconLines}        </TrayIcons>\n    </TrayIcon.Icons>\n";
         }
 
@@ -386,6 +385,69 @@ public sealed partial class AvaloniaProjectScaffolder
                     TrayIcon.GetIcons(Current!)![{index}];
 
             """));
+    }
+
+    /// <summary>
+    /// One <c>TrayIcon</c>, with its converted <c>ContextMenuStrip</c> as a <c>NativeMenu</c>.
+    /// </summary>
+    /// <remarks>
+    /// Self-closing when there is no menu, which keeps every pre-existing output byte-identical -
+    /// a <c>NativeMenu</c> with no items would be a menu that opens onto nothing anyway.
+    /// </remarks>
+    private static string BuildTrayIconElement(NotifyIconInfo icon)
+    {
+        var open = $"            <TrayIcon Icon=\"/{icon.IconAssetPath}\"{ToolTipAttribute(icon)}";
+        if (icon.MenuItems.Count == 0)
+        {
+            return $"{open} />\n";
+        }
+
+        return $"{open}>\n"
+            + "                <TrayIcon.Menu>\n"
+            + "                    <NativeMenu>\n"
+            + BuildNativeMenuItems(icon.MenuItems, indent: 24)
+            + "                    </NativeMenu>\n"
+            + "                </TrayIcon.Menu>\n"
+            + "            </TrayIcon>\n";
+    }
+
+    /// <remarks>
+    /// A native menu is drawn by the OS, so an item carries a header, an enabled flag and a
+    /// submenu - and nothing else. No styling, no icons from an ImageList, and no Click attribute:
+    /// <c>NativeMenuItem.Click</c> is an event, which XAML cannot point at a method.
+    /// </remarks>
+    private static string BuildNativeMenuItems(IReadOnlyList<TrayMenuItemInfo> items, int indent)
+    {
+        var pad = new string(' ', indent);
+        var text = "";
+
+        foreach (var item in items)
+        {
+            if (item.IsSeparator)
+            {
+                text += $"{pad}<NativeMenuItemSeparator />\n";
+                continue;
+            }
+
+            var enabled = item.IsEnabled ? "" : " IsEnabled=\"False\"";
+            var header = $"{pad}<NativeMenuItem Header=\"{AxamlDocumentBuilder.Escape(item.Header)}\"{enabled}";
+
+            if (item.Children.Count == 0)
+            {
+                text += $"{header} />\n";
+                continue;
+            }
+
+            text += $"{header}>\n"
+                + $"{pad}    <NativeMenuItem.Menu>\n"
+                + $"{pad}        <NativeMenu>\n"
+                + BuildNativeMenuItems(item.Children, indent + 12)
+                + $"{pad}        </NativeMenu>\n"
+                + $"{pad}    </NativeMenuItem.Menu>\n"
+                + $"{pad}</NativeMenuItem>\n";
+        }
+
+        return text;
     }
 
     private static string ToolTipAttribute(NotifyIconInfo icon) =>

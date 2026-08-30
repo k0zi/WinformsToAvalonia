@@ -16,35 +16,60 @@ public static class DefaultControlMappers
 
     public static IReadOnlyList<IControlMapper> All { get; } =
     [
+        // TextAlign is a ContentAlignment on the button family, which is two facts in one: a
+        // ContentControl spends them on HorizontalContentAlignment and VerticalContentAlignment,
+        // so the same WinForms property appears twice with a different half each time.
         new SimplePropertyMapper("Button", "Button",
         [
             ("Text", "Content", PropertyValueFormatters.AsText),
+            ("TextAlign", "HorizontalContentAlignment", PropertyValueFormatters.AsContentAlignmentHorizontal),
+            ("TextAlign", "VerticalContentAlignment", PropertyValueFormatters.AsContentAlignmentVertical),
         ]),
+        // A TextBlock is not a ContentControl: it has TextAlignment and no vertical counterpart,
+        // so the vertical half of a Label's ContentAlignment has nowhere to go.
         new SimplePropertyMapper("Label", "TextBlock",
         [
             ("Text", "Text", PropertyValueFormatters.AsText),
+            ("TextAlign", "TextAlignment", PropertyValueFormatters.AsContentAlignmentHorizontal),
         ]),
+        // TextBox.TextAlign is a plain HorizontalAlignment whose three members Avalonia's
+        // TextAlignment spells identically, so it passes through by name.
         new SimplePropertyMapper("TextBox", "TextBox",
         [
             ("Text", "Text", PropertyValueFormatters.AsText),
             ("Multiline", "AcceptsReturn", PropertyValueFormatters.AsBool),
             ("ReadOnly", "IsReadOnly", PropertyValueFormatters.AsBool),
-            ("PasswordChar", "PasswordChar", PropertyValueFormatters.AsText),
+            ("PasswordChar", "PasswordChar", PropertyValueFormatters.AsChar),
+            ("TextAlign", "TextAlignment", PropertyValueFormatters.AsEnumMember),
+            ("BorderStyle", "BorderThickness", PropertyValueFormatters.AsBorderThickness),
         ]),
         new SimplePropertyMapper("CheckBox", "CheckBox",
         [
             ("Text", "Content", PropertyValueFormatters.AsText),
             ("Checked", "IsChecked", PropertyValueFormatters.AsBool),
+            ("TextAlign", "HorizontalContentAlignment", PropertyValueFormatters.AsContentAlignmentHorizontal),
+            ("TextAlign", "VerticalContentAlignment", PropertyValueFormatters.AsContentAlignmentVertical),
         ]),
         new SimplePropertyMapper("RadioButton", "RadioButton",
         [
             ("Text", "Content", PropertyValueFormatters.AsText),
             ("Checked", "IsChecked", PropertyValueFormatters.AsBool),
+            ("TextAlign", "HorizontalContentAlignment", PropertyValueFormatters.AsContentAlignmentHorizontal),
+            ("TextAlign", "VerticalContentAlignment", PropertyValueFormatters.AsContentAlignmentVertical),
         ]),
         new SimplePropertyMapper("ComboBox", "ComboBox", []),
-        new SimplePropertyMapper("ListBox", "ListBox", []),
-        new SimplePropertyMapper("CheckedListBox", "ListBox", []),
-        new SimplePropertyMapper("TreeView", "TreeView", []),
+        // BorderStyle only where the target really has a BorderThickness: Panel and PictureBox
+        // become a Canvas and an Image, neither of which draws a border at all.
+        new SimplePropertyMapper("ListBox", "ListBox",
+        [
+            ("BorderStyle", "BorderThickness", PropertyValueFormatters.AsBorderThickness),
+        ]),
+        // Per-instance only in that it warns: see CheckedListBoxMapper.
+        new CheckedListBoxMapper(),
+        new SimplePropertyMapper("TreeView", "TreeView",
+        [
+            ("BorderStyle", "BorderThickness", PropertyValueFormatters.AsBorderThickness),
+        ]),
         new SimplePropertyMapper("Panel", "Canvas", []),
         // TableLayoutPanel/FlowLayoutPanel map to Canvas like every other container, per the
         // project's fixed Canvas-everywhere layout strategy - their original WinForms
@@ -132,9 +157,8 @@ public static class DefaultControlMappers
             ("Width", "Width", PropertyValueFormatters.AsNumber),
         ],
         supportsName: false),
-        // Avalonia's CalendarDatePicker is the closest built-in analog; DateTimePicker's
-        // Format=Time/Custom modes and time-of-day component aren't represented.
-        new SimplePropertyMapper("DateTimePicker", "CalendarDatePicker", []),
+        // Per-instance: a Format=Time picker is a clock, not a calendar. See DateTimePickerMapper.
+        new DateTimePickerMapper(),
         new SimplePropertyMapper("TrackBar", "Slider",
         [
             ("Minimum", "Minimum", PropertyValueFormatters.AsNumber),
@@ -218,17 +242,48 @@ public static class DefaultControlMappers
         // stays available in the w2a:LayoutHint attached property for the manual follow-up.
         new SimplePropertyMapper("Splitter", "GridSplitter", []),
 
-        new FallbackControlMapper("GroupBox", "GroupBoxFallback",
+        // Avalonia 12 ships a real GroupBox (a HeaderedContentControl), so this is no longer a
+        // fallback. Worth knowing it is not only chrome: a WinForms child's Location is relative
+        // to its parent's *client* area, and a GroupBox's client area starts below the border and
+        // caption. The old Canvas-derived fallback measured those coordinates from the outer
+        // corner, so every child sat a border-and-caption too high; a real GroupBox puts its
+        // content below the header, which is where the designer meant it.
+        // Padding is emitted here rather than left to the universal styling pass, because every
+        // generated view carries a `Canvas > :is(TemplatedControl)` style pinning Padding="4,1".
+        // On a leaf control that style is what keeps the designer's size honest; on a container
+        // it is 4 more pixels of inset applied to somebody else's coordinate system, on top of
+        // the 6 the GroupBox template already spends on its border columns. A designer-set
+        // Padding still wins - the property mapping is applied after the fixed attribute.
+        new SimplePropertyMapper("GroupBox", "GroupBox",
         [
             ("Text", "Header", PropertyValueFormatters.AsText),
-        ]),
+            ("Padding", "Padding", PropertyValueFormatters.AsThickness),
+        ],
+        childWrapperElementNames: ["Canvas"],
+        fixedAttributes: [("Padding", "0")]),
         // No native Avalonia toolbar/status-bar control to promote to (unlike MenuStrip) -
         // ToolStripFallback/StatusStripFallback are StackPanel-derived so they can host their
         // now-parsed item children (ToolStripButton/Label/ComboBox/TextBox/ProgressBar/
         // StatusLabel above).
         new FallbackControlMapper("StatusStrip", "StatusStripFallback"),
         new FallbackControlMapper("ToolStrip", "ToolStripFallback"),
-        new FallbackControlMapper("MaskedTextBox", "MaskedTextBoxFallback"),
+        // Avalonia's own MaskedTextBox is a real masking implementation - it overrides
+        // OnTextInput/OnKeyDown/CoerceText - so every one of these properties does something,
+        // unlike the bundled fallback it replaces, which stored the mask and ignored it.
+        new SimplePropertyMapper("MaskedTextBox", "MaskedTextBox",
+        [
+            ("Text", "Text", PropertyValueFormatters.AsText),
+            ("Mask", "Mask", PropertyValueFormatters.AsText),
+
+            ("PromptChar", "PromptChar", PropertyValueFormatters.AsChar),
+            ("PasswordChar", "PasswordChar", PropertyValueFormatters.AsChar),
+
+            ("AsciiOnly", "AsciiOnly", PropertyValueFormatters.AsBool),
+            ("HidePromptOnLeave", "HidePromptOnLeave", PropertyValueFormatters.AsBool),
+            ("ResetOnPrompt", "ResetOnPrompt", PropertyValueFormatters.AsBool),
+            ("ResetOnSpace", "ResetOnSpace", PropertyValueFormatters.AsBool),
+            ("ReadOnly", "IsReadOnly", PropertyValueFormatters.AsBool),
+        ]),
         new FallbackControlMapper("RichTextBox", "RichTextBoxFallback"),
         new FallbackControlMapper("ErrorProvider", "ErrorProviderFallback"),
         new FallbackControlMapper("DomainUpDown", "DomainUpDownFallback",
@@ -257,7 +312,7 @@ public static class DefaultControlMappers
         // Menu/toolbar family - ContextMenuStrip is never Controls.Add-ed (assigned to
         // another control's .ContextMenuStrip property instead), and the container/panel
         // types have no automatic layout translation under this tool's fixed Canvas strategy.
-        new UnsupportedControlMapper("ContextMenuStrip", UnsupportedDisposition.FeatureElsewhere, "The ContextMenuStrip component itself has no element - but this.someControl.ContextMenuStrip = this.contextMenuStrip1 assignments ARE now translated automatically into a nested <Control.ContextMenu><ContextMenu>...</ContextMenu></Control.ContextMenu> on the target control (see AxamlEmitter.EmitContextMenuIfPresent). NotifyIcon.ContextMenuStrip is not wired - Avalonia's TrayIcon.Menu needs NativeMenu/NativeMenuItem, a different target."),
+        new UnsupportedControlMapper("ContextMenuStrip", UnsupportedDisposition.FeatureElsewhere, "The ContextMenuStrip component itself has no element - but this.someControl.ContextMenuStrip = this.contextMenuStrip1 assignments ARE now translated automatically into a nested <Control.ContextMenu><ContextMenu>...</ContextMenu></Control.ContextMenu> on the target control (see AxamlEmitter.EmitContextMenuIfPresent). NotifyIcon.ContextMenuStrip is translated too, into App.axaml's TrayIcon.Menu as a NativeMenu - a native menu the OS draws, so an item carries a header, an enabled flag and a submenu and nothing else; a designer-wired Click on one is reported, since NativeMenuItem raises Click as an event XAML cannot point at a method."),
 
         // ToolStripItem family: DropDownButton/SplitButton are Direct-mapped above (Button/
         // SplitButton + a Button.Flyout > MenuFlyout child wrapper); these 2 stay Unsupported.

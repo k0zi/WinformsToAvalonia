@@ -7,7 +7,7 @@ namespace WinFormsToAvalonia.Integration.Tests;
 public class FallbackControlConversionTests
 {
     [Fact]
-    public async Task ConvertedGroupBoxApp_CopiesRewrittenFallbackControlAndBuildsSuccessfully()
+    public async Task ConvertedGroupBoxApp_EmitsRealGroupBoxWithChildrenInACanvasAndBuildsSuccessfully()
     {
         var sourceProject = Path.Combine(AppContext.BaseDirectory, "SampleApps", "GroupBoxApp", "GroupBoxApp.csproj");
         var outputDir = Path.Combine(Path.GetTempPath(), "w2a-groupbox-" + Guid.NewGuid());
@@ -18,17 +18,21 @@ public class FallbackControlConversionTests
 
             var vfs = pipeline.Run(options).Vfs;
 
-            Assert.Contains("Controls/GroupBoxFallback.cs", vfs.RelativePaths);
-
-            var fallbackFilePath = Path.Combine(outputDir, "Controls", "GroupBoxFallback.cs");
-            Assert.True(File.Exists(fallbackFilePath));
-            var fallbackSource = File.ReadAllText(fallbackFilePath);
-            Assert.DoesNotContain("__TARGET_NAMESPACE__", fallbackSource);
-            Assert.Contains("namespace w2a_groupbox_", fallbackSource); // project-name-derived namespace, guid suffix varies
+            // Avalonia 12 ships a real GroupBox, so no bundled Fallback control is involved -
+            // GroupBoxFallback was deleted as superseded, exactly like MenuStripFallback before it.
+            Assert.DoesNotContain("Controls/GroupBoxFallback.cs", vfs.RelativePaths);
 
             vfs.TryGetText("Views/MainView.axaml", out var axaml);
-            Assert.Contains("<controls:GroupBoxFallback", axaml);
+            Assert.Contains("<GroupBox x:Name=\"groupBox1\"", axaml);
             Assert.Contains("Header=\"Options\"", axaml);
+            Assert.DoesNotContain("GroupBoxFallback", axaml);
+
+            // A GroupBox holds content, not positioned children, so the children go into a
+            // wrapper Canvas and keep the absolute layout every other container gets.
+            var groupBox = axaml.IndexOf("<GroupBox ", StringComparison.Ordinal);
+            var canvas = axaml.IndexOf("<Canvas>", groupBox, StringComparison.Ordinal);
+            var button = axaml.IndexOf("<Button ", StringComparison.Ordinal);
+            Assert.True(groupBox < canvas && canvas < button, $"Expected the child inside a wrapper Canvas.\n{axaml}");
 
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 

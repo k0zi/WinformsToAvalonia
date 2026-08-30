@@ -18,13 +18,15 @@
                     <TextBlock x:Name="captionLabel" Canvas.Left="12" Canvas.Top="12" Width="220" Height="20" Text="{Binding CaptionLabelText, Mode=TwoWay}" />
                     <HyperlinkButton x:Name="linkLabel1" Canvas.Left="12" Canvas.Top="38" Width="220" Height="20" Content="LinkLabel - click me" IsVisited="{Binding LinkLabel1IsVisited, Mode=TwoWay}" Command="{Binding LinkLabel1Command}" />
                     <TextBox x:Name="titleTextBox" Canvas.Left="12" Canvas.Top="64" Width="220" Height="23" Text="{Binding TitleTextBoxText, Mode=TwoWay}" ToolTip.Tip="The document title" />
-                    <controls:MaskedTextBoxFallback x:Name="phoneMaskedTextBox" Canvas.Left="12" Canvas.Top="93" Width="220" Height="23" />
+                    <MaskedTextBox x:Name="phoneMaskedTextBox" Canvas.Left="12" Canvas.Top="93" Width="220" Height="23" Mask="(999) 000-0000" />
                     <controls:RichTextBoxFallback x:Name="notesRichTextBox" Canvas.Left="12" Canvas.Top="122" Width="220" Height="100" AutomationProperties.HelpText="Free-form notes about the current document." />
                     <CheckBox x:Name="enabledCheckBox" Canvas.Left="250" Canvas.Top="12" Width="200" Height="24" Content="CheckBox - enabled" IsChecked="{Binding EnabledCheckBoxIsChecked, Mode=TwoWay}" />
-                    <controls:GroupBoxFallback x:Name="optionsGroupBox" Canvas.Left="250" Canvas.Top="42" Width="200" Height="90" Header="GroupBox - options">
-                        <RadioButton x:Name="radioOption1" Canvas.Left="12" Canvas.Top="22" Width="170" Height="22" Content="First option" IsChecked="True" />
-                        <RadioButton x:Name="radioOption2" Canvas.Left="12" Canvas.Top="48" Width="170" Height="22" Content="Second option" />
-                    </controls:GroupBoxFallback>
+                    <GroupBox x:Name="optionsGroupBox" Canvas.Left="250" Canvas.Top="42" Width="200" Height="90" Padding="0" Header="GroupBox - options">
+                        <Canvas>
+                            <RadioButton x:Name="radioOption1" Canvas.Left="12" Canvas.Top="22" Width="170" Height="22" Content="First option" IsChecked="True" />
+                            <RadioButton x:Name="radioOption2" Canvas.Left="12" Canvas.Top="48" Width="170" Height="22" Content="Second option" />
+                        </Canvas>
+                    </GroupBox>
                     <Button x:Name="demoButton" Canvas.Left="250" Canvas.Top="144" Width="100" Height="28" Content="Say hello" Click="demoButton_Click" ToolTip.Tip="Shows a message box" />
                     <Button x:Name="applyButton" Canvas.Left="356" Canvas.Top="144" Width="100" Height="28" Content="Apply" Command="{Binding ApplyButtonCommand}" />
                     <Button x:Name="resetButton" Canvas.Left="250" Canvas.Top="178" Width="100" Height="28" Content="Reset" Command="{Binding ResetButtonCommand}" />
@@ -40,7 +42,8 @@
                         <ListBoxItem Content="Beta" />
                         <ListBoxItem Content="Gamma" />
                     </ListBox>
-                    <ListBox x:Name="checkedListBox1" Canvas.Left="204" Canvas.Top="12" Width="180" Height="124">
+                    <!-- TODO(Winforms2Avalonia): 'checkedListBox1' is a CheckedListBox, which becomes a multi-selection ListBox: Avalonia has no per-item checkbox list, so ticking is approximated by selection and CheckedItems/CheckedIndices have no equivalent. Bind an ItemTemplate containing a CheckBox if the check state has to be a value of its own. -->
+                    <ListBox x:Name="checkedListBox1" Canvas.Left="204" Canvas.Top="12" Width="180" Height="124" SelectionMode="Multiple">
                         <ListBoxItem Content="Logging" />
                         <ListBoxItem Content="Telemetry" />
                         <ListBoxItem Content="Auto-update" />
@@ -68,9 +71,11 @@
                     <Canvas x:Name="plainPanel" Canvas.Left="12" Canvas.Top="12" Width="220" Height="120">
                         <TextBlock x:Name="panelLabel" Canvas.Left="8" Canvas.Top="8" Width="190" Height="20" Text="Panel - free-form container" />
                     </Canvas>
-                    <controls:GroupBoxFallback x:Name="containerGroupBox" Canvas.Left="244" Canvas.Top="12" Width="220" Height="120" Header="GroupBox">
-                        <CheckBox x:Name="groupBoxCheckBox" Canvas.Left="12" Canvas.Top="24" Width="190" Height="24" Content="Grouped check box" />
-                    </controls:GroupBoxFallback>
+                    <GroupBox x:Name="containerGroupBox" Canvas.Left="244" Canvas.Top="12" Width="220" Height="120" Padding="0" Header="GroupBox">
+                        <Canvas>
+                            <CheckBox x:Name="groupBoxCheckBox" Canvas.Left="12" Canvas.Top="24" Width="190" Height="24" Content="Grouped check box" />
+                        </Canvas>
+                    </GroupBox>
                     <Canvas x:Name="flowLayoutPanel1" Canvas.Left="476" Canvas.Top="12" Width="220" Height="120">
                         <Button x:Name="flowButton1" Canvas.Left="3" Canvas.Top="3" Width="96" Height="28" Content="Flow one" />
                         <Button x:Name="flowButton2" Canvas.Left="105" Canvas.Top="3" Width="96" Height="28" Content="Flow two" />

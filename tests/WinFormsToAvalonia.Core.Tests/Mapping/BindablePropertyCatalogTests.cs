@@ -18,18 +18,28 @@ public class BindablePropertyCatalogTests
     public void Catalog_AgreesWithTheControlMapper_AboutTheAvaloniaPropertyName(
         string winFormsTypeName, string winFormsPropertyName, string catalogAvaloniaName)
     {
+        var registry = new ControlMappingRegistry();
+
         var control = new ControlModel { FieldName = "field1", ClrTypeName = winFormsTypeName };
         control.Properties[winFormsPropertyName] = new PropertyValue.Literal("probe");
 
-        var mapped = new ControlMappingRegistry().Map(control);
+        var mapped = registry.Map(control);
         if (mapped.Status != MappingStatus.Direct)
         {
             return; // Fallback/Unsupported targets are governed by FallbackControlMemberSupport.
         }
 
+        // Only the attributes this property produced. A mapper can also emit fixed ones - a
+        // ScrollBar's Orientation, a CheckedListBox's SelectionMode - which say nothing about any
+        // WinForms property and so are no evidence either way; mapping the same control with no
+        // properties set is what separates the two.
+        var withoutProperty = registry
+            .Map(new ControlModel { FieldName = "field1", ClrTypeName = winFormsTypeName })
+            .Attributes.Keys;
+        var mapperNames = mapped.Attributes.Keys.Except(withoutProperty, StringComparer.Ordinal).ToList();
+
         // The mapper only emits attributes for properties it knows; a type it has no entry for
         // simply carries the property through the universal path, which is nothing to compare.
-        var mapperNames = mapped.Attributes.Keys.ToList();
         if (mapperNames.Count == 0)
         {
             return;

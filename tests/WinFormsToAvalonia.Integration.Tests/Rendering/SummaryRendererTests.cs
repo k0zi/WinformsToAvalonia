@@ -21,7 +21,7 @@ public class SummaryRendererTests
             DirectControlCount: 5,
             FallbackControlCount: 1,
             UnsupportedControlCount: 1,
-            UsedFallbackKeys: ["GroupBoxFallback"],
+            UsedFallbackKeys: ["RichTextBoxFallback"],
             RequiredNuGetPackages: ["Avalonia.Controls.DataGrid"],
             Warnings: ["field 'x' (SomeControl) has no Avalonia mapping: no mapping registered."],
             Elapsed: TimeSpan.FromMilliseconds(123));
@@ -33,7 +33,7 @@ public class SummaryRendererTests
         Assert.Contains("net9.0-windows", output);
         Assert.Contains("Forms converted", output);
         Assert.Contains("user controls", output);
-        Assert.Contains("GroupBoxFallback", output);
+        Assert.Contains("RichTextBoxFallback", output);
         Assert.Contains("Avalonia.Controls.DataGrid", output);
         Assert.Contains("1 warning(s)", output);
         Assert.Contains("SomeControl", output);

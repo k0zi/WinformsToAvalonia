@@ -94,8 +94,8 @@ namespace VisualStyleApp
             this.styledCheckBox.TabIndex = 4;
             this.styledCheckBox.Text = "Enabled";
             //
-            // styledGroupBox - a bundled fallback control: styling must be skipped entirely,
-            // since the template does not necessarily expose those properties.
+            // styledGroupBox - a real Avalonia GroupBox (a TemplatedControl) since Avalonia 12,
+            // so unlike the bundled fallback it replaced, it carries the full styling surface.
             //
             this.styledGroupBox.BackColor = System.Drawing.Color.WhiteSmoke;
             this.styledGroupBox.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);

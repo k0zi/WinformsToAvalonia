@@ -51,6 +51,11 @@ public class GeneratedAppStartupTests
     // proves nothing here: an asset the conversion named but never wrote is not a compile error,
     // it is Avalonia failing to load the Image while the View is being constructed.
     [InlineData("ImageListApp")]
+    // Two controls Avalonia 12 added that this run maps directly rather than falling back to a
+    // bundled template. Building says nothing about either: a control whose theme the app never
+    // included gets no template and renders as *nothing* - which is exactly what the walk below
+    // checks, and the only reason to trust the promotion.
+    [InlineData("GroupBoxApp")]
     public Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName) =>
         AssertStarts(
             Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj"),

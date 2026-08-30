@@ -282,8 +282,25 @@ not by building.
   `<WasmExtraFilesToDeploy Include="wwwroot\**" />` the bundle exists with no `index.html`.
   `WebHeadConversionBuildTests` therefore asserts on the bundle's *contents*, never on the exit
   code alone.
+- **A mapper and the universal passes can want the same attribute name.** `AxamlEmitter` writes
+  the mapper's attributes, then the extender-provider and visual-style passes; all three now skip
+  names already emitted (`emittedAttributeNames`). A duplicate XML attribute does not merge, it
+  fails to parse - so a mapper that claims a styling property (`GroupBox` claims `Padding`) must
+  also lose that flag in `AvaloniaStylePropertySupport`, or two writers race for one name.
+- **A `Direct` mapping can still lose something, and must say so.** `mapped.Warnings` is surfaced
+  on the Direct path too - as a `TODO` comment in the AXAML and in the conversion report - which
+  is how `CheckedListBox` reports the per-item check state it cannot carry. Before this only the
+  not-emitted branch read them, so a lossy Direct mapping was silent.
+- **`BindablePropertyCatalog` is keyed on the WinForms type alone**, which is not enough for a
+  per-instance mapper that picks between two elements. `MappedControl.UnreachableBindableMembers`
+  is how such a mapper narrows the catalog's answer - a `Format=Time` `DateTimePicker` is a
+  `TimePicker`, which has `SelectedTime` and no `SelectedDate`, and emitting the catalog's answer
+  there is a CS1061 in the **generated** project and nowhere else.
 - **App-level components are not per-View.** `NotifyIcon` becomes `TrayIcon.Icons` in `App.axaml`,
-  and its icon bytes are copied into the VFS with `AddBinary` — it never reaches an emitter.
+  and its icon bytes are copied into the VFS with `AddBinary` — it never reaches an emitter. Its
+  `ContextMenuStrip` goes the same way, as `TrayIcon.Menu`: a **native** menu the OS draws, so a
+  `NativeMenuItem` carries a `Header`, an `IsEnabled` flag and a submenu and nothing else - and
+  `Click` is an event, not an attribute, so a designer-wired one is reported.
 
 ## Tests
 

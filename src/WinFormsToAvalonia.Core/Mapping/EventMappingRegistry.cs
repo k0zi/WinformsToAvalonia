@@ -105,6 +105,11 @@ public sealed class EventMappingRegistry
         // table's honest refusal - see NotOnEveryControl.
         [("TextBox", "TextChanged")] = TextChanged,
 
+        // A MaskedTextBox is a real Avalonia MaskedTextBox now, which derives from TextBox and so
+        // raises the same event; while it was a bundled fallback this fell through to the generic
+        // refusal, and stayed there when the mapping was promoted.
+        [("MaskedTextBox", "TextChanged")] = TextChanged,
+
         [("CheckBox", "CheckedChanged")] = IsCheckedChanged,
         [("CheckBox", "CheckStateChanged")] = IsCheckedChanged,
         [("RadioButton", "CheckedChanged")] = IsCheckedChanged,

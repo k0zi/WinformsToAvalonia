@@ -11,14 +11,14 @@ public class FallbackControlResolverTests
         var vfs = new VirtualFileSystem();
         var resolver = new FallbackControlResolver();
 
-        resolver.CopyResolvedTemplates(vfs, "DemoApp", new HashSet<string> { "GroupBoxFallback", "RichTextBoxFallback" });
+        resolver.CopyResolvedTemplates(vfs, "DemoApp", new HashSet<string> { "PropertyGridFallback", "RichTextBoxFallback" });
 
-        Assert.Contains("Controls/GroupBoxFallback.cs", vfs.RelativePaths);
+        Assert.Contains("Controls/PropertyGridFallback.cs", vfs.RelativePaths);
         Assert.Contains("Controls/RichTextBoxFallback.cs", vfs.RelativePaths);
 
-        vfs.TryGetText("Controls/GroupBoxFallback.cs", out var groupBoxSource);
-        Assert.Contains("namespace DemoApp.Controls;", groupBoxSource);
-        Assert.DoesNotContain("__TARGET_NAMESPACE__", groupBoxSource);
+        vfs.TryGetText("Controls/PropertyGridFallback.cs", out var propertyGridSource);
+        Assert.Contains("namespace DemoApp.Controls;", propertyGridSource);
+        Assert.DoesNotContain("__TARGET_NAMESPACE__", propertyGridSource);
     }
 
     [Fact]

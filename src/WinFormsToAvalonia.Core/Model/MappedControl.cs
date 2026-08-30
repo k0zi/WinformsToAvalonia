@@ -52,9 +52,24 @@ public sealed record MappedControl(
     IReadOnlyList<string>? ChildWrapperElementNames = null,
     string? RequiredNuGetPackage = null,
     bool SupportsName = true,
-    IReadOnlyList<AxamlElementSpec>? NestedElements = null)
+    IReadOnlyList<AxamlElementSpec>? NestedElements = null,
+    /// <summary>
+    /// Members <see cref="Mapping.BindablePropertyCatalog"/> lists for the WinForms type that this
+    /// particular target does <i>not</i> have.
+    /// </summary>
+    /// <remarks>
+    /// The catalog is keyed on the WinForms type alone, which is fine while one type means one
+    /// element - but a per-instance mapper can choose between two. A DateTimePicker's
+    /// <c>Value</c> is a <c>CalendarDatePicker.SelectedDate</c> or a <c>TimePicker.SelectedTime</c>
+    /// depending on its Format, and emitting the first against the second is a CS1061 in the
+    /// *generated* project, which nothing here would otherwise catch. A mapper that narrows the
+    /// element narrows this too.
+    /// </remarks>
+    IReadOnlyList<string>? UnreachableBindableMembers = null)
 {
     public IReadOnlyList<string> ChildWrapperElementNames { get; } = ChildWrapperElementNames ?? [];
 
     public IReadOnlyList<AxamlElementSpec> NestedElements { get; } = NestedElements ?? [];
+
+    public IReadOnlyList<string> UnreachableBindableMembers { get; } = UnreachableBindableMembers ?? [];
 }

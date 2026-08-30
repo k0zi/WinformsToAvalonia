@@ -34,7 +34,6 @@ public static class FallbackControlCatalog
     public static IReadOnlyDictionary<string, FallbackTemplateDefinition> All { get; } =
         new Dictionary<string, FallbackTemplateDefinition>(StringComparer.Ordinal)
         {
-            ["GroupBoxFallback"] = new("GroupBoxFallback", "GroupBoxFallback.cs", "GroupBoxFallback.cs"),
             // The only entry pulled in by a converted handler body rather than by the AXAML -
             // see HandlerBodyRewriter's MessageBox.Show translation.
             ["MessageBoxFallback"] = new("MessageBoxFallback", "MessageBoxFallback.cs", "MessageBoxFallback.cs"),
@@ -48,7 +47,6 @@ public static class FallbackControlCatalog
             ["FontDialogFallback"] = new("FontDialogFallback", "FontDialogFallback.cs", "FontDialogFallback.cs"),
             ["StatusStripFallback"] = new("StatusStripFallback", "StatusStripFallback.cs", "StatusStripFallback.cs"),
             ["ToolStripFallback"] = new("ToolStripFallback", "ToolStripFallback.cs", "ToolStripFallback.cs"),
-            ["MaskedTextBoxFallback"] = new("MaskedTextBoxFallback", "MaskedTextBoxFallback.cs", "MaskedTextBoxFallback.cs"),
             ["RichTextBoxFallback"] = new("RichTextBoxFallback", "RichTextBoxFallback.cs", "RichTextBoxFallback.cs"),
             ["ErrorProviderFallback"] = new("ErrorProviderFallback", "ErrorProviderFallback.cs", "ErrorProviderFallback.cs"),
             ["DomainUpDownFallback"] = new("DomainUpDownFallback", "DomainUpDownFallback.cs", "DomainUpDownFallback.cs"),

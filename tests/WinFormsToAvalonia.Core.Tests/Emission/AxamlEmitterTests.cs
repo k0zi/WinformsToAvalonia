@@ -34,27 +34,49 @@ public class AxamlEmitterTests
     [Fact]
     public void EmitView_FallbackMappedControl_EmitsControlsPrefixedElementAndReportsUsedKey()
     {
-        var formModel = BuildGroupBoxFormModel();
+        var formModel = BuildFallbackFormModel();
 
         var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
 
-        Assert.Contains("GroupBoxFallback", result.UsedFallbackKeys);
-        Assert.Contains("<controls:GroupBoxFallback", result.Axaml);
-        Assert.Contains("Header=\"Options\"", result.Axaml);
+        Assert.Contains("RichTextBoxFallback", result.UsedFallbackKeys);
+        Assert.Contains("<controls:RichTextBoxFallback", result.Axaml);
         Assert.Contains("xmlns:controls=\"using:Demo.Controls\"", result.Axaml);
     }
 
     [Fact]
     public void EmitView_FallbackControlsDisabled_EmitsCommentInsteadAndReportsNoUsedKeys()
     {
-        var formModel = BuildGroupBoxFormModel();
+        var formModel = BuildFallbackFormModel();
 
         var result = new AxamlEmitter(new ControlMappingRegistry())
             .EmitView(formModel, "Demo", "MainView", "MainViewModel", emitFallbackControls: false);
 
         Assert.Empty(result.UsedFallbackKeys);
-        Assert.DoesNotContain("<controls:GroupBoxFallback", result.Axaml);
+        Assert.DoesNotContain("<controls:RichTextBoxFallback", result.Axaml);
         Assert.Contains("TODO(Winforms2Avalonia)", result.Axaml);
+    }
+
+    /// <summary>
+    /// A GroupBox is a ContentControl, so its positioned children go into the wrapper Canvas -
+    /// the same shape TabPage/TabItem produces, and what keeps absolute layout working inside it.
+    /// </summary>
+    [Fact]
+    public void EmitView_GroupBox_EmitsARealGroupBoxWithItsChildrenInsideACanvas()
+    {
+        var formModel = BuildGroupBoxFormModel();
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<GroupBox x:Name=\"groupBox1\"", result.Axaml);
+        Assert.Contains("Header=\"Options\"", result.Axaml);
+        Assert.DoesNotContain("GroupBoxFallback", result.Axaml);
+        Assert.Empty(result.UsedFallbackKeys);
+
+        var groupBoxStart = result.Axaml.IndexOf("<GroupBox ", StringComparison.Ordinal);
+        var buttonStart = result.Axaml.IndexOf("<Button ", StringComparison.Ordinal);
+        var canvasStart = result.Axaml.IndexOf("<Canvas>", groupBoxStart, StringComparison.Ordinal);
+        Assert.True(groupBoxStart < canvasStart && canvasStart < buttonStart,
+            $"The child should sit inside the GroupBox's wrapper Canvas.\n{result.Axaml}");
     }
 
     /// <summary>
@@ -756,6 +778,60 @@ public class AxamlEmitterTests
         Assert.Contains(result.Warnings, w => w.Contains("domainUpDown1", StringComparison.Ordinal) && w.Contains("item(s)", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A Direct mapping can lose something too, and until this those warnings went nowhere: only
+    /// the not-emitted branch read them, so a CheckedListBox shed its check state in silence.
+    /// </summary>
+    [Fact]
+    public void EmitView_DirectMapperWithAWarning_ReportsItAndLeavesItInTheAxaml()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var list = new ControlModel { FieldName = "optionsList", ClrTypeName = "CheckedListBox" };
+        list.Properties["Location"] = new PropertyValue.PointValue(12, 12);
+        list.Properties["Size"] = new PropertyValue.SizeValue(150, 90);
+        formModel.RootControls.Add(list);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<ListBox x:Name=\"optionsList\"", result.Axaml);
+        Assert.Contains("SelectionMode=\"Multiple\"", result.Axaml);
+        Assert.Contains(result.Warnings, w => w.Contains("optionsList", StringComparison.Ordinal));
+        Assert.Contains("TODO(Winforms2Avalonia)", result.Axaml);
+    }
+
+    /// <summary>
+    /// The mapper and the universal styling pass can both want to write one attribute name. A
+    /// duplicate XML attribute does not merge, it fails to parse - so exactly one has to win.
+    /// </summary>
+    [Fact]
+    public void EmitView_GroupBoxWithADesignerPadding_EmitsPaddingExactlyOnce()
+    {
+        var formModel = BuildGroupBoxFormModel();
+        formModel.RootControls[0].Properties["Padding"] = new PropertyValue.PaddingValue(8, 8, 8, 8);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        var groupBoxElement = result.Axaml[result.Axaml.IndexOf("<GroupBox ", StringComparison.Ordinal)..];
+        groupBoxElement = groupBoxElement[..groupBoxElement.IndexOf('>')];
+
+        Assert.Equal(1, groupBoxElement.Split("Padding=").Length - 1);
+        Assert.Contains("Padding=\"8,8,8,8\"", groupBoxElement);
+    }
+
+    /// <summary>
+    /// Every generated view pins `Canvas > :is(TemplatedControl)` to Padding="4,1", which on a
+    /// container is four more pixels of inset applied to the designer's child coordinates - so
+    /// the mapper spends the attribute itself rather than letting the style have it.
+    /// </summary>
+    [Fact]
+    public void EmitView_GroupBoxWithoutADesignerPadding_PinsPaddingToZero()
+    {
+        var result = new AxamlEmitter(new ControlMappingRegistry())
+            .EmitView(BuildGroupBoxFormModel(), "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("Padding=\"0\"", result.Axaml);
+    }
+
     private static FormModel BuildGroupBoxFormModel()
     {
         var formModel = new FormModel { ClassName = "MainForm" };
@@ -763,7 +839,24 @@ public class AxamlEmitterTests
         groupBox.Properties["Text"] = new PropertyValue.Literal("Options");
         groupBox.Properties["Location"] = new PropertyValue.PointValue(12, 12);
         groupBox.Properties["Size"] = new PropertyValue.SizeValue(200, 100);
+
+        var okButton = new ControlModel { FieldName = "okButton", ClrTypeName = "Button" };
+        okButton.Properties["Location"] = new PropertyValue.PointValue(10, 30);
+        okButton.Properties["Size"] = new PropertyValue.SizeValue(75, 23);
+        groupBox.Children.Add(okButton);
+
         formModel.RootControls.Add(groupBox);
+        return formModel;
+    }
+
+    /// <summary>A control that still has no in-box Avalonia equivalent, for the fallback paths.</summary>
+    private static FormModel BuildFallbackFormModel()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var richTextBox = new ControlModel { FieldName = "richTextBox1", ClrTypeName = "RichTextBox" };
+        richTextBox.Properties["Location"] = new PropertyValue.PointValue(12, 12);
+        richTextBox.Properties["Size"] = new PropertyValue.SizeValue(200, 100);
+        formModel.RootControls.Add(richTextBox);
         return formModel;
     }
 }

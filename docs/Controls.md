@@ -24,7 +24,7 @@ Avalonia has nothing to map to; permanently manual. This column is not free-form
 `UnsupportedDisposition`, a required constructor argument on `UnsupportedControlMapper`, and
 `ControlsDocumentationTests` checks every cell against it.
 
-**Summary**: 45 Direct, 14 Fallback (59 mapped) · 33 Unsupported (not mapped, guidance-only:
+**Summary**: 47 Direct, 12 Fallback (59 mapped) · 33 Unsupported (not mapped, guidance-only:
 20 handled elsewhere, 8 unreachable from designer code, 5 no Avalonia API) ·
 10 base classes (not applicable) · `Form` and `UserControl` are both conversion roots (a Form
 becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in this table.
@@ -62,7 +62,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 | `TabPage` | ✅ Direct | `TabItem` | | Children wrapped in a `Canvas`. |
 | `FlowLayoutPanel` | ✅ Direct | `Canvas` | | Flow layout semantics not translated. |
 | `TableLayoutPanel` | ✅ Direct | `Canvas` | | Row/column layout semantics not translated. |
-| `GroupBox` | ✅ Fallback | `GroupBoxFallback` | | |
+| `GroupBox` | ✅ Direct | `GroupBox` | | Children wrapped in a `Canvas`. Avalonia 12 ships a real `GroupBox`, so the bundled fallback is gone. |
 | `Label` | ✅ Direct | `TextBlock` | | |
 | `LinkLabel` | ✅ Direct | `HyperlinkButton` | | Its `LinkClicked` maps to `Click`; the `LinkLabelLinkClickedEventArgs.Link` payload has no equivalent. |
 
@@ -84,7 +84,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 | `TextBoxBase` | — | | | Base class. |
 | `TextBox` | ✅ Direct | `TextBox` | | |
 | `RichTextBox` | ✅ Fallback | `RichTextBoxFallback` | | |
-| `MaskedTextBox` | ✅ Fallback | `MaskedTextBoxFallback` | | |
+| `MaskedTextBox` | ✅ Direct | `MaskedTextBox` | | Avalonia's own masks for real (`Mask`, `PromptChar`, `AsciiOnly`, …); the bundled fallback stored the mask and ignored it. |
 
 ### List / Selection Controls
 
@@ -92,7 +92,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 |---|---|---|---|---|
 | `ListControl` | — | | | Base class. |
 | `ListBox` | ✅ Direct | `ListBox` | | Designer-declared literal `Items` entries are emitted as `ListBoxItem` children. |
-| `CheckedListBox` | ✅ Direct | `ListBox` | | Checkbox-per-item semantics not translated; literal `Items` entries are. |
+| `CheckedListBox` | ✅ Direct | `ListBox` | | `SelectionMode="Multiple"`, plus a warning: Avalonia has no per-item checkbox list, so ticking is approximated by selection and `CheckedItems` has no equivalent. Literal `Items` entries are translated. |
 | `ComboBox` | ✅ Direct | `ComboBox` | | Designer-declared literal `Items` entries are emitted as `ComboBoxItem` children. |
 | `ListView` | ✅ Direct | `DataGrid` / `ListBox` | | Per-instance (`ListViewMapper`): `View=Details`, or any parsed `ColumnHeader` children, → `DataGrid` with its columns; otherwise `ListBox`. Items are not translated either way — the control is emitted without rows. |
 | `TreeView` | ✅ Direct | `TreeView` | | |
@@ -105,7 +105,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 
 | WinForms type | Status | Avalonia target | Why not | Notes |
 |---|---|---|---|---|
-| `DateTimePicker` | ✅ Direct | `CalendarDatePicker` | | Closest built-in analog; time-of-day component not represented. |
+| `DateTimePicker` | ✅ Direct | `CalendarDatePicker` / `TimePicker` | | Per-instance (`DateTimePickerMapper`): `Format=Time` becomes a `TimePicker`, everything else a `CalendarDatePicker`. `Format=Custom` keeps the date picker and reports that `CustomFormat` has no counterpart. |
 | `MonthCalendar` | ✅ Direct | `Calendar` | | Selection ranges not translated. |
 
 ### Visual Controls
@@ -207,7 +207,7 @@ The *dialog* it belongs to, `PrintPreviewDialog`, is listed once, under Common D
 | `ToolTip` | ❌ Unsupported | | 🟡 Elsewhere | The component itself has no element, but `SetToolTip(...)` calls are now translated automatically into a `ToolTip.Tip` attribute on the target control. See [Implementation plan](#tooltip). |
 | `HelpProvider` | ❌ Unsupported | | 🟡 Elsewhere | The component has no element, but `SetHelpString(ctrl, "…")` is now translated into `AutomationProperties.HelpText` on the target. The F1 gesture has no equivalent, so `SetShowHelp` and `HelpNamespace` are reported instead. See [Implementation plan](#helpprovider). |
 | `ErrorProvider` | ✅ Fallback | `ErrorProviderFallback` | | An attached property rather than a control, so it has no element of its own — and `errorProvider1.SetError(ctrl, "…")` in a handler body is translated into a static call on the template. |
-| `NotifyIcon` | ❌ Unsupported | | 🟡 Elsewhere | Aggregated across all forms into App.axaml's `TrayIcon.Icons`. The icon is copied into `Assets/` from either a literal path or the form's `.resx`; only when it is neither — a computed `Icon`, or an undecodable payload — is the block emitted **commented out** with a TODO, because Avalonia resolves `TrayIcon.Icon` at run time and a dangling asset reference throws out of `App.Initialize()`. A designer-wired `Click` becomes `TrayIcon.Clicked`, subscribed from the View's constructor; the events Avalonia's TrayIcon does not have are reported. See [Implementation plan](#notifyicon). |
+| `NotifyIcon` | ❌ Unsupported | | 🟡 Elsewhere | Aggregated across all forms into App.axaml's `TrayIcon.Icons`. The icon is copied into `Assets/` from either a literal path or the form's `.resx`; only when it is neither — a computed `Icon`, or an undecodable payload — is the block emitted **commented out** with a TODO, because Avalonia resolves `TrayIcon.Icon` at run time and a dangling asset reference throws out of `App.Initialize()`. A designer-wired `Click` becomes `TrayIcon.Clicked`, subscribed from the View's constructor; the events Avalonia's TrayIcon does not have are reported. Its `ContextMenuStrip` becomes `TrayIcon.Menu` as a `NativeMenu`. See [Implementation plan](#notifyicon). |
 | `ImageList` | ❌ Unsupported | | 🟡 Elsewhere | The type has no element, but its images are extracted: the `.resx` `ImageStream` is decoded into `Assets/<field>_<index>.png`, and an `ImageIndex` into it becomes a `MenuItem.Icon` — the only per-item image slot Avalonia has. See [Implementation plan](#imagelist). |
 
 ## DataGridView Related Types
@@ -337,8 +337,14 @@ control, reusing the same recursive `EmitControl` already used for ordinary chil
 nested `MenuItem`/`Separator`/`DropDownItems` work for free - no bespoke mapper code needed.
 A `ContextMenuStrip` shared across multiple owner controls gets its item tree emitted once
 per owner (Avalonia's `ContextMenu` isn't a shareable instance the way WinForms' is).
-`NotifyIcon.ContextMenuStrip` is not wired - Avalonia's `TrayIcon.Menu` needs
-`NativeMenu`/`NativeMenuItem`, a structurally different target from `Control.ContextMenu`.
+`NotifyIcon.ContextMenuStrip` is wired too, but through a different target: a tray menu is a
+**native** menu, so it becomes `App.axaml`'s `<TrayIcon.Menu><NativeMenu>` rather than a
+`Control.ContextMenu`. The OS draws it, which is why a `NativeMenuItem` carries only a `Header`,
+an `IsEnabled` flag and a nested `NativeMenu` - no styling, no icons, and no `Click` attribute:
+`NativeMenuItem.Click` is an event, which XAML cannot point at a method, so a designer-wired
+Click on a tray item is reported rather than emitted. `ToolStripSeparator` becomes
+`NativeMenuItemSeparator`, and an `&` mnemonic is stripped rather than converted, there being no
+`AccessText` to render one.
 The registry entry stays `Unsupported` (same pattern as `ToolTip`) since the component itself
 is never resolved via `_registry.Map` - the capability ships through the owner control instead.
 

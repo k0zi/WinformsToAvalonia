@@ -323,8 +323,23 @@ contributors know what to expect and where to look before filing a duplicate iss
     `SystemColors.*` resolve through a hand-written ARGB table rather than the host desktop
     palette, so the output stays byte-identical across machines.
 
-  What is *not* converted: `BackgroundImage`, `FlatStyle`/`FlatAppearance`, `BorderStyle`,
-  `TextAlign`, `RightToLeft`, and `Font` values whose family/size are not literals.
+  What is *not* converted: `BackgroundImage`, `FlatStyle`/`FlatAppearance`, `RightToLeft`, and
+  `Font` values whose family/size are not literals.
+
+  `TextAlign` **is** converted, but only its horizontal component. On a `TextBox`/`MaskedTextBox`/
+  `NumericUpDown` it is already just a horizontal alignment and maps exactly onto Avalonia's
+  `TextAlignment`. On a `Label`, `Button`, `CheckBox` or `RadioButton` it is a `ContentAlignment`,
+  which is two facts in one: the button family spends them on `HorizontalContentAlignment` and
+  `VerticalContentAlignment`, but a `Label` becomes a `TextBlock`, which has `TextAlignment` and
+  no vertical counterpart - Avalonia aligns the block, not the text inside it. So a
+  `BottomRight` label right-aligns and does not bottom-align.
+
+  `BorderStyle` is converted only where the target element can draw a border at all - a `TextBox`,
+  `ListBox` or `TreeView` - as a `BorderThickness`. Avalonia draws one border rather than three
+  styles, so `FixedSingle` and `Fixed3D` both become a one-pixel border and the sunken 3D look is
+  gone; `None` is the value that carries real information, turning off the border the theme would
+  otherwise draw. A `Panel` becomes a `Canvas` and a `PictureBox` an `Image`, neither of which has
+  a `BorderThickness`, so their `BorderStyle` is dropped.
 
   Because those literal colors are light-mode colors, the generated `App.axaml` pins
   `RequestedThemeVariant="Light"` instead of following the OS. Otherwise a control that set
@@ -842,12 +857,12 @@ rule itself; what follows is what the rule does *not* cover yet.
   (`FallbackControlMemberSupport`). Everything else about them stays conservative - no styling,
   no event wiring, no item children - because a template need not have the member a mapping
   names. Catalog members are the one safe exception, since these templates ship in this repo:
-  `RichTextBoxFallback` and `MaskedTextBoxFallback` derive from Avalonia's `TextBox`, so their
-  `Text`, `Clear()`, `SelectAll()` and the four font properties they inherit from
+  `RichTextBoxFallback` derives from Avalonia's `TextBox`, so its
+  `Text`, `Clear()`, `SelectAll()` and the four font properties it inherits from
   `TemplatedControl` are known facts.
 
   The templates' **own** properties were missing from that table for as long as it existed, so
-  `propertyGrid1.SelectedObject = x`, `groupBox1.Text = "…"`, `maskedTextBox1.Mask = "…"` and the
+  `propertyGrid1.SelectedObject = x` and the
   DomainUpDown pair all refused - not because there was nowhere to translate them, but because
   nobody had written the names down. They are registered now, and
   `FallbackControlMemberSupportTests` checks the reverse direction too: a property a template
@@ -962,6 +977,36 @@ required before anything is written into a non-empty output directory at all.
   the sample's nine 992x602 pages each produced a 602-pixel-tall tab header, which filled the
   window and pushed every page out of it. Adding a mapper whose target holds items means adding
   it to that set.
+
+## Controls promoted out of a bundled fallback
+
+Avalonia 12 ships two controls this converter used to approximate with a bundled template, so
+both are now Direct mappings and the templates are gone.
+
+- **`GroupBox`.** The old `GroupBoxFallback` was a bare `Canvas`: no border, no caption on screen,
+  and - less obviously - the wrong origin for its children. A WinForms child's `Location` is
+  relative to its parent's *client* area, and a `GroupBox`'s client area starts below the border
+  and caption; a plain Canvas measured those coordinates from the outer corner instead. A real
+  `GroupBox` puts its content below the header, so this is closer as well as prettier. What
+  remains is a few pixels: the Simple theme spends 6px on its border columns where WinForms spends
+  3, and the caption row's height depends on the font. The mapper pins `Padding="0"` so the
+  view-level `Canvas > :is(TemplatedControl)` style does not add another 4px on top of that; a
+  designer-set `Padding` still wins.
+- **`MaskedTextBox`.** The old fallback stored the `Mask` string and ignored it, and the mapper
+  did not even emit it. Avalonia's own `MaskedTextBox` really masks - it overrides `OnTextInput`
+  and `OnKeyDown` - so `Mask`, `PromptChar`, `AsciiOnly`, `HidePromptOnLeave`, `ResetOnPrompt` and
+  `ResetOnSpace` all now do something. `TextMaskFormat` and `Culture` are not carried.
+
+Two more mappings gained precision rather than a new control:
+
+- **`DateTimePicker`** picks its element per instance: `Format=Time` becomes a `TimePicker`
+  (which is what the designer asked for and a calendar cannot express), everything else a
+  `CalendarDatePicker`. `Format=Custom` keeps the date picker and reports that `CustomFormat` has
+  no counterpart. A handler binding `Value` on a `Format=Time` picker is refused rather than
+  emitted, because the catalog's answer (`SelectedDate`) does not exist on a `TimePicker`.
+- **`CheckedListBox`** becomes a `ListBox` with `SelectionMode="Multiple"` **and a warning**.
+  Avalonia has no per-item checkbox list, so ticking is approximated by selection and
+  `CheckedItems`/`CheckedIndices`/`GetItemChecked` have no equivalent. This used to be silent.
 
 ## Browser (WebAssembly) head
 
