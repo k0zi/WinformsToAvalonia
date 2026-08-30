@@ -111,6 +111,8 @@ public sealed class ConversionPipeline
         }
         var notifyIcons = new List<NotifyIconInfo>();
         var assetsToCopy = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var convertedElsewhereCount = 0;
+        var convertedElsewhereNotes = new List<string>();
         var directCount = 0;
         var fallbackCount = 0;
         var unsupportedCount = 0;
@@ -154,6 +156,15 @@ public sealed class ConversionPipeline
                     case MappingStatus.Fallback:
                         fallbackCount++;
                         allWarnings.AddRange(mappedComponent.Warnings);
+                        break;
+                    // "No element" covers two unrelated pieces of news. A Timer, a ToolTip, a
+                    // NotifyIcon and the dialogs are converted - just not as elements - and
+                    // saying so in the same red count as a type nothing handles is what made a
+                    // working conversion look like dozens of failures.
+                    case MappingStatus.Unsupported
+                        when mappedComponent.Disposition == UnsupportedDisposition.FeatureElsewhere:
+                        convertedElsewhereCount++;
+                        convertedElsewhereNotes.AddRange(mappedComponent.Warnings);
                         break;
                     case MappingStatus.Unsupported:
                         unsupportedCount++;
@@ -205,9 +216,11 @@ public sealed class ConversionPipeline
             allUsedFallbackKeys.UnionWith(axamlResult.UsedFallbackKeys);
             allRequiredNuGetPackages.UnionWith(axamlResult.RequiredNuGetPackages);
             allWarnings.AddRange(axamlResult.Warnings);
-            directCount += axamlResult.DirectControlCount;
+                directCount += axamlResult.DirectControlCount;
             fallbackCount += axamlResult.FallbackControlCount;
             unsupportedCount += axamlResult.UnsupportedControlCount;
+            convertedElsewhereCount += axamlResult.ConvertedElsewhereCount;
+            convertedElsewhereNotes.AddRange(axamlResult.ConvertedElsewhereNotes);
 
             var viewModel = viewModelEmitter.EmitViewModel(migrationPlan, projectName, relativeFolder, viewModelClassName);
             var rawCodeBehind = options.SkipCodeBehindComments ? null : _codeBehindExtractor.Extract(pairing.PrimaryFilePath);
@@ -268,7 +281,7 @@ public sealed class ConversionPipeline
         // VFS like everything else, so --dry-run and the preserve-existing re-run behave on it.
         vfs.AddText("MIGRATION.md", new MigrationChecklistEmitter().Emit(
             projectName, options.SourceProjectPath, allMigratedStatements, allHandlerStatements,
-            allWarnings, migrationSummaries));
+            allWarnings, migrationSummaries, convertedElsewhereNotes));
 
         // Last, so every stage above - and the fallback templates, components, assets and
         // MIGRATION.md added since the scaffold - keeps writing single-project relative paths.
@@ -303,7 +316,9 @@ public sealed class ConversionPipeline
             stopwatch.Elapsed,
             preservedFiles,
             allMigratedStatements,
-            allHandlerStatements);
+            allHandlerStatements,
+            convertedElsewhereCount,
+            convertedElsewhereNotes);
 
         return new ConversionRunResult(vfs, report);
     }

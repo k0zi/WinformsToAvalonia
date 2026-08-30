@@ -65,7 +65,18 @@ public sealed record MappedControl(
     /// *generated* project, which nothing here would otherwise catch. A mapper that narrows the
     /// element narrows this too.
     /// </remarks>
-    IReadOnlyList<string>? UnreachableBindableMembers = null)
+    IReadOnlyList<string>? UnreachableBindableMembers = null,
+    /// <summary>
+    /// Why an <see cref="MappingStatus.Unsupported"/> mapping produces no element - which is a
+    /// different question from whether the type was converted at all.
+    /// </summary>
+    /// <remarks>
+    /// Null for a Direct or Fallback mapping, and for a type the registry has no entry for -
+    /// that last one really is unconverted. Everything that reports a count or a colour reads
+    /// this rather than the status, because a <c>Timer</c> and a <c>PrintDialog</c> are both
+    /// "no element" and nothing else about them is alike.
+    /// </remarks>
+    Mapping.UnsupportedDisposition? Disposition = null)
 {
     public IReadOnlyList<string> ChildWrapperElementNames { get; } = ChildWrapperElementNames ?? [];
 

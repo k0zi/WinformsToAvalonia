@@ -163,7 +163,9 @@ public sealed class AxamlEmitter
             state.FallbackCount,
             state.UnsupportedCount,
             state.Warnings,
-            deferredWindowEvents);
+            deferredWindowEvents,
+            state.ConvertedElsewhereCount,
+            state.ConvertedElsewhereNotes);
     }
 
     /// <summary>
@@ -248,6 +250,16 @@ public sealed class AxamlEmitter
 
         if (mapped.Status != MappingStatus.Direct && !treatAsFallback)
         {
+            // Converted, just not as an element - a ContextMenuStrip is emitted onto its owner,
+            // a ToolStripControlHost is replaced by what it hosted. Nothing is lost, so it is not
+            // a TODO and not a warning; it belongs in the "converted differently" list.
+            if (mapped.Disposition == UnsupportedDisposition.FeatureElsewhere)
+            {
+                state.ConvertedElsewhereCount++;
+                state.ConvertedElsewhereNotes.AddRange(mapped.Warnings);
+                return;
+            }
+
             var reason = mapped.Status == MappingStatus.Fallback
                 ? $"requires the bundled fallback control '{mapped.FallbackTemplateKey}' (skipped: --no-fallback-controls)"
                 : "has no Avalonia mapping";
@@ -622,6 +634,11 @@ public sealed class AxamlEmitter
         public int FallbackCount { get; set; }
 
         public int UnsupportedCount { get; set; }
+
+        /// <summary>Controls whose feature was converted somewhere other than an element.</summary>
+        public int ConvertedElsewhereCount { get; set; }
+
+        public List<string> ConvertedElsewhereNotes { get; } = [];
     }
 
     private static void EmitLayoutHintComment(AxamlDocumentBuilder builder, ControlModel control)

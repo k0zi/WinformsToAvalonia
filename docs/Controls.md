@@ -8,7 +8,9 @@ See `docs/known-limitations.md` for the structural parsing gaps referenced throu
 
 **Legend**: ✅ Direct = maps to a real, working Avalonia control. ✅ Fallback = maps to one of
 this tool's bundled placeholder controls (`src/WinFormsToAvalonia.FallbackControls/Templates/`).
-❌ Unsupported = registered with guidance text, but produces no Avalonia element. 🚧 Not
+❌ Unsupported = registered with guidance text, but produces no Avalonia element — which is a
+fact about the *emitter*, not about whether the type was converted; see **Why not** below, and
+note that 20 of the 33 are converted, just not as elements. 🚧 Not
 converted = a different problem entirely: the whole artifact kind is currently excluded from the
 conversion pipeline, so it never reaches the mapping registry at all. — = base/abstract class,
 never instantiated directly by designer code, so it has no registry entry at all.
@@ -24,8 +26,8 @@ Avalonia has nothing to map to; permanently manual. This column is not free-form
 `UnsupportedDisposition`, a required constructor argument on `UnsupportedControlMapper`, and
 `ControlsDocumentationTests` checks every cell against it.
 
-**Summary**: 47 Direct, 12 Fallback (59 mapped) · 33 Unsupported (not mapped, guidance-only:
-20 handled elsewhere, 8 unreachable from designer code, 5 no Avalonia API) ·
+**Summary**: 47 Direct, 12 Fallback (59 mapped) · 20 converted without an element ·
+13 not converted (8 unreachable from designer code, 5 no Avalonia API) ·
 10 base classes (not applicable) · `Form` and `UserControl` are both conversion roots (a Form
 becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in this table.
 

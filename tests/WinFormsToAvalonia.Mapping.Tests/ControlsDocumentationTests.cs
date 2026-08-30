@@ -116,9 +116,17 @@ public class ControlsDocumentationTests
         var summary = File.ReadAllLines(Path.Combine(RepositoryRoot(), "docs", "Controls.md"))
             .First(l => l.StartsWith("**Summary**:", StringComparison.Ordinal));
 
+        // The headline numbers group by *disposition*, not by status. "33 Unsupported" was true
+        // of the emitter and false of the conversion: 20 of those types are converted, just not
+        // as an element, and reading the total as a failure count is exactly what it invited.
+        var elsewhere = why.GetValueOrDefault("🟡 Elsewhere");
+        var unreachable = why.GetValueOrDefault("⚪ Unreachable");
+        var noApi = why.GetValueOrDefault("❌ No API");
+        Assert.Equal(unsupported, elsewhere + unreachable + noApi);
+
         Assert.Equal(
             $"**Summary**: {direct} Direct, {fallback} Fallback ({direct + fallback} mapped) · "
-            + $"{unsupported} Unsupported (not mapped, guidance-only:",
+            + $"{elsewhere} converted without an element ·",
             summary);
 
         var breakdown = File.ReadAllLines(Path.Combine(RepositoryRoot(), "docs", "Controls.md"))
@@ -127,9 +135,8 @@ public class ControlsDocumentationTests
             .First();
 
         Assert.Equal(
-            $"{why.GetValueOrDefault("🟡 Elsewhere")} handled elsewhere, "
-            + $"{why.GetValueOrDefault("⚪ Unreachable")} unreachable from designer code, "
-            + $"{why.GetValueOrDefault("❌ No API")} no Avalonia API) ·",
+            $"{unreachable + noApi} not converted ({unreachable} unreachable from designer code, "
+            + $"{noApi} no Avalonia API) ·",
             breakdown);
 
         Assert.Equal(10, baseClasses);

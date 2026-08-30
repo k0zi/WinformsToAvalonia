@@ -38,7 +38,7 @@ source project is never modified.
 |---|---|
 | 🔍 **Roslyn-based** | Parses `InitializeComponent` with the C# compiler API — no regex. |
 | 🌐 **Reads resources** | `Localizable=true` forms, which set every property through `resources.ApplyResources(...)`, convert with their text, geometry and fonts intact; images are recovered from the `.resx` into `Assets/`. |
-| 🧩 **92 control types recognized** | 59 mapped (45 Direct + 14 via bundled fallback controls), 33 more registered with guidance-only migration notes instead of a silent failure — run `list-mappings` for the live count. See [`docs/Controls.md`](docs/Controls.md). |
+| 🧩 **92 control types recognized** | 59 mapped to an element (47 Direct + 12 via bundled fallback controls), 20 converted without one — a `Timer` becomes a `DispatcherTimer` field, a `ToolTip` an attribute on its target — and 13 registered with guidance-only migration notes instead of a silent failure. Run `list-mappings` for the live count. See [`docs/Controls.md`](docs/Controls.md). |
 | 📐 **Pixel-accurate layout** | Absolute `Canvas` positioning preserves the original design exactly; `Anchor`/`Dock` are recorded, never guessed at. |
 | ⚡ **Always-compiling output** | `dotnet build && dotnet run` works on the generated project immediately — warning-free. |
 | ✍️ **Handler bodies translated** | Bindable property access, control flow and loops, `Close()`/`Focus()`, window properties, `MessageBox.Show`, opening another Form (with its `DialogResult` contract), file dialogs, the clipboard, `sender`, non-visual .NET components and your own helper methods become real Avalonia code; the report says how much came across. |

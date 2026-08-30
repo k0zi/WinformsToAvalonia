@@ -33,8 +33,11 @@ public sealed class MigrationChecklistEmitter
         int migratedStatements,
         int handlerStatements,
         IReadOnlyList<string> warnings,
-        IReadOnlyList<ArtifactMigrationSummary> artifacts)
+        IReadOnlyList<ArtifactMigrationSummary> artifacts,
+        IReadOnlyList<string>? convertedElsewhere = null)
     {
+        convertedElsewhere ??= [];
+
         var sb = new StringBuilder();
         void Line(string text = "") => sb.Append(text).Append('\n');
 
@@ -108,13 +111,31 @@ public sealed class MigrationChecklistEmitter
 
         if (warnings.Count > 0)
         {
-            Line($"## Conversion notes ({warnings.Count})");
+            Line($"## Needs your attention ({warnings.Count})");
             Line();
             Line("Everything the conversion decided not to guess at, and why.");
             Line();
             foreach (var warning in warnings)
             {
                 Line($"- {warning}");
+            }
+
+            Line();
+        }
+
+        // Kept apart from the list above, and after it, because it is the opposite kind of news.
+        // These are features that came across without an Avalonia element - a Timer as a
+        // DispatcherTimer field, a ToolTip as attributes on its targets - and listing them among
+        // the unresolved items made a working conversion read like a page of failures.
+        if (convertedElsewhere.Count > 0)
+        {
+            Line($"## Converted differently ({convertedElsewhere.Count})");
+            Line();
+            Line("No action needed - these have no Avalonia element, so here is where each one went.");
+            Line();
+            foreach (var note in convertedElsewhere)
+            {
+                Line($"- {note}");
             }
 
             Line();

@@ -21,4 +21,13 @@ public sealed record AxamlEmissionResult(
     /// Window-rooted View, which is all of them unless <c>--with-web</c> asked otherwise; the
     /// generated wrapper Window takes these and forwards them into the View.
     /// </summary>
-    IReadOnlyList<(string AttributeName, string HandlerMethodName)>? DeferredWindowEvents = null);
+    IReadOnlyList<(string AttributeName, string HandlerMethodName)>? DeferredWindowEvents = null,
+    /// <summary>
+    /// Controls that emitted no element because their feature lives elsewhere - counted and
+    /// reported apart from the ones nothing handles. See <c>ConversionReport</c>.
+    /// </summary>
+    int ConvertedElsewhereCount = 0,
+    IReadOnlyList<string>? ConvertedElsewhereNotes = null)
+{
+    public IReadOnlyList<string> ConvertedElsewhereNotes { get; } = ConvertedElsewhereNotes ?? [];
+}

@@ -75,7 +75,12 @@ public static class SummaryRenderer
         {
             $"Project style: [bold]{style}[/], target framework(s): [bold]{string.Join(", ", report.TargetFrameworks)}[/]",
             $"Forms converted: [bold]{report.FormCount}[/]{(report.UserControlCount > 0 ? $", user controls: [bold]{report.UserControlCount}[/]" : "")}",
-            $"Controls: [green]{report.DirectControlCount} direct[/], [yellow]{report.FallbackControlCount} fallback[/], [red]{report.UnsupportedControlCount} unsupported[/]",
+            // "Converted elsewhere" is deliberately not red and deliberately not next to
+            // "unsupported": a Timer that became a DispatcherTimer is a success, and counting it
+            // as a failure is what made a working conversion look alarming.
+            $"Controls: [green]{report.DirectControlCount} direct[/], [yellow]{report.FallbackControlCount} fallback[/], "
+                + $"[green]{report.ConvertedElsewhereCount} converted without an element[/], "
+                + $"[red]{report.UnsupportedControlCount} unsupported[/]",
         };
 
         if (report.UsedFallbackKeys.Count > 0)

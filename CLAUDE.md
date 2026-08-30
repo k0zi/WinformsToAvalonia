@@ -244,6 +244,13 @@ not by building.
   mapping and xmlns prefix. Forms need more than ordering: `BuildFormViews` resolves **every**
   Form to its View in a separate pass before emission, because a handler body that opens another
   Form must name a View whose Form may not be converted yet — ordering alone cannot fix a cycle.
+- **Nothing that reports a count or a colour may switch on `MappingStatus` alone.** `Unsupported`
+  means "emits no element", which is true of a `Timer` and a `PrintDialog` alike - and for three
+  releases every surface that produced a number said "33 unsupported" for a conversion in which 20
+  of those worked. `MappedControl.Disposition` carries `UnsupportedDisposition` for exactly this;
+  `ConversionReport` counts `ConvertedElsewhereCount` separately, `MIGRATION.md` puts those under
+  "Converted differently" rather than "Needs your attention", and `list-mappings` colours them
+  green. A new reporting surface asks the disposition, not the status.
 - **An `Unsupported` mapping is not an unconverted one.** `MappingStatus.Unsupported` means "emits
   no AXAML element", which most of the registry's `Unsupported` entries are while being thoroughly
   converted somewhere else. `UnsupportedControlMapper` therefore takes a **required**
