@@ -618,6 +618,113 @@ public class FormMigrationPlannerTests
         Assert.Contains(plan.CodeBehindHandlers, h => h.OriginalMethodName == "nameTextBox_TextChanged");
     }
 
+    // ---- Data-source and Details-ListView collections --------------------------------------
+
+    private static FormModel GridBoundToBindingSource()
+    {
+        var formModel = FormWith(("dataGridView1", "DataGridView"), ("bindingSource1", "BindingSource"));
+        formModel.Controls["dataGridView1"].Properties["DataSource"] =
+            new PropertyValue.ControlReference("bindingSource1");
+
+        return formModel;
+    }
+
+    private static ModelTypeContext ModelTypes(params string[] typeNames) =>
+        new(typeNames.ToDictionary(
+            n => n,
+            n => new ModelTypeInfo(n, "Demo.Models", ["Name"]),
+            StringComparer.Ordinal));
+
+    private static string LoadHandlerAssigning(string rightHandSide) => $$"""
+        namespace Demo
+        {
+            public partial class Form1 : Form
+            {
+                private void Form1_Load(object sender, EventArgs e)
+                {
+                    this.bindingSource1.DataSource = {{rightHandSide}};
+                }
+            }
+        }
+        """;
+
+    /// <summary>
+    /// The element type is read from the *source*, before any body is translated - which is what
+    /// lets the ViewModel collection be declared with a real type rather than <c>object</c>.
+    /// </summary>
+    [Fact]
+    public void Plan_DataSourceNamingACarriedOverType_RecordsItAsTheElementType()
+    {
+        var formModel = GridBoundToBindingSource();
+        var codeBehind = new CodeBehindAnalyzer().Analyze(
+            LoadHandlerAssigning("new BindingList<GalleryRow>()"), "Form1.cs", formModel);
+
+        var plan = Planner.Plan(formModel, codeBehind, modelTypes: ModelTypes("GalleryRow"));
+
+        var binding = Assert.Single(plan.DataSourceBindings);
+        Assert.Equal("GalleryRow", binding.ElementTypeName);
+        Assert.Equal("Demo.Models", binding.ElementTypeNamespace);
+        Assert.Equal(["Name"], binding.ElementPropertyNames);
+    }
+
+    /// <summary>
+    /// A row type that did not come across cannot be named by the generated project, so the
+    /// collection stays <c>object</c> - which still works, because the columns bind reflectively.
+    /// </summary>
+    [Fact]
+    public void Plan_DataSourceNamingATypeThatDidNotComeAcross_LeavesTheElementTypeUnknown()
+    {
+        var formModel = GridBoundToBindingSource();
+        var codeBehind = new CodeBehindAnalyzer().Analyze(
+            LoadHandlerAssigning("new BindingList<GalleryRow>()"), "Form1.cs", formModel);
+
+        var plan = Planner.Plan(formModel, codeBehind, modelTypes: ModelTypeContext.None);
+
+        Assert.Null(Assert.Single(plan.DataSourceBindings).ElementTypeName);
+    }
+
+    /// <summary>A Details ListView's columns are what give its rows a shape.</summary>
+    [Fact]
+    public void Plan_DetailsListViewWithColumns_GetsARowCollection()
+    {
+        var formModel = FormWith(("itemsListView", "ListView"));
+        var listView = formModel.Controls["itemsListView"];
+        listView.Properties["View"] = new PropertyValue.EnumMembers(["Details"]);
+        listView.Children.Add(new ControlModel { FieldName = "nameColumn", ClrTypeName = "ColumnHeader" });
+
+        var plan = PlanFor(formModel, "namespace Demo { public partial class Form1 : Form { } }");
+
+        var rows = Assert.Single(plan.ListViewRows);
+        Assert.Equal("ItemsListViewRows", rows.ViewModelPropertyName);
+        Assert.Equal(["nameColumn"], rows.ColumnFieldNames);
+    }
+
+    /// <summary>
+    /// Without columns there is no row shape at all, so no collection is planned - which is what
+    /// keeps <c>Items.Add</c> refused on such a grid rather than translated into nothing useful.
+    /// </summary>
+    [Fact]
+    public void Plan_DetailsListViewWithNoColumns_GetsNoRowCollection()
+    {
+        var formModel = FormWith(("itemsListView", "ListView"));
+        formModel.Controls["itemsListView"].Properties["View"] = new PropertyValue.EnumMembers(["Details"]);
+
+        var plan = PlanFor(formModel, "namespace Demo { public partial class Form1 : Form { } }");
+
+        Assert.Empty(plan.ListViewRows);
+    }
+
+    /// <summary>A ListView that stayed a ListBox owns its items, so it needs no collection.</summary>
+    [Fact]
+    public void Plan_FlatListView_GetsNoRowCollection()
+    {
+        var formModel = FormWith(("itemsListView", "ListView"));
+
+        var plan = PlanFor(formModel, "namespace Demo { public partial class Form1 : Form { } }");
+
+        Assert.Empty(plan.ListViewRows);
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

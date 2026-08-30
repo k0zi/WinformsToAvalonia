@@ -13,8 +13,10 @@ namespace WinFormsToAvalonia.Core.Mapping;
 /// `this.listView1.Columns.AddRange(...)` (recognized by DesignerSyntaxWalker) and map to
 /// <c>DataGridTextColumn</c>, which a ListBox cannot host - emitting them under a ListBox
 /// would be an AVLN2000 build break, exactly the class of bug this mapper exists to avoid.
-/// Item content is still not translated (same simplification as everywhere else): the target
-/// control is emitted with its columns but no rows.
+/// Rows do come across on both halves, but by different routes, because the two controls are
+/// different programs: a ListBox owns its items, a DataGrid binds to data. See
+/// <c>ListViewRowsPlan</c> for the grid half, which is also what gives those columns a
+/// <c>Binding</c> - without one they render a header over a strip nothing can ever fill.
 /// </remarks>
 public sealed class ListViewMapper : IControlMapper
 {

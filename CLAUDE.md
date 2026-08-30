@@ -151,6 +151,12 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    `[RelayCommand]` only when provable" rules from README live. It also plans the non-control
    pieces: `Timer` components → `DispatcherTimer`, and `OpenFileDialog`/`SaveFileDialog`/
    `FolderBrowserDialog` → the corresponding `StorageProvider` picker call.
+   `ModelTypeContext` rides in the same way as `ViewSurfaceContext`, and for the same reason: the
+   types a Form declares *inside itself* are lifted into `Models/`, and both the element type of
+   the collection a `BindingSource` becomes and the property names a population statement may use
+   have to be known while the Form is being planned. So `ConversionPipeline.CarryOverModelTypes`
+   runs in the parse pass and only its *file writing* waits — hoisting the warnings too would
+   reorder `MIGRATION.md` for every project that carries no model type at all.
    Body translation (`HandlerBodyRewriter`) runs **last**, over the finished decisions — what a
    promoted body may name is only settled once every handler is classified. It has two targets
    (a View still has control fields; a ViewModel has only `[ObservableProperty]`s) and stops at
@@ -289,6 +295,24 @@ not by building.
   `<WasmExtraFilesToDeploy Include="wwwroot\**" />` the bundle exists with no `index.html`.
   `WebHeadConversionBuildTests` therefore asserts on the bundle's *contents*, never on the exit
   code alone.
+- **The two collection shapes are whole-shape matchers, not "the rewriter learned C#".**
+  `bindingSource1.DataSource = new BindingList<T> { new T { P = v } , … }` and a Details-mode
+  ListView's `Items.Add(new ListViewItem(new[] { … }))` are the only places an object initializer
+  or an array is read, and `TryRewriteExpression` gained **no** case for `new`. Every degree of
+  freedom is closed by a fact the run already proved: the shape matches only as the RHS of a
+  `DataSource` assignment the designer already turned into an `ItemsSource` binding; `T` must be a
+  type *this run* lifted into `Models/`, so its settable auto-properties are read off the parsed
+  declaration and must agree with the plan's (a disagreement is a CS0029 in the generated project);
+  the wrapper must be one of the ordered collections (a `HashSet` reorders, so it is refused); and
+  a ListView row's cell count must equal the designer's column count. A carried-over model type is
+  lifted `public`, not `internal` — the ViewModel's `ObservableCollection<T>` is a public property,
+  and CS0053 is a build error in the **generated** project and nowhere else.
+- **A `DataGridTextColumn` with no `Binding` is a column that can never show a cell.** A
+  Details-mode ListView's `ColumnHeader`s used to emit exactly that — a header over a strip
+  nothing could fill, not even after a hand migration. `ListViewRowsPlan` is what gives them one:
+  a row is the `string[]` of sub-item texts a `ListViewItem` already is, and column *i* binds to
+  `[i]`. Deriving named properties from the header text instead would invent domain names the
+  original never wrote, and has no answer for a blank or duplicated header.
 - **A statement may be *absorbed* only when its value is provably carried elsewhere.**
   `colorDialog1.Color = Color.Red;` before a `ShowDialog` emits nothing of its own - the value
   becomes an argument to the `ShowAsync` that replaces the dialog (`TryAbsorbDialogSeed`). That is

@@ -31,15 +31,27 @@ public sealed class ViewModelEmitter
         var ns = NamingConventions.NamespaceOf($"{rootNamespace}.ViewModels", relativeFolder);
         var properties = plan.BoundProperties;
         var collections = plan.DataSourceBindings;
+        var listViewRows = plan.ListViewRows;
         var commands = plan.ViewModelCommands;
 
         var sb = new StringBuilder();
         void Line(string text = "") => sb.Append(text).Append('\n');
 
         Line("using System;");
-        if (collections.Count > 0)
+        if (collections.Count > 0 || listViewRows.Count > 0)
         {
             Line("using System.Collections.ObjectModel;");
+        }
+
+        // Only when a row type really came across - an unused using would be a warning in the
+        // generated project, and those are supposed to be zero.
+        foreach (var modelNamespace in collections
+                     .Select(c => c.ElementTypeNamespace)
+                     .OfType<string>()
+                     .Distinct(StringComparer.Ordinal)
+                     .OrderBy(n => n, StringComparer.Ordinal))
+        {
+            Line($"using {modelNamespace};");
         }
 
         if (properties.Count > 0)
@@ -63,9 +75,9 @@ public sealed class ViewModelEmitter
 
         // A get-only ObservableCollection rather than an [ObservableProperty]: the reference never
         // changes, and what ItemsSource actually listens to is INotifyCollectionChanged, which the
-        // collection raises itself. `object` because the row type is usually a private nested class
-        // in the WinForms form that cannot be carried over - and does not need to be, since the
-        // generated columns bind with {ReflectionBinding}.
+        // collection raises itself. The element type is the row type when this run lifted one into
+        // Models/, and `object` otherwise - the generated columns bind with {ReflectionBinding},
+        // which resolves against the runtime row either way.
         foreach (var collection in collections)
         {
             if (!isFirstMember)
@@ -75,9 +87,23 @@ public sealed class ViewModelEmitter
 
             isFirstMember = false;
             Line($"    /// <summary>Bound to {collection.ControlFieldName}.ItemsSource in the view, replacing");
-            Line($"    /// the WinForms BindingSource '{collection.SourceFieldName}'. Generated empty: the wiring is");
-            Line("    /// here, the rows are not - populate it where the WinForms code set DataSource.</summary>");
-            Line($"    public ObservableCollection<object> {collection.ViewModelPropertyName} {{ get; }} = [];");
+            Line($"    /// the WinForms BindingSource '{collection.SourceFieldName}'.</summary>");
+            Line($"    public ObservableCollection<{collection.ElementTypeName ?? "object"}> {collection.ViewModelPropertyName} {{ get; }} = [];");
+        }
+
+        // A Details ListView's row is its ListViewItem's sub-item texts, in column order - so a
+        // string[], and column i binds to [i]. See ListViewRowsPlan for why not a named type.
+        foreach (var rows in listViewRows)
+        {
+            if (!isFirstMember)
+            {
+                Line();
+            }
+
+            isFirstMember = false;
+            Line($"    /// <summary>Bound to {rows.ControlFieldName}.ItemsSource in the view. One entry per row,");
+            Line($"    /// holding its {rows.ColumnFieldNames.Count} cell(s) in column order.</summary>");
+            Line($"    public ObservableCollection<string[]> {rows.ViewModelPropertyName} {{ get; }} = [];");
         }
 
         foreach (var property in properties)

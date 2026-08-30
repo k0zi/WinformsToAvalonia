@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using WinFormsToAvalonia.Core.Emission;
 using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
+using WinFormsToAvalonia.Core.Parsing;
 
 namespace WinFormsToAvalonia.Core.Pipeline;
 
@@ -75,7 +76,8 @@ public sealed class FormMigrationPlanner
         IReadOnlyDictionary<string, string>? projectComponentNamespaces = null,
         ViewSurfaceContext? viewSurface = null,
         IReadOnlySet<string>? trayIconFields = null,
-        ViewRootKind? rootKind = null)
+        ViewRootKind? rootKind = null,
+        ModelTypeContext? modelTypes = null)
     {
         // The browser head's main Form is rooted at a UserControl, so `this` is not the Window -
         // but one still hosts it, and the generated helper walks up to it. See ViewRootKind.
@@ -87,6 +89,7 @@ public sealed class FormMigrationPlanner
 
         viewSurface ??= ViewSurfaceContext.None;
         trayIconFields ??= new HashSet<string>(StringComparer.Ordinal);
+        modelTypes ??= ModelTypeContext.None;
         var warnings = new List<string>();
         var subscriptionsByHandler = CollectSubscriptions(formModel, codeBehind, warnings);
 
@@ -147,7 +150,8 @@ public sealed class FormMigrationPlanner
         // Planned *before* the rewrite, unlike the file dialogs below: these fields are something
         // a handler body may name, so the rewriter has to know they exist. (The file dialogs go
         // the other way - what to emit for them depends on what the rewrite did.)
-        var dataSourceBindings = PlanDataSourceBindings(formModel);
+        var dataSourceBindings = PlanDataSourceBindings(formModel, codeBehind, modelTypes);
+        var listViewRows = PlanListViewRows(formModel, _controlMappings);
         var timers = PlanTimers(formModel);
         var timerFields = timers.Select(t => t.FieldName).ToHashSet(StringComparer.Ordinal);
         var components = PlanComponents(
@@ -191,7 +195,8 @@ public sealed class FormMigrationPlanner
                 {
                     Rewrite = rewriter.RewriteForView(
                         h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields, componentFields,
-                        helperCalls, promotedFieldNames, viewSurface.ByType, trayIconFields),
+                        helperCalls, promotedFieldNames, viewSurface.ByType, trayIconFields,
+                        dataSourceBindings, listViewRows),
                 })
             .ToList();
 
@@ -225,7 +230,8 @@ public sealed class FormMigrationPlanner
                     && viewSurface.Own.Any(p => string.Equals(p.Name, m.Name, StringComparison.Ordinal))))],
             codeBehind.ConstructorExtraStatements,
             warnings,
-            dataSourceBindings);
+            dataSourceBindings,
+            listViewRows);
     }
 
     /// <summary>
@@ -344,7 +350,8 @@ public sealed class FormMigrationPlanner
     /// records the whole relationship (<c>dataGridView1.DataSource = this.bindingSource1;</c>),
     /// so nothing has to be inferred from code.
     /// </remarks>
-    private static List<DataSourceBindingPlan> PlanDataSourceBindings(FormModel formModel)
+    private static List<DataSourceBindingPlan> PlanDataSourceBindings(
+        FormModel formModel, CodeBehindModel codeBehind, ModelTypeContext modelTypes)
     {
         var plans = new List<DataSourceBindingPlan>();
 
@@ -358,10 +365,109 @@ public sealed class FormMigrationPlanner
                 continue;
             }
 
+            var elementTypeName = FindDataSourceElementType(codeBehind, sourceField, modelTypes);
+            ModelTypeInfo? elementType = elementTypeName is not null
+                && modelTypes.TryGet(elementTypeName, out var info) ? info : null;
+
             plans.Add(new DataSourceBindingPlan(
                 control.FieldName,
                 sourceField,
-                $"{NamingConventions.Capitalize(control.FieldName)}Items"));
+                $"{NamingConventions.Capitalize(control.FieldName)}Items",
+                elementType?.TypeName,
+                elementType?.Namespace,
+                elementType?.SettablePropertyNames ?? []));
+        }
+
+        return plans;
+    }
+
+    /// <summary>
+    /// The row type a handler assigns to this BindingSource, when it is one this run lifted into
+    /// <c>Models/</c>.
+    /// </summary>
+    /// <remarks>
+    /// A plan-time fact read from the *source* syntax, not from the rewrite - which is what lets
+    /// the collection be declared with a real element type before any body is translated. Only a
+    /// carried-over type counts: a row type from a referenced assembly would compile to nothing
+    /// on this side. Two handlers naming different types leave it null rather than picking one.
+    /// </remarks>
+    private static string? FindDataSourceElementType(
+        CodeBehindModel codeBehind, string sourceFieldName, ModelTypeContext modelTypes)
+    {
+        string? found = null;
+
+        var bodies = codeBehind.HandlerMethods.Select(h => h.BodyText)
+            .Concat(codeBehind.HelperMembers.Select(m => m.SourceText));
+
+        foreach (var body in bodies)
+        {
+            foreach (var assignment in SyntaxFactory.ParseStatement("{\n" + body + "\n}")
+                         .DescendantNodes()
+                         .OfType<AssignmentExpressionSyntax>())
+            {
+                if (assignment.Left is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "DataSource" } target
+                    || RewriteTargetFieldName(target.Expression) != sourceFieldName
+                    || assignment.Right is not ObjectCreationExpressionSyntax { Type: GenericNameSyntax generic }
+                    || generic.TypeArgumentList.Arguments is not [{ } argument]
+                    || RoslynTypeNameHelper.GetSimpleTypeName(argument) is not { } typeName
+                    || !modelTypes.TryGet(typeName, out _))
+                {
+                    continue;
+                }
+
+                if (found is not null && found != typeName)
+                {
+                    return null;
+                }
+
+                found = typeName;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>The field a <c>this.x</c> or bare <c>x</c> receiver names, or null.</summary>
+    private static string? RewriteTargetFieldName(ExpressionSyntax expression) => expression switch
+    {
+        IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+        MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } member => member.Name.Identifier.ValueText,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Details-mode ListViews, whose rows become <c>string[]</c>s on the ViewModel.
+    /// </summary>
+    /// <remarks>
+    /// Only where the mapper really chose a <c>DataGrid</c> <b>and</b> the designer declared
+    /// columns. A Details ListView with no columns has no row shape at all, so it gets no plan and
+    /// its <c>Items.Add</c> stays refused - which is exactly the behaviour that was already
+    /// pinned by a test.
+    /// </remarks>
+    private static List<ListViewRowsPlan> PlanListViewRows(
+        FormModel formModel, ControlMappingRegistry controlMappings)
+    {
+        var plans = new List<ListViewRowsPlan>();
+
+        foreach (var control in formModel.Controls.Values
+                     .Where(c => c.ClrTypeName == "ListView")
+                     .OrderBy(c => c.FieldName, StringComparer.Ordinal))
+        {
+            var columns = control.Children
+                .Where(c => c.ClrTypeName == "ColumnHeader")
+                .Select(c => c.FieldName)
+                .ToList();
+
+            if (columns.Count == 0
+                || controlMappings.Map(control).AvaloniaElementName != "DataGrid")
+            {
+                continue;
+            }
+
+            plans.Add(new ListViewRowsPlan(
+                control.FieldName,
+                $"{NamingConventions.Capitalize(control.FieldName)}Rows",
+                columns));
         }
 
         return plans;

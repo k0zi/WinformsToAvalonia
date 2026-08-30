@@ -2,7 +2,7 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**91 of 106 handler statements (86%)** came across as real Avalonia code.
+**96 of 106 handler statements (91%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
@@ -13,12 +13,11 @@ right Avalonia signature, and its event is subscribed - the AXAML carries the at
 the constructor the subscription. What is left is the body: the statement named beside each
 one is the first the conversion could not prove equivalent.
 
-## Methods to migrate (8)
+## Methods to migrate (7)
 
 ### `Views/MainView.axaml.cs`
 
 - [ ] `MainForm_FormClosing` — `this.notifyIcon1.Visible = false;`
-- [ ] `MainForm_Load` — `this.itemsListView.Items.Add(new ListViewItem(new[] { "readme.txt", "2 KB" }));`
 - [ ] `pageSetupButton_Click` — `this.pageSetupDialog1.ShowDialog(this);`
 - [ ] `pictureBox1_Paint` — `e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);`
 - [ ] `printButton_Click` — `if (this.printDialog1.ShowDialog(this) == DialogResult.OK)`
@@ -26,7 +25,7 @@ one is the first the conversion could not prove equivalent.
 - [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 
-## Needs your attention (53)
+## Needs your attention (52)
 
 Everything the conversion decided not to guess at, and why.
 
@@ -34,11 +33,10 @@ Everything the conversion decided not to guess at, and why.
 - 'toolStripContainer1.TopToolStripPanel' holds 'containerToolStrip', which is a nested container region this conversion cannot place - only a SplitContainer's Panel1/Panel2 are translated. Those controls are not emitted; add them to the generated 'toolStripContainer1' by hand.
 - 'helpProvider1' (HelpProvider) calls 'SetShowHelp(...)', which has no Avalonia equivalent - that setting is not carried over.
 - 'ToolStrip' has no built-in Avalonia equivalent; using the bundled fallback control 'ToolStripFallback'.
-- No runtime equivalent shipped - but a control whose DataSource named this BindingSource now gets an ItemsSource binding, and the ViewModel the ObservableCollection behind it. The rows are not carried over: populate the collection where the WinForms code set DataSource. A row type declared inside the Form is lifted into Models/ so you have it to construct.
-- No built-in Avalonia printing API - manual migration required.
-- No built-in Avalonia printing API - manual migration required.
-- No built-in Avalonia printing API - manual migration required.
-- No built-in Avalonia printing API - manual migration required.
+- No Avalonia printing API at all - not a dialog, not a document, not a printer list. This dialog only picked a printer and its settings for a PrintDocument, so there is nothing here to wrap and nothing to seed; a cross-platform printing library is the answer, and which one is your call. The `if (printDialog1.ShowDialog() == DialogResult.OK)` shape is therefore left whole for you rather than half-translated.
+- No Avalonia printing API at all. This one is pure data entry - paper size, orientation, margins - so a replacement window would be easy to build and useless: the PageSettings it produces has nothing on the Avalonia side to consume them. It belongs to whichever printing library you adopt.
+- No Avalonia printing API at all, so there is nothing to render a preview from. The *control* form of this, PrintPreviewControl, does get the bundled PrintPreviewControlFallback - a page-shaped placeholder that keeps the converted layout intact - but a dialog previewing a PrintDocument has no honest stand-in, because the document itself cannot be produced on this side.
+- No Avalonia printing API at all, and PrintPage is where the output was actually drawn - with System.Drawing.Graphics, which Avalonia's DrawingContext resembles but does not match call for call. A PrintPage handler is emitted with its body preserved, but nothing subscribes it: the event has no Avalonia counterpart to map to. That body belongs to whichever printing library you adopt.
 - NotifyIcon 'notifyIcon1': couldn't resolve a literal icon file path from Designer.cs (it is usually a resx resource) - App.axaml's TrayIcon is emitted commented out, since referencing an icon file the conversion cannot produce would throw at startup. Copy the real icon into Assets/ and uncomment the block.
 - 'ErrorProvider' has no built-in Avalonia equivalent; using the bundled fallback control 'ErrorProviderFallback'.
 - Click handler 'newMenuItem_Click' stays in code-behind: it uses 'titleTextBox.Clear', which has no bindable Avalonia equivalent.
@@ -84,10 +82,11 @@ Everything the conversion decided not to guess at, and why.
 - Click handler 'okButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 - Click handler 'cancelButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 
-## Converted differently (20)
+## Converted differently (21)
 
 No action needed - these have no Avalonia element, so here is where each one went.
 
+- No runtime equivalent shipped, and none needed: a control whose DataSource named this BindingSource gets an ItemsSource binding, and the ViewModel the ObservableCollection behind it. The rows come across too where the assignment is the literal `bindingSource1.DataSource = new BindingList<Row> { new Row { ... }, ... };` shape - the row type is lifted out of the Form into Models/, so the collection is declared with it rather than with object. Any other shape (a DataTable, a query, a list built with Add calls) is refused and stops the handler there, which is the honest answer: the binding is live, so the grid fills the moment you populate the collection.
 - No control mapping - but a DispatcherTimer field, its Interval and its Tick wiring ARE generated on the View whenever the component has a real Tick handler (see FormMigrationPlanner.PlanTimers). A handler body can then drive it: Enabled, Start() and Stop() translate, and Interval can be written but not read - WinForms counts milliseconds, Avalonia holds a TimeSpan.
 - No control mapping - use TopLevel.StorageProvider.OpenFilePickerAsync from code instead.
 - No control mapping - use TopLevel.StorageProvider.SaveFilePickerAsync from code instead.

@@ -11,6 +11,7 @@ using System.IO;
 using System.IO.Ports;
 using System.Media;
 using System.ServiceProcess;
+using All_In_One_WinForms.Models;
 using All_In_One_WinForms.Views.Forms;
 using Avalonia.Input.Platform;
 using Avalonia.Media;
@@ -41,11 +42,12 @@ public partial class MainView : Window
     private bool isBusy;
     private bool w2aForceClose;
     private bool w2aInitialized;
+    private readonly MainViewModel w2aViewModel = new();
 
     public MainView()
     {
         InitializeComponent();
-        DataContext = new MainViewModel();
+        DataContext = w2aViewModel;
 
         backgroundWorker1.WorkerReportsProgress = true;
         backgroundWorker1.WorkerSupportsCancellation = true;
@@ -137,21 +139,13 @@ public partial class MainView : Window
     {
         itemsTreeView.Items.Add(new TreeViewItem { Header = "Documents" });
         itemsTreeView.Items.Add(new TreeViewItem { Header = "Pictures" });
-
-        /* REMAINING WINFORMS BODY of 'MainForm_Load' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.itemsListView.Items.Add(new ListViewItem(new[] { "readme.txt", "2 KB" }));
-        this.itemsListView.Items.Add(new ListViewItem(new[] { "notes.txt", "11 KB" }));
-
-        this.bindingSource1.DataSource = new BindingList<GalleryRow>
-        {
-            new GalleryRow { Name = "First", Active = true, Category = "Alpha" },
-            new GalleryRow { Name = "Second", Active = false, Category = "Beta" },
-        };
-
-        this.propertyGrid1.SelectedObject = this.demoComponent1;
-        this.statusLabel.Text = "Loaded";
-        */
-        MigrationTodo.NotMigrated(nameof(MainForm_Load), "MainForm_Load");
+        w2aViewModel.ItemsListViewRows.Add(new[] { "readme.txt", "2 KB" });
+        w2aViewModel.ItemsListViewRows.Add(new[] { "notes.txt", "11 KB" });
+        w2aViewModel.DataGridView1Items.Clear();
+        w2aViewModel.DataGridView1Items.Add(new GalleryRow { Name = "First", Active = true, Category = "Alpha" });
+        w2aViewModel.DataGridView1Items.Add(new GalleryRow { Name = "Second", Active = false, Category = "Beta" });
+        propertyGrid1.SelectedObject = demoComponent1;
+        statusLabel.Text = "Loaded";
     }
 
     private async void MainForm_FormClosing(object? sender, WindowClosingEventArgs e)

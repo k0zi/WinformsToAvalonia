@@ -105,8 +105,11 @@ public static class ComponentSourceAnalyzer
     /// </para>
     /// <para>
     /// The same safety rule as a carried-over component: a type that mentions anything which does
-    /// not come across is refused rather than emitted broken. Visibility is raised because a
-    /// private nested type cannot be a top-level one.
+    /// not come across is refused rather than emitted broken. Visibility is raised twice over: a
+    /// private nested type cannot be a top-level one, and the ViewModel's generated
+    /// <c>ObservableCollection&lt;T&gt;</c> is a <c>public</c> property - a public member cannot
+    /// expose an <c>internal</c> type (CS0053), which would be a build error in the *generated*
+    /// project and nowhere else.
     /// </para>
     /// </remarks>
     public static bool TryCarryOverNestedType(
@@ -134,11 +137,35 @@ public static class ComponentSourceAnalyzer
                     && !m.IsKind(SyntaxKind.ProtectedKeyword)
                     && !m.IsKind(SyntaxKind.PublicKeyword)
                     && !m.IsKind(SyntaxKind.InternalKeyword))
-                .Prepend(SyntaxFactory.Token(SyntaxKind.InternalKeyword))));
+                .Prepend(SyntaxFactory.Token(SyntaxKind.PublicKeyword))));
 
         source = $"namespace {targetNamespace};\n\n{lifted.NormalizeWhitespace().ToFullString()}\n";
         return true;
     }
+
+    /// <summary>
+    /// The public settable auto-properties of a carried-over type, in declaration order.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately narrow. This list is what an object initializer in a handler body is allowed
+    /// to name, so anything whose assignment could run code of its own - a property with a real
+    /// setter body, an <c>init</c>-only one, a field - is left out. A name that is not on this
+    /// list makes the whole statement refuse, exactly as an unknown control property does.
+    /// </remarks>
+    public static IReadOnlyList<string> SettableAutoPropertyNames(TypeDeclarationSyntax declaration) =>
+    [
+        .. declaration.Members
+            .OfType<PropertyDeclarationSyntax>()
+            .Where(p => p.Modifiers.Any(m => m.IsKind(SyntaxKind.PublicKeyword))
+                && !p.Modifiers.Any(m => m.IsKind(SyntaxKind.StaticKeyword))
+                && p.AccessorList is not null
+                && p.AccessorList.Accessors.Any(a =>
+                    a.IsKind(SyntaxKind.SetAccessorDeclaration)
+                    && a.Modifiers.Count == 0
+                    && a.Body is null
+                    && a.ExpressionBody is null))
+            .Select(p => p.Identifier.ValueText),
+    ];
 
     /// <summary>
     /// The first name in the file that this converter cannot promise survives: a WinForms

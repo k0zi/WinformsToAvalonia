@@ -111,17 +111,28 @@ public class ToolStripItemAndDataGridColumnConversionTests
             Assert.Contains("<DataGridTemplateColumn Header=\"Action\">", axaml);
             Assert.Contains("<Button Content=\"Run\" />", axaml);
 
-            // A Details-mode ListView is a grid, so its ColumnHeaders have somewhere to live.
+            // A Details-mode ListView is a grid, so its ColumnHeaders have somewhere to live - and
+            // each one carries a real Binding. Without it the column renders a header over an
+            // empty strip forever: no binding, no cell, no matter what the rows hold. The index is
+            // the column's own position, because a row is the ListViewItem's sub-item texts.
             Assert.Contains("<DataGrid x:Name=\"detailsListView\"", axaml);
-            Assert.Contains("<DataGridTextColumn Header=\"File\" Width=\"200\" />", axaml);
+            Assert.Contains(
+                "<DataGridTextColumn Header=\"File\" Width=\"200\" Binding=\"{ReflectionBinding [0]}\" />", axaml);
+            Assert.Contains("ItemsSource=\"{Binding DetailsListViewRows}\"", axaml);
 
-            // The same control type with neither columns nor Details is a ListBox instead - and
-            // that is the only half where adding an item at run time has an exact answer. On the
-            // grid half the rows are data objects bound through columns, so it stays for a human.
+            // Both halves of the ListView mapping now translate, and they translate differently.
+            // A ListBox owns its items, so Items is mutated in place; a DataGrid's rows are data,
+            // so they go to the ViewModel collection the grid binds to. Nothing is invented on the
+            // way: the row is the string[] a ListViewItem already was.
             vfs.TryGetText("Views/MainView.axaml.cs", out var codeBehind);
             Assert.Contains("flatListView.Items.Add(new ListBoxItem { Content = \"readme.txt\" });", codeBehind);
-            Assert.Contains("this.detailsListView.Items.Add(new ListViewItem(\"notes.txt\"));", codeBehind);
-            Assert.Contains("MigrationTodo.NotMigrated(nameof(fillButton_Click)", codeBehind);
+            Assert.Contains("w2aViewModel.DetailsListViewRows.Add(new[] { \"notes.txt\" });", codeBehind);
+
+            // The whole handler comes across now, so there is no marker left. It is still *not*
+            // promoted to a [RelayCommand]: promotion requires every statement to touch nothing
+            // but bindable properties, and neither of these shapes is one - which is exactly why
+            // the ViewModel rewrite target refuses them both.
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(fillButton_Click)", codeBehind);
 
             // DropDownItems nest through Button.Flyout > MenuFlyout instead of being dropped.
             Assert.Contains("<Button.Flyout>", axaml);

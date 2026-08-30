@@ -173,8 +173,16 @@ public sealed class ViewCodeBehindEmitter
             Line($"    private bool {InitializationGuardFieldName};");
         }
 
+        // A handler that populates a ViewModel collection has to name the ViewModel, and
+        // `DataContext` is typed `object`. Emitted only when the plan actually has such a
+        // collection, so every other generated View stays exactly what it was.
+        if (plan.RequiresViewModelField)
+        {
+            Line($"    private readonly {viewModelClassName} {HandlerBodyRewriter.ViewModelFieldName} = new();");
+        }
+
         if (plan.Timers.Count > 0 || plan.Components.Count > 0 || plan.PromotedFields.Count > 0
-            || plan.RequiresCloseGuard || plan.RequiresInitializationGuard)
+            || plan.RequiresCloseGuard || plan.RequiresInitializationGuard || plan.RequiresViewModelField)
         {
             Line();
         }
@@ -182,7 +190,9 @@ public sealed class ViewCodeBehindEmitter
         Line($"    public {viewClassName}()");
         Line("    {");
         Line("        InitializeComponent();");
-        Line($"        DataContext = new {viewModelClassName}();");
+        Line(plan.RequiresViewModelField
+            ? $"        DataContext = {HandlerBodyRewriter.ViewModelFieldName};"
+            : $"        DataContext = new {viewModelClassName}();");
 
         foreach (var component in eagerComponents)
         {

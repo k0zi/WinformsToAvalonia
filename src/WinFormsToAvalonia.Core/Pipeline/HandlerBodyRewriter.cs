@@ -102,7 +102,9 @@ public sealed class HandlerBodyRewriter
         IReadOnlyDictionary<string, HelperCallInfo>? promotedHelpers = null,
         IReadOnlySet<string>? promotedFields = null,
         IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null,
-        IReadOnlySet<string>? trayIconFields = null) =>
+        IReadOnlySet<string>? trayIconFields = null,
+        IReadOnlyList<DataSourceBindingPlan>? dataSourceBindings = null,
+        IReadOnlyList<ListViewRowsPlan>? listViewRows = null) =>
         Rewrite(
             body,
             new ViewTarget(
@@ -115,7 +117,9 @@ public sealed class HandlerBodyRewriter
                 promotedHelpers ?? new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal),
                 promotedFields ?? new HashSet<string>(StringComparer.Ordinal),
                 viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal),
-                trayIconFields ?? new HashSet<string>(StringComparer.Ordinal)));
+                trayIconFields ?? new HashSet<string>(StringComparer.Ordinal),
+                dataSourceBindings ?? [],
+                listViewRows ?? []));
 
     /// <summary>
     /// Rewrites the body of a code-behind <em>helper</em> method, against the same View the
@@ -137,13 +141,17 @@ public sealed class HandlerBodyRewriter
         IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers,
         IReadOnlySet<string> promotedFields,
         IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null,
-        IReadOnlySet<string>? trayIconFields = null)
+        IReadOnlySet<string>? trayIconFields = null,
+        IReadOnlyList<DataSourceBindingPlan>? dataSourceBindings = null,
+        IReadOnlyList<ListViewRowsPlan>? listViewRows = null)
     {
         var target = new ViewTarget(
             formModel, _controlMappings, navigation, HandlerSignature.None,
             dispatcherTimerFields, componentFields, promotedHelpers, promotedFields,
             viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal),
-            trayIconFields ?? new HashSet<string>(StringComparer.Ordinal));
+            trayIconFields ?? new HashSet<string>(StringComparer.Ordinal),
+            dataSourceBindings ?? [],
+            listViewRows ?? []);
 
         foreach (var parameterName in signature.ParameterNames)
         {
@@ -326,6 +334,14 @@ public sealed class HandlerBodyRewriter
 
     /// <summary>The field name the close-confirmation template declares and reads.</summary>
     internal const string CloseGuardFieldName = "w2aForceClose";
+
+    /// <summary>
+    /// The generated View's typed field for its own ViewModel, for the handlers that populate a
+    /// ViewModel collection. Named here rather than in the emitter for the same reason
+    /// <see cref="CloseGuardFieldName"/> is: the rewriter writes the reference, the emitter writes
+    /// the declaration, and one of them has to own the spelling.
+    /// </summary>
+    internal const string ViewModelFieldName = "w2aViewModel";
 
     /// <summary>
     /// <c>e.Cancel = MessageBox.Show(..., YesNo) == DialogResult.No;</c> - the canonical WinForms
@@ -1509,6 +1525,152 @@ public sealed class HandlerBodyRewriter
         string.Join("\n", text.Split('\n').Select(l => l.Length == 0 ? l : "    " + l));
 
     /// <summary>`this.label1.Text = ...;` - the single most common statement in WinForms handlers.</summary>
+    /// <summary>
+    /// The collection wrappers a <c>BindingSource.DataSource</c> may be assigned, whose element
+    /// order and duplicate handling an <c>ObservableCollection</c> reproduces exactly.
+    /// </summary>
+    /// <remarks>
+    /// A whitelist rather than "any generic type": a <c>HashSet&lt;T&gt;</c> assigned here would
+    /// drop duplicates and lose the order, so copying it element by element into an ordered
+    /// collection is not the same program.
+    /// </remarks>
+    private static readonly HashSet<string> DataSourceCollectionTypes = new(StringComparer.Ordinal)
+    {
+        "BindingList", "List", "ObservableCollection", "Collection",
+    };
+
+    /// <summary>
+    /// <c>bindingSource1.DataSource = new BindingList&lt;Row&gt; { new Row { A = 1 }, ... };</c> -
+    /// the rows a WinForms form put behind its grid, translated into the ViewModel collection
+    /// that replaced the BindingSource.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the one place an object initializer is read, and it is not the rewriter "learning
+    /// initializers": every degree of freedom is closed by a fact this run already proved.
+    /// It matches only as the right-hand side of a <c>DataSource</c> assignment the *designer*
+    /// already turned into an <c>ItemsSource</c> binding; the element type must be one this run
+    /// lifted into <c>Models/</c>, so its settable properties are read off the parsed declaration
+    /// rather than guessed; every initializer name must be one of them; and every value must
+    /// already translate on its own. <see cref="TryRewriteExpression"/> gains nothing.
+    /// </para>
+    /// <para>
+    /// Anything else still refuses, and still stops the handler at that statement: a row type from
+    /// a referenced assembly, a constructor argument, a nested initializer, a list built with
+    /// <c>Add</c> calls or a loop, an initializer anywhere else in a body, and any DataSource that
+    /// is not this literal shape.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteBindingSourceDataSource(
+        AssignmentExpressionSyntax assignment, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+            || assignment.Left is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "DataSource" } left
+            || !target.TryResolveControlField(left.Expression, out var sourceField)
+            || !target.TryResolveDataSourceCollections(sourceField, out var collections)
+            || assignment.Right is not ObjectCreationExpressionSyntax
+            {
+                Type: GenericNameSyntax generic,
+                ArgumentList: null or { Arguments.Count: 0 },
+                Initializer: { } initializer,
+            }
+            || !DataSourceCollectionTypes.Contains(generic.Identifier.ValueText)
+            || generic.TypeArgumentList.Arguments is not [{ } elementType]
+            || !initializer.IsKind(SyntaxKind.CollectionInitializerExpression))
+        {
+            return false;
+        }
+
+        var elementTypeName = RoslynTypeNameHelper.GetSimpleTypeName(elementType);
+
+        // The plan settled the element type before any body was translated. Requiring exact
+        // agreement is what keeps the emitted collection's declared type and this population from
+        // ever drifting apart - a mismatch would be a CS0029 in the generated project.
+        if (collections.Any(c => c.ElementTypeName != elementTypeName))
+        {
+            return false;
+        }
+
+        var settableProperties = collections[0].ElementPropertyNames.ToHashSet(StringComparer.Ordinal);
+
+        var rows = new List<string>();
+        foreach (var element in initializer.Expressions)
+        {
+            if (!TryRewriteModelConstruction(element, elementTypeName, settableProperties, target, out var rowText))
+            {
+                return false;
+            }
+
+            rows.Add(rowText);
+        }
+
+        var lines = new List<string>();
+        foreach (var collection in collections)
+        {
+            var receiver = $"{ViewModelFieldName}.{collection.ViewModelPropertyName}";
+            lines.Add($"{receiver}.Clear();");
+            lines.AddRange(rows.Select(r => $"{receiver}.Add({r});"));
+        }
+
+        rewritten = new RewrittenStatement(
+            string.Join("\n", lines),
+            // The row type lives in the generated Models/ folder, which the View code-behind has
+            // no reason to reference otherwise.
+            RequiredUsings: collections[0].ElementTypeNamespace is { } modelNamespace ? [modelNamespace] : []);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>new Row { A = x, B = y }</c> for a row type this run carried over - and nothing else.
+    /// </summary>
+    private static bool TryRewriteModelConstruction(
+        ExpressionSyntax expression,
+        string elementTypeName,
+        IReadOnlySet<string> settable,
+        IRewriteTarget target,
+        out string text)
+    {
+        text = "";
+
+        if (expression is not ObjectCreationExpressionSyntax
+            {
+                ArgumentList: null or { Arguments.Count: 0 },
+                Initializer: { } initializer,
+            } creation
+            || RoslynTypeNameHelper.GetSimpleTypeName(creation.Type) != elementTypeName
+            || !initializer.IsKind(SyntaxKind.ObjectInitializerExpression))
+        {
+            return false;
+        }
+
+        var assignments = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var member in initializer.Expressions)
+        {
+            if (member is not AssignmentExpressionSyntax
+                {
+                    Left: IdentifierNameSyntax { Identifier.ValueText: var propertyName },
+                } memberAssignment
+                || !memberAssignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+                || !settable.Contains(propertyName)
+                || !seen.Add(propertyName)
+                || !TryRewriteExpression(memberAssignment.Right, target, out var valueText))
+            {
+                return false;
+            }
+
+            assignments.Add($"{propertyName} = {valueText}");
+        }
+
+        text = assignments.Count == 0
+            ? $"new {elementTypeName}()"
+            : $"new {elementTypeName} {{ {string.Join(", ", assignments)} }}";
+        return true;
+    }
+
     private static bool TryRewriteAssignment(
         AssignmentExpressionSyntax assignment, IRewriteTarget target, out RewrittenStatement rewritten)
     {
@@ -1517,6 +1679,14 @@ public sealed class HandlerBodyRewriter
         // `colorDialog1.Color = Color.Red;` before the dialog is shown - absorbed rather than
         // emitted, and spent as an argument when the ShowAsync call is written.
         if (TryAbsorbDialogSeed(assignment, target, out rewritten))
+        {
+            return true;
+        }
+
+        // `this.bindingSource1.DataSource = new BindingList<Row> { new Row { ... }, ... };` -
+        // the rows themselves. Checked before the right-hand side is translated, because the
+        // generic expression path has no case for object creation and would (correctly) refuse.
+        if (TryRewriteBindingSourceDataSource(assignment, target, out rewritten))
         {
             return true;
         }
@@ -2448,11 +2618,19 @@ public sealed class HandlerBodyRewriter
     /// that became a <c>ListBox</c>.
     /// </summary>
     /// <remarks>
-    /// Only that half of the ListView mapping. In <c>View.Details</c> - or with any parsed
-    /// <c>ColumnHeader</c> - a ListView becomes a <c>DataGrid</c>, whose rows are data objects
-    /// bound through columns, and turning <c>new ListViewItem(new[] { "a", "b" })</c> into one
-    /// would mean inventing a row type. A single-column item on a ListBox has an exact answer;
-    /// a multi-column one does not, so it is refused rather than flattened.
+    /// <para>
+    /// Both halves of the ListView mapping, which are genuinely different programs. On a
+    /// <c>ListBox</c> the item is the control's own, so <c>Items</c> is mutated directly. In
+    /// <c>View.Details</c> a ListView becomes a <c>DataGrid</c>, whose rows are data objects
+    /// bound through columns - so the row goes into the ViewModel collection
+    /// <see cref="ListViewRowsPlan"/> created, as the <c>string[]</c> of sub-item texts a
+    /// <c>ListViewItem</c> already is. No type is invented: column <i>i</i> binds to <c>[i]</c>.
+    /// </para>
+    /// <para>
+    /// The array length must equal the designer's column count. A mismatch is refused rather than
+    /// padded or truncated - and a Details ListView with no columns at all gets no plan, so it is
+    /// refused too, because there is no row shape to translate into.
+    /// </para>
     /// </remarks>
     private static bool TryRewriteListViewItemCall(
         ExpressionSyntax? receiver,
@@ -2467,8 +2645,17 @@ public sealed class HandlerBodyRewriter
             || !target.TryResolveControlField(items.Expression, out var fieldName)
             || !target.TryResolveControlTypeName(fieldName, out var typeName)
             || typeName != "ListView"
-            || !target.TryResolveMappedElementName(fieldName, out var elementName)
-            || elementName != "ListBox")
+            || !target.TryResolveMappedElementName(fieldName, out var elementName))
+        {
+            return false;
+        }
+
+        if (elementName == "DataGrid")
+        {
+            return TryRewriteListViewRowCall(fieldName, methodName, invocation, target, out rewritten);
+        }
+
+        if (elementName != "ListBox")
         {
             return false;
         }
@@ -2491,6 +2678,70 @@ public sealed class HandlerBodyRewriter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The DataGrid half: rows go into the ViewModel collection, one <c>string[]</c> per row.
+    /// </summary>
+    private static bool TryRewriteListViewRowCall(
+        string fieldName,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!target.TryResolveListViewRows(fieldName, out var plan))
+        {
+            return false;
+        }
+
+        var receiver = $"{ViewModelFieldName}.{plan.ViewModelPropertyName}";
+
+        if (methodName == "Clear" && invocation.ArgumentList.Arguments.Count == 0)
+        {
+            rewritten = new RewrittenStatement($"{receiver}.Clear();");
+            return true;
+        }
+
+        if (methodName != "Add"
+            || invocation.ArgumentList.Arguments is not [{ Expression: ObjectCreationExpressionSyntax creation }]
+            || RoslynTypeNameHelper.GetSimpleTypeName(creation.Type) != "ListViewItem"
+            || creation.Initializer is not null
+            || creation.ArgumentList?.Arguments is not [{ Expression: { } argument }])
+        {
+            return false;
+        }
+
+        // `new ListViewItem(new[] { "a", "b" })` - the sub-item texts, in column order. The
+        // one-string form is the same thing on a one-column grid, and the count check below is
+        // what makes it nothing at all on a wider one.
+        List<ExpressionSyntax> cells = argument switch
+        {
+            ImplicitArrayCreationExpressionSyntax { Initializer: { } values } => [.. values.Expressions],
+            ArrayCreationExpressionSyntax { Initializer: { } values } => [.. values.Expressions],
+            _ => [argument],
+        };
+
+        if (cells.Count != plan.ColumnFieldNames.Count)
+        {
+            return false;
+        }
+
+        var texts = new List<string>();
+        foreach (var cell in cells)
+        {
+            if (!TryRewriteExpression(cell, target, out var cellText))
+            {
+                return false;
+            }
+
+            texts.Add(cellText);
+        }
+
+        rewritten = new RewrittenStatement($"{receiver}.Add(new[] {{ {string.Join(", ", texts)} }});");
+        return true;
     }
 
     /// <summary>
@@ -3538,6 +3789,34 @@ public sealed class HandlerBodyRewriter
         /// one a translated body may read and write.
         /// </summary>
         bool IsPromotedField(string name);
+
+        /// <summary>
+        /// The ViewModel collections that replaced a <c>BindingSource</c>, by the BindingSource's
+        /// own field name. False on a target that cannot name a ViewModel collection at all.
+        /// </summary>
+        bool TryResolveDataSourceCollections(
+            string bindingSourceField, out IReadOnlyList<DataSourceBindingPlan> plans)
+        {
+            plans = [];
+            return false;
+        }
+
+        /// <summary>
+        /// The ViewModel collection a Details-mode ListView's rows live in, and how many columns
+        /// a row must have.
+        /// </summary>
+        /// <remarks>
+        /// Both this and <see cref="TryResolveDataSourceCollections"/> are false on
+        /// <c>ViewModelTarget</c>, and not as an oversight: a promoted <c>[RelayCommand]</c> only
+        /// exists when every statement was proved to touch nothing but bindable properties, which
+        /// neither of these shapes is. So a handler that fills a grid stays in code-behind, where
+        /// the View can name its own ViewModel field.
+        /// </remarks>
+        bool TryResolveListViewRows(string controlField, out ListViewRowsPlan plan)
+        {
+            plan = null!;
+            return false;
+        }
     }
 
     private sealed class ViewTarget(
@@ -3550,8 +3829,30 @@ public sealed class HandlerBodyRewriter
         IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers,
         IReadOnlySet<string> promotedFields,
         IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties,
-        IReadOnlySet<string> trayIconFields) : IRewriteTarget
+        IReadOnlySet<string> trayIconFields,
+        IReadOnlyList<DataSourceBindingPlan> dataSourceBindings,
+        IReadOnlyList<ListViewRowsPlan> listViewRows) : IRewriteTarget
     {
+        public bool TryResolveDataSourceCollections(
+            string bindingSourceField, out IReadOnlyList<DataSourceBindingPlan> plans)
+        {
+            plans =
+            [
+                .. dataSourceBindings.Where(b =>
+                    string.Equals(b.SourceFieldName, bindingSourceField, StringComparison.Ordinal)),
+            ];
+
+            return plans.Count > 0;
+        }
+
+        public bool TryResolveListViewRows(string controlField, out ListViewRowsPlan plan)
+        {
+            plan = listViewRows.FirstOrDefault(r =>
+                string.Equals(r.ControlFieldName, controlField, StringComparison.Ordinal))!;
+
+            return plan is not null;
+        }
+
         private readonly Dictionary<string, ControlModel> _senderAliases = new(StringComparer.Ordinal);
 
         public LocalScope Locals { get; } = new();

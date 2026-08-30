@@ -486,6 +486,26 @@ public sealed class AxamlEmitter
     /// XAML compiler (AVLN2000) and break the generated build, so the handler method is still
     /// emitted but the subscription is reported as a warning instead.
     /// </remarks>
+    /// <summary>
+    /// Which column of a planned Details ListView this <c>ColumnHeader</c> field is, or null when
+    /// it belongs to no such ListView.
+    /// </summary>
+    private static int? ListViewColumnIndex(string fieldName, EmissionState state)
+    {
+        foreach (var rows in state.Plan.ListViewRows)
+        {
+            for (var i = 0; i < rows.ColumnFieldNames.Count; i++)
+            {
+                if (string.Equals(rows.ColumnFieldNames[i], fieldName, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static void EmitBindingsAndEvents(
         AxamlDocumentBuilder builder,
         ControlModel control,
@@ -505,6 +525,22 @@ public sealed class AxamlEmitter
                      b => string.Equals(b.ControlFieldName, control.FieldName, StringComparison.Ordinal)))
         {
             builder.Attribute("ItemsSource", $"{{Binding {collection.ViewModelPropertyName}}}");
+        }
+
+        foreach (var rows in state.Plan.ListViewRows.Where(
+                     r => string.Equals(r.ControlFieldName, control.FieldName, StringComparison.Ordinal)))
+        {
+            builder.Attribute("ItemsSource", $"{{Binding {rows.ViewModelPropertyName}}}");
+        }
+
+        // A ColumnHeader carries a caption and nothing else, so its DataGridTextColumn used to be
+        // emitted with no Binding at all - a column that can never show a cell, in a grid nothing
+        // could ever fill. Its index in the owning ListView's column list *is* its binding, since
+        // a row is that ListViewItem's sub-item texts in order. Reflection rather than compiled,
+        // for the same reason the DataGridView columns use it: the row type is not the DataContext.
+        if (ListViewColumnIndex(control.FieldName, state) is { } columnIndex)
+        {
+            builder.Attribute("Binding", $"{{ReflectionBinding [{columnIndex}]}}");
         }
 
         if (state.Plan.CommandPropertyFor(control.FieldName) is { } commandProperty)

@@ -62,10 +62,10 @@
                     </controls:DomainUpDownFallback>
                     <NumericUpDown x:Name="amountUpDown" Canvas.Left="396" Canvas.Top="70" Width="180" Height="23" Value="{Binding AmountUpDownValue, Mode=TwoWay}" />
                     <Button x:Name="refreshButton" Canvas.Left="396" Canvas.Top="99" Width="180" Height="28" Content="Reload tree" Click="refreshButton_Click" />
-                    <DataGrid x:Name="itemsListView" Canvas.Left="12" Canvas.Top="142" Width="372" Height="150">
+                    <DataGrid x:Name="itemsListView" Canvas.Left="12" Canvas.Top="142" Width="372" Height="150" ItemsSource="{Binding ItemsListViewRows}">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Name" Width="200" />
-                            <DataGridTextColumn Header="Size" Width="100" />
+                            <DataGridTextColumn Header="Name" Width="200" Binding="{ReflectionBinding [0]}" />
+                            <DataGridTextColumn Header="Size" Width="100" Binding="{ReflectionBinding [1]}" />
                         </DataGrid.Columns>
                     </DataGrid>
                     <TreeView x:Name="itemsTreeView" Canvas.Left="396" Canvas.Top="142" Width="180" Height="150" />

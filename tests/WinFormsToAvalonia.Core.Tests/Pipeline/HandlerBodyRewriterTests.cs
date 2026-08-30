@@ -3394,6 +3394,225 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- BindingSource rows and Details-ListView rows -------------------------------------
+    //
+    // These two shapes are the only place this rewriter reads an object initializer or an array,
+    // and the tests below are deliberately lopsided: one accepts, the rest refuse. That ratio is
+    // the point. `TryRewriteExpression` gained no case for `new`, so the vocabulary grew by
+    // exactly two whole shapes, each gated on a plan record that only exists because a designer
+    // fact created it.
+
+    /// <summary>A form with a grid bound to a BindingSource, and the plan the planner would make.</summary>
+    private static (FormModel Form, DataSourceBindingPlan[] Plans) BoundGrid(
+        params string[] rowProperties)
+    {
+        var form = FormWith(("dataGridView1", "DataGridView"), ("bindingSource1", "BindingSource"));
+        form.Controls["dataGridView1"].Properties["DataSource"] =
+            new PropertyValue.ControlReference("bindingSource1");
+
+        return (form,
+        [
+            new DataSourceBindingPlan(
+                "dataGridView1", "bindingSource1", "DataGridView1Items",
+                "GalleryRow", "Demo.Models", rowProperties),
+        ]);
+    }
+
+    private const string PopulateBody =
+        "this.bindingSource1.DataSource = new BindingList<GalleryRow>\n"
+        + "{\n"
+        + "    new GalleryRow { Name = \"First\", Active = true },\n"
+        + "    new GalleryRow { Name = \"Second\", Active = false },\n"
+        + "};";
+
+    [Fact]
+    public void RewriteForView_BindingSourcePopulation_FillsTheViewModelCollection()
+    {
+        var (form, plans) = BoundGrid("Name", "Active");
+
+        var result = Rewriter.RewriteForView(PopulateBody, form, dataSourceBindings: plans);
+
+        Assert.Equal(
+            [
+                "w2aViewModel.DataGridView1Items.Clear();\n"
+                + "w2aViewModel.DataGridView1Items.Add(new GalleryRow { Name = \"First\", Active = true });\n"
+                + "w2aViewModel.DataGridView1Items.Add(new GalleryRow { Name = \"Second\", Active = false });",
+            ],
+            result.MigratedStatements);
+
+        // The row type lives in the generated Models/ folder, which the View has no other reason
+        // to reference.
+        Assert.Contains("Demo.Models", result.RequiredUsings);
+    }
+
+    /// <summary>
+    /// Without a plan there is no collection to fill and no proof the type came across, so the
+    /// shape is not recognised at all. This is the pre-feature behaviour, and it has to stay: it
+    /// is what a DataSource assigned to something that is not a designer BindingSource still does.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_BindingSourcePopulationWithNoPlan_IsNotMigrated()
+    {
+        var (form, _) = BoundGrid();
+
+        var result = Rewriter.RewriteForView(PopulateBody, form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>An initializer naming something the carried-over type does not have.</summary>
+    [Fact]
+    public void RewriteForView_BindingSourceRowWithAnUnknownProperty_IsNotMigrated()
+    {
+        var (form, plans) = BoundGrid("Name");
+
+        var result = Rewriter.RewriteForView(PopulateBody, form, dataSourceBindings: plans);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The plan settled the element type before any body ran. A body naming a different one is
+    /// refused rather than emitted - the collection is declared with the plan's type, so the two
+    /// disagreeing would be a CS0029 in the generated project and nowhere else.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_BindingSourceRowOfADifferentType_IsNotMigrated()
+    {
+        var (form, plans) = BoundGrid("Name", "Active");
+
+        var result = Rewriter.RewriteForView(
+            PopulateBody.Replace("BindingList<GalleryRow>", "BindingList<OtherRow>"),
+            form,
+            dataSourceBindings: plans);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A HashSet reorders and drops duplicates, so copying it element by element into an ordered
+    /// collection is not the same program. Only the ordered wrappers are on the whitelist.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_BindingSourceFromAnUnorderedCollection_IsNotMigrated()
+    {
+        var (form, plans) = BoundGrid("Name", "Active");
+
+        var result = Rewriter.RewriteForView(
+            PopulateBody.Replace("BindingList<GalleryRow>", "HashSet<GalleryRow>"),
+            form,
+            dataSourceBindings: plans);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>A row built through a constructor says nothing about which property got which value.</summary>
+    [Fact]
+    public void RewriteForView_BindingSourceRowWithConstructorArguments_IsNotMigrated()
+    {
+        var (form, plans) = BoundGrid("Name", "Active");
+
+        var result = Rewriter.RewriteForView(
+            "this.bindingSource1.DataSource = new BindingList<GalleryRow> { new GalleryRow(\"First\") };",
+            form,
+            dataSourceBindings: plans);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The bound that matters most: an initializer is read *only* as the right-hand side of a
+    /// DataSource assignment. Anywhere else it is still an unknown expression, which is what keeps
+    /// this from being "the rewriter learned object initializers".
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ObjectInitializerAnywhereElse_IsNotMigrated()
+    {
+        var (form, plans) = BoundGrid("Name", "Active");
+
+        var declared = Rewriter.RewriteForView(
+            "var rows = new BindingList<GalleryRow> { new GalleryRow { Name = \"First\" } };",
+            form,
+            dataSourceBindings: plans);
+
+        Assert.Empty(declared.MigratedStatements);
+
+        var assigned = Rewriter.RewriteForView(
+            "this.dataGridView1.Tag = new GalleryRow { Name = \"First\" };",
+            form,
+            dataSourceBindings: plans);
+
+        Assert.Empty(assigned.MigratedStatements);
+    }
+
+    /// <summary>A Details ListView with columns: the row is the sub-item texts, in column order.</summary>
+    [Fact]
+    public void RewriteForView_DetailsListViewItem_BecomesAViewModelRow()
+    {
+        var form = DetailsListView("nameColumn", "sizeColumn");
+        ListViewRowsPlan[] plans =
+            [new("itemsListView", "ItemsListViewRows", ["nameColumn", "sizeColumn"])];
+
+        var result = Rewriter.RewriteForView(
+            "this.itemsListView.Items.Add(new ListViewItem(new[] { \"readme.txt\", \"2 KB\" }));",
+            form,
+            listViewRows: plans);
+
+        Assert.Equal(
+            ["w2aViewModel.ItemsListViewRows.Add(new[] { \"readme.txt\", \"2 KB\" });"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>The one-string form is the whole row on a one-column grid.</summary>
+    [Fact]
+    public void RewriteForView_SingleColumnDetailsListViewItem_BecomesAViewModelRow()
+    {
+        var form = DetailsListView("nameColumn");
+        ListViewRowsPlan[] plans = [new("itemsListView", "ItemsListViewRows", ["nameColumn"])];
+
+        var result = Rewriter.RewriteForView(
+            "this.itemsListView.Items.Add(new ListViewItem(\"readme.txt\"));", form, listViewRows: plans);
+
+        Assert.Equal(
+            ["w2aViewModel.ItemsListViewRows.Add(new[] { \"readme.txt\" });"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Fewer cells than columns is refused rather than padded. Guessing what belongs in the
+    /// missing column is exactly the kind of invention this converter does not do.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DetailsListViewItemWithTheWrongCellCount_IsNotMigrated()
+    {
+        var form = DetailsListView("nameColumn", "sizeColumn");
+        ListViewRowsPlan[] plans =
+            [new("itemsListView", "ItemsListViewRows", ["nameColumn", "sizeColumn"])];
+
+        var result = Rewriter.RewriteForView(
+            "this.itemsListView.Items.Add(new ListViewItem(new[] { \"readme.txt\" }));",
+            form,
+            listViewRows: plans);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    private static FormModel DetailsListView(params string[] columnFieldNames)
+    {
+        var form = FormWith(("itemsListView", "ListView"));
+        var listView = form.Controls["itemsListView"];
+        listView.Properties["View"] = new PropertyValue.EnumMembers(["Details"]);
+
+        foreach (var columnFieldName in columnFieldNames)
+        {
+            var column = new ControlModel { FieldName = columnFieldName, ClrTypeName = "ColumnHeader" };
+            form.Controls[columnFieldName] = column;
+            listView.Children.Add(column);
+        }
+
+        return form;
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

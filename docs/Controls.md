@@ -26,8 +26,8 @@ Avalonia has nothing to map to; permanently manual. This column is not free-form
 `UnsupportedDisposition`, a required constructor argument on `UnsupportedControlMapper`, and
 `ControlsDocumentationTests` checks every cell against it.
 
-**Summary**: 47 Direct, 12 Fallback (59 mapped) · 20 converted without an element ·
-13 not converted (8 unreachable from designer code, 5 no Avalonia API) ·
+**Summary**: 47 Direct, 12 Fallback (59 mapped) · 21 converted without an element ·
+12 not converted (8 unreachable from designer code, 4 no Avalonia API) ·
 10 base classes (not applicable) · `Form` and `UserControl` are both conversion roots (a Form
 becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in this table.
 
@@ -171,16 +171,16 @@ The *dialog* it belongs to, `PrintPreviewDialog`, is listed once, under Common D
 | `FolderBrowserDialog` | ❌ Unsupported | | 🟡 Elsewhere | Same as above, calling `OpenFolderPickerAsync`. |
 | `ColorDialog` | ❌ Unsupported | | 🟡 Elsewhere | No built-in Avalonia colour picker *dialog*, but there is a real `ColorView` — so a handler's `ShowDialog` is translated inline onto the bundled `ColorDialogFallback`, in both the `== DialogResult.OK` and the guard-clause shape. Needs the `Avalonia.Controls.ColorPicker` package. A seed value assigned before the call is not carried over. |
 | `FontDialog` | ❌ Unsupported | | 🟡 Elsewhere | No Avalonia equivalent, so the bundled `FontDialogFallback` provides one, listing `FontManager.Current.SystemFonts`. Family/size/bold/italic only. |
-| `PrintDialog` | ❌ Unsupported | | ❌ No API | No Avalonia printing API. |
-| `PageSetupDialog` | ❌ Unsupported | | ❌ No API | No Avalonia printing API. |
-| `PrintPreviewDialog` | ❌ Unsupported | | ❌ No API | No Avalonia printing API. |
-| `PrintDocument` | ❌ Unsupported | | ❌ No API | No Avalonia printing API, same as the three dialogs above. |
+| `PrintDialog` | ❌ Unsupported | | ❌ No API | No Avalonia printing API — not a dialog, not a printer list. Pick a printing library; the `ShowDialog() == DialogResult.OK` handler is left whole. |
+| `PageSetupDialog` | ❌ Unsupported | | ❌ No API | Pure data entry, but the `PageSettings` it produces has nothing on the Avalonia side to consume them. |
+| `PrintPreviewDialog` | ❌ Unsupported | | ❌ No API | Nothing to preview from. The *control*, `PrintPreviewControl`, does get a placeholder fallback; a dialog over a `PrintDocument` has no honest stand-in. |
+| `PrintDocument` | ❌ Unsupported | | ❌ No API | `PrintPage` drew with `System.Drawing.Graphics`. The handler is emitted with its body preserved but nothing subscribes it — the event has no Avalonia counterpart. |
 
 ### Data Binding Components
 
 | WinForms type | Status | Avalonia target | Why not | Notes |
 |---|---|---|---|---|
-| `BindingSource` | ❌ Unsupported | | ❌ No API | Recommend `ObservableCollection<T>` in the ViewModel. |
+| `BindingSource` | ❌ Unsupported | | 🟡 Elsewhere | Becomes an `ObservableCollection<T>` on the ViewModel plus an `ItemsSource` binding; the row type is lifted into `Models/` and the literal `new BindingList<T> { … }` population is translated. |
 | `BindingNavigator` | ✅ Fallback | `BindingNavigatorFallback` | | A `StackPanel` (it is a `ToolStrip` subclass, so its designer-declared items render for real) with `Position`/`Count` properties to bind. Navigates nothing on its own. See [Implementation plan](#bindingnavigator). |
 
 ### Timer / Background Components
@@ -515,8 +515,10 @@ from the official `Avalonia.Controls.DataGrid`.
 **Done**, visually.
 `BindingNavigatorFallback.cs` is a `StackPanel` — `BindingNavigator` is a `ToolStrip` subclass,
 so its designer-declared items are already parsed and now render as real children — plus
-`Position`/`Count` styled properties to bind against. Actually *navigating* is still tied to the
-broader `BindingSource`→`ObservableCollection<T>` translation feature that doesn't exist yet.
+`Position`/`Count` styled properties to bind against. Actually *navigating* is still manual: the
+`BindingSource`→`ObservableCollection<T>` translation now exists, but a `BindingNavigator` is wired
+to its source through `bindingNavigator1.BindingSource = …`, a different property from the
+`DataSource` the binding is planned off, so nothing connects the two automatically.
 
 ### HelpProvider
 

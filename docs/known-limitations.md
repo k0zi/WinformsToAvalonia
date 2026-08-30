@@ -231,8 +231,13 @@ contributors know what to expect and where to look before filing a duplicate iss
   `ColorDialog` and `FontDialog` have no Avalonia built-in equivalent either, but they are
   wrappable: both are translated **inline** onto a bundled dialog this repo ships
   (`ColorDialogFallback`, built around Avalonia's real `ColorView`; `FontDialogFallback`, listing
-  `FontManager.Current.SystemFonts`). The print dialogs stay guidance-only - Avalonia has no
-  printing API at all, so there is nothing to wrap.
+  `FontManager.Current.SystemFonts`). The print family stays guidance-only, and permanently:
+  measured against Avalonia's reference assemblies there is not one `Print*` type in the
+  framework - no dialog, no document, no printer list - so there is nothing to wrap and nothing
+  to build one from. `PrintPreviewControl` gets a page-shaped placeholder fallback so the
+  converted layout survives; the three dialogs and `PrintDocument` get guidance naming what each
+  one did and where that work now belongs. Each says something different, rather than repeating
+  one sentence four times in `MIGRATION.md`.
 - **Non-visual components that are really plain .NET types survive unchanged.**
   `BackgroundWorker`, `FileSystemWatcher`, `Process`, `SerialPort`, `EventLog`,
   `PerformanceCounter`, `ServiceController` and `SoundPlayer` are the same classes in an Avalonia
@@ -616,7 +621,7 @@ rule itself; what follows is what the rule does *not* cover yet.
   - `FileNames` (multi-select) - there is no single path to bind, so the whole branch is left;
   - any use of the dialog's properties *after* the branch, since the selection is a pattern
     variable now rather than an object that outlives the call;
-  - print dialogs, which have no Avalonia equivalent at all.
+  - the print dialogs, which have no Avalonia equivalent at all - see the printing note above.
 
   **The colour and font dialogs** take the same inline route, onto bundled windows rather than a
   platform API: `if (colorDialog1.ShowDialog(this) == DialogResult.OK)` becomes
@@ -1039,22 +1044,57 @@ A control whose designer `DataSource` pointed at a `BindingSource` now gets a re
 The generated `DataGridTextColumn`s already bind with `{ReflectionBinding}`, so they resolve
 against whatever the rows turn out to be - the columns start working the moment rows exist.
 
-**The rows themselves do not come across.** `bindingSource1.DataSource = new BindingList<T> { … }`
-in a handler is still refused: translating it would mean teaching the body rewriter collection and
-object initializers, i.e. general C#, which is exactly what its finite proven vocabulary is not.
-So the collection is generated empty and the conversion says so rather than implying otherwise.
+**One population shape does come across.**
+`bindingSource1.DataSource = new BindingList<T> { new T { P = v, … }, … };` becomes a `Clear()`
+plus one `Add` per element on the ViewModel collection. That is *not* the body rewriter learning
+object initializers - every degree of freedom is closed by a fact this run already proved:
+
+- it matches only as the right-hand side of a `DataSource` assignment the **designer** already
+  turned into an `ItemsSource` binding - never a free-standing expression, a local initializer or
+  an argument, and `TryRewriteExpression` gains no new case at all;
+- the element type must be one **this run** lifted into `Models/`, so its settable auto-properties
+  are read off the parsed declaration rather than guessed, and it must be the same type the plan
+  already recorded - a disagreement would be a `CS0029` in the generated project;
+- every initializer name must be one of those properties, named once;
+- every value must already translate on its own;
+- the wrapper must be a `BindingList`/`List`/`ObservableCollection`/`Collection`. A `HashSet<T>`
+  is refused: copying it into an ordered collection element by element is not the same program.
+
+Everything else still refuses, and still stops the handler at that statement: a row type from a
+referenced assembly, a constructor argument, a nested initializer, a list built with `Add` calls or
+a loop, and any `DataSource` that is not this literal shape (a `DataTable`, a query, a field).
 
 What *is* now possible is writing that population by hand, because the row type exists: a type
-declared **inside** a Form or UserControl is lifted into `Models/<Name>.cs` as an `internal` type
-in the `<project>.Models` namespace. WinForms forms routinely keep their row type as a private
+declared **inside** a Form or UserControl is lifted into `Models/<Name>.cs` as a `public` type
+in the `<project>.Models` namespace. `public`, not `internal`: the ViewModel's generated
+`ObservableCollection<T>` is a public property, and a public member cannot expose an internal type
+(`CS0053`) - a build error in the *generated* project and nowhere else. WinForms forms routinely keep their row type as a private
 nested class, and until now it reached the generated project only inside the "NOT COMPILED"
 comment block - so the code a human then migrated had nothing to name. A nested type that mentions
 something which does not survive the conversion is refused and reported, the same rule a
 carried-over `Component` follows.
 
-`BindingSource` therefore keeps its guidance-only registry entry: an empty collection with a live
-binding is a seam, not a converted feature, and counting it as converted would be the kind of
-claim this repo's tests exist to prevent.
+`BindingSource` is therefore `FeatureElsewhere` rather than `NoAvaloniaApi`: it emits no element,
+but it is genuinely converted - binding, collection, element type and, for the shape above, the
+rows. It stayed guidance-only for as long as the collection was generated empty, because a seam is
+not a converted feature.
+
+## Details-mode ListView rows
+
+A `View.Details` ListView becomes a `DataGrid`, and its rows are the sub-item texts of its
+`ListViewItem`s - so a row is a `string[]` and column *i* binds to `[i]`. `Items.Add(...)` and
+`Items.Clear()` translate onto the ViewModel collection behind it, the same place a `BindingSource`
+puts its rows.
+
+No row type is derived from the column headers, deliberately: that would invent domain names the
+original never wrote, and has no answer for a blank or duplicated header. The array length must
+equal the designer's column count - a mismatch is refused rather than padded or truncated - and a
+Details ListView with **no** columns gets no collection at all, because there is no row shape to
+translate into.
+
+This also fixed a silent hole. Those `DataGridTextColumn`s previously carried a `Header` and **no
+`Binding`**, so the grid could never show a row - not after any amount of hand migration, until
+somebody noticed and wrote the bindings themselves.
 
 ## Browser (WebAssembly) head
 

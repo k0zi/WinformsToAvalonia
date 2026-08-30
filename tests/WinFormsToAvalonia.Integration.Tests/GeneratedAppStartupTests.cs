@@ -94,9 +94,33 @@ public class GeneratedAppStartupTests
             Path.Combine(
                 RepositoryRoot(), "samples", "WinForms", "All-In-One-WinForms", "All-In-One-WinForms.csproj"),
             "All-In-One-WinForms",
-            clickButtons: false);
+            clickButtons: false,
+            // Row counts only: both grids live on TabItems that are never selected, so nothing
+            // under them is ever laid out and no cell is realized. The counts are what matters
+            // here anyway - they prove MainForm_Load really ran and really populated both
+            // collections. The cell text is proved by DataGridViewColumnsApp, whose grids are at
+            // the root.
+            "w2a-grid:dataGridView1:2:",
+            "w2a-grid:itemsListView:2:");
 
-    private static async Task AssertStarts(string sourceProject, string name, bool clickButtons)
+    /// <summary>
+    /// The grids: a fixture whose DataGrids sit at the root, so their cells really lay out.
+    /// </summary>
+    /// <remarks>
+    /// Clicked, because the handler that fills both is a Click handler. The all-in-one sample
+    /// proves the row *counts* but not the cell text - its grids live on TabItems that are never
+    /// selected, so nothing under them is ever laid out.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedDataGridViewColumnsApp_ShowsTheRowsItsHandlerAdded() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "DataGridViewColumnsApp", "DataGridViewColumnsApp.csproj"),
+            "DataGridViewColumnsApp",
+            clickButtons: true,
+            "w2a-grid:detailsListView:1:notes.txt");
+
+    private static async Task AssertStarts(
+        string sourceProject, string name, bool clickButtons, params string[] expectedGrids)
     {
         Assert.True(File.Exists(sourceProject), $"Source project not found: {sourceProject}");
 
@@ -112,6 +136,17 @@ public class GeneratedAppStartupTests
                 run.ExitCode == 0 && run.StdOut.Contains(SuccessMarker, StringComparison.Ordinal),
                 $"The converted '{name}' did not start (exit code {run.ExitCode}).\n"
                 + $"--- stdout ---\n{run.StdOut}\n--- stderr ---\n{run.StdErr}");
+
+            // `{grid}:{rows}:{first cell text}`. Both halves matter: the count proves the handler
+            // populated the collection, the text proves the column bindings resolve - a grid can
+            // hold rows and still show nothing, which is what a Binding-less column always did.
+            foreach (var expected in expectedGrids)
+            {
+                Assert.True(
+                    run.StdOut.Contains(expected, StringComparison.Ordinal),
+                    $"The converted '{name}' did not report '{expected}'.\n"
+                    + $"--- stdout ---\n{run.StdOut}");
+            }
         }
         finally
         {
@@ -142,6 +177,7 @@ public class GeneratedAppStartupTests
             using Avalonia.Headless;
             using Avalonia.Interactivity;
             using Avalonia.LogicalTree;
+            using Avalonia.VisualTree;
             using CommunityToolkit.Mvvm.Input;
 
             namespace {{rootNamespace}};
@@ -169,6 +205,7 @@ public class GeneratedAppStartupTests
                     AssertEveryControlGotItsTemplate(lifetime.MainWindow);
                     ExecutePromotedCommands(lifetime.MainWindow?.DataContext);
                     {{(clickButtons ? "ClickEveryButton(lifetime.MainWindow);" : "")}}
+                    ReportGrids(lifetime.MainWindow);
 
                     Console.WriteLine("{{SuccessMarker}}");
                     return 0;
@@ -265,6 +302,58 @@ public class GeneratedAppStartupTests
                             + string.Join(", ", untemplated)
                             + ". Either the type needs a StyleKeyOverride, or its package's theme "
                             + "is missing from App.axaml (AvaloniaProjectScaffolder.PackageStyleIncludes).");
+                    }
+                }
+
+                /// <summary>
+                /// Prints every DataGrid's row count and first realized cell text.
+                /// </summary>
+                /// <remarks>
+                /// <para>
+                /// The cell text is the half that matters. A row count on its own would pass even
+                /// if the column bindings resolved to nothing - which is the exact
+                /// "compiles, starts, renders as nothing" failure this suite exists to catch, and
+                /// the one a Binding-less DataGridTextColumn used to produce every time.
+                /// </para>
+                /// <para>
+                /// Through reflection rather than a typed `DataGrid`, because the type lives in an
+                /// optional package: naming it would stop this harness compiling for every
+                /// converted app that has no grid.
+                /// </para>
+                /// </remarks>
+                private static void ReportGrids(Window? window)
+                {
+                    if (window is null)
+                    {
+                        return;
+                    }
+
+                    // A DataGrid realizes its cells during layout, not on construction, so the
+                    // cell text below is only there after the tree has actually been laid out.
+                    for (var pass = 0; pass < 5; pass++)
+                    {
+                        window.UpdateLayout();
+                        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    }
+
+                    foreach (var grid in Descendants(window).Where(c => c.GetType().Name == "DataGrid"))
+                    {
+                        var source = grid.GetType().GetProperty("ItemsSource")?.GetValue(grid);
+                        var rows = source is System.Collections.IEnumerable items
+                            ? items.Cast<object>().Count()
+                            : 0;
+
+                        // Through DataGridCell, not any TextBlock under the grid: the column
+                        // headers are TextBlocks too, and they render whether or not a single
+                        // binding resolved.
+                        var cell = grid.GetVisualDescendants()
+                            .Where(c => c.GetType().Name == "DataGridCell")
+                            .SelectMany(c => c.GetVisualDescendants())
+                            .OfType<TextBlock>()
+                            .Select(t => t.Text)
+                            .FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "";
+
+                        Console.WriteLine($"w2a-grid:{grid.Name}:{rows}:{cell}");
                     }
                 }
 

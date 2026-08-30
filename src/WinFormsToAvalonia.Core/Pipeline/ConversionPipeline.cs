@@ -128,6 +128,12 @@ public sealed class ConversionPipeline
             .Select(p => ParseArtifact(project.ProjectDirectory, p))
             .ToList();
 
+        // Same pre-pass, same reason: a handler body may name a type declared inside a Form, and
+        // the ViewModel collection a BindingSource becomes needs its element type while the Form
+        // is being *planned*. Only the file writing waits (see below) - hoisting that too would
+        // reorder MIGRATION.md's warnings for every project that carries no model type at all.
+        var modelTypes = CarryOverModelTypes(pairings, projectName);
+
         var promotedPropertiesByArtifact = parsedArtifacts.ToDictionary(
             a => a.Pairing.ClassName,
             a => migrationPlanner.PlanProperties(a.FormModel, a.CodeBehind, a.Pairing.Kind),
@@ -197,7 +203,8 @@ public sealed class ConversionPipeline
                 notifyIcons.Where(i => i.IconAssetPath is not null)
                     .Select(i => i.FieldName)
                     .ToHashSet(StringComparer.Ordinal),
-                rootKind);
+                rootKind,
+                modelTypes.Context);
             allWarnings.AddRange(migrationPlan.Warnings);
 
             // Unlike every other fallback key, these come from a translated *handler body*
@@ -267,7 +274,9 @@ public sealed class ConversionPipeline
             vfs.AddText(relativePath, text);
         }
 
-        foreach (var (relativePath, text) in CarryOverModelTypes(pairings, projectName, allWarnings))
+        allWarnings.AddRange(modelTypes.Warnings);
+
+        foreach (var (relativePath, text) in modelTypes.Files)
         {
             vfs.AddText(relativePath, text);
         }
@@ -585,9 +594,11 @@ public sealed class ConversionPipeline
     /// code a human then migrates had no type to name. Same safety rule as a carried-over
     /// component: anything mentioning something that does not survive is refused and reported.
     /// </remarks>
-    private static List<(string RelativePath, string Text)> CarryOverModelTypes(
-        IReadOnlyList<DesignerFilePairing> pairings, string projectName, List<string> warnings)
+    private static CarriedModelTypes CarryOverModelTypes(
+        IReadOnlyList<DesignerFilePairing> pairings, string projectName)
     {
+        var warnings = new List<string>();
+        var byTypeName = new Dictionary<string, ModelTypeInfo>(StringComparer.Ordinal);
         var winFormsTypeNames = new ControlMappingRegistry().Mappers.Keys.ToHashSet(StringComparer.Ordinal);
         var otherClassNames = pairings.Select(p => p.ClassName).ToHashSet(StringComparer.Ordinal);
         var carried = new List<(string, string)>();
@@ -618,6 +629,10 @@ public sealed class ConversionPipeline
                         nested, $"{projectName}.Models", winFormsTypeNames, otherClassNames, out var source, out var reason))
                 {
                     carried.Add(($"Models/{typeName}.cs", source));
+                    byTypeName[typeName] = new ModelTypeInfo(
+                        typeName,
+                        $"{projectName}.Models",
+                        ComponentSourceAnalyzer.SettableAutoPropertyNames(nested));
                 }
                 else
                 {
@@ -627,8 +642,18 @@ public sealed class ConversionPipeline
             }
         }
 
-        return carried;
+        return new CarriedModelTypes(new ModelTypeContext(byTypeName), carried, warnings);
     }
+
+    /// <summary>
+    /// What one pass over the project's nested types produced: the files to write, the warnings
+    /// to report, and - the reason this runs before planning at all - the vocabulary a handler
+    /// body may use inside an object initializer.
+    /// </summary>
+    private sealed record CarriedModelTypes(
+        ModelTypeContext Context,
+        IReadOnlyList<(string RelativePath, string Text)> Files,
+        IReadOnlyList<string> Warnings);
 
     private static List<CarriedOverComponent> CarryOverProjectComponents(
         IReadOnlyList<DesignerFilePairing> allPairings, string projectName, List<string> warnings)

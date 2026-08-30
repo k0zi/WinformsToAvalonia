@@ -193,34 +193,65 @@ public sealed record PromotedPropertyPlan(
     RewrittenBody? Setter);
 
 /// <summary>
-/// The single migration decision set for one Form, built once by FormMigrationPlanner and shared
-/// by all three emitters (AXAML, View code-behind, ViewModel) so they can never disagree about
-/// where a handler went or which properties are bound.
-/// </summary>
-/// <summary>
 /// A control bound to a WinForms <c>BindingSource</c>, and the ViewModel collection that replaces
 /// it.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The element type is deliberately <c>object</c>. The row type in a WinForms form is usually a
-/// private nested class the conversion cannot carry over, and it does not need to: the generated
-/// <c>DataGridTextColumn</c>s bind with <c>{ReflectionBinding}</c>, which resolves against the
-/// row's runtime type. So the columns start working the moment real rows are added, whatever
-/// their type turns out to be.
-/// </para>
-/// <para>
-/// What this is <b>not</b> is a translation of the data. The collection is generated empty and
-/// stays empty: <c>bindingSource1.DataSource = new BindingList&lt;T&gt; { ... }</c> in a handler is
-/// still refused. This is the wiring, and the conversion says so rather than implying the rows
-/// came across.
+/// <paramref name="ElementTypeName"/> is null - and the collection therefore an
+/// <c>ObservableCollection&lt;object&gt;</c> - whenever the row type could not be determined or
+/// did not come across. That is not a hole: the generated <c>DataGridTextColumn</c>s bind with
+/// <c>{ReflectionBinding}</c>, which resolves against the row's runtime type, so the columns
+/// work either way. A named element type is what lets the *population* be translated, since the
+/// rewriter then knows which property names are real.
 /// </para>
 /// </remarks>
+/// <param name="ElementTypeName">
+/// The row type, when a handler's <c>{source}.DataSource = new SomeList&lt;T&gt;</c> named one this
+/// run lifted into <c>Models/</c>. Null otherwise.
+/// </param>
+/// <param name="ElementPropertyNames">
+/// That type's settable auto-properties. This is the <b>entire</b> vocabulary an object
+/// initializer for it may use when a handler's population statement is translated - read off the
+/// parsed declaration, which is what makes the translation provable rather than a guess.
+/// </param>
 public sealed record DataSourceBindingPlan(
     string ControlFieldName,
     string SourceFieldName,
-    string ViewModelPropertyName);
+    string ViewModelPropertyName,
+    string? ElementTypeName = null,
+    string? ElementTypeNamespace = null,
+    IReadOnlyList<string>? ElementPropertyNames = null)
+{
+    public IReadOnlyList<string> ElementPropertyNames { get; } = ElementPropertyNames ?? [];
+}
 
+/// <summary>
+/// A <c>View.Details</c> ListView - which becomes a <c>DataGrid</c> - and the ViewModel collection
+/// its rows now live in.
+/// </summary>
+/// <remarks>
+/// A row is a <c>string[]</c>, one cell per column, and column <i>i</i> binds to <c>[i]</c>. That
+/// is exactly what a <c>ListViewItem</c> is: an ordered array of sub-item texts. Deriving named
+/// properties from the column headers instead would invent domain names the original never wrote
+/// (and has no answer for a blank or duplicated header), which is the opposite of what this
+/// converter is for. Without this plan the generated <c>DataGridTextColumn</c>s carry a header and
+/// <b>no binding at all</b>, so the grid can never show a row - not even after a hand migration.
+/// </remarks>
+/// <param name="ColumnFieldNames">
+/// The <c>ColumnHeader</c> fields in declaration order; a column's index in this list is the
+/// index it binds to.
+/// </param>
+public sealed record ListViewRowsPlan(
+    string ControlFieldName,
+    string ViewModelPropertyName,
+    IReadOnlyList<string> ColumnFieldNames);
+
+/// <summary>
+/// The single migration decision set for one Form, built once by FormMigrationPlanner and shared
+/// by all three emitters (AXAML, View code-behind, ViewModel) so they can never disagree about
+/// where a handler went or which properties are bound.
+/// </summary>
 public sealed record FormMigrationPlan(
     IReadOnlyList<CodeBehindHandlerPlan> CodeBehindHandlers,
     IReadOnlyList<ViewModelCommandPlan> ViewModelCommands,
@@ -239,9 +270,28 @@ public sealed record FormMigrationPlan(
     /// Controls whose WinForms <c>DataSource</c> pointed at a <c>BindingSource</c>, and the
     /// ViewModel collection each one now binds its <c>ItemsSource</c> to.
     /// </summary>
-    IReadOnlyList<DataSourceBindingPlan>? DataSourceBindings = null)
+    IReadOnlyList<DataSourceBindingPlan>? DataSourceBindings = null,
+    /// <summary>
+    /// Details-mode ListViews, whose DataGrid rows are their ListViewItems' sub-item texts.
+    /// </summary>
+    IReadOnlyList<ListViewRowsPlan>? ListViewRows = null)
 {
     public IReadOnlyList<DataSourceBindingPlan> DataSourceBindings { get; } = DataSourceBindings ?? [];
+
+    public IReadOnlyList<ListViewRowsPlan> ListViewRows { get; } = ListViewRows ?? [];
+
+    /// <summary>
+    /// Whether the generated View needs a typed field for its ViewModel rather than constructing
+    /// one straight into <c>DataContext</c>.
+    /// </summary>
+    /// <remarks>
+    /// Asked in one place so the code-behind emitter and <c>HandlerBodyRewriter</c> cannot
+    /// disagree about whether the field the rewriter names actually exists - the same reason
+    /// <see cref="CodeBehindHandlerPlan.IsUnfinished"/> is a single predicate. It is deliberately
+    /// false for every Form that has neither collection, so the other generated Views stay byte
+    /// for byte what they were.
+    /// </remarks>
+    public bool RequiresViewModelField => DataSourceBindings.Count > 0 || ListViewRows.Count > 0;
 
     public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], [], [], [], [], []);
 
