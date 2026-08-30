@@ -23,9 +23,12 @@ dotnet test --filter "DisplayName~ConvertedFixtureProject_BuildsSuccessfullyWith
 
 # run the tool
 # --source takes a .csproj, or a .sln/.slnx to convert every WinForms project in it at once
-dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--log-file <p>]
+dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--with-web|--log-file <p>]
 dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source <app.csproj|app.slnx>
 dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
+
+# --with-web needs the WebAssembly workload, once - the browser-head build tests require it
+dotnet workload install wasm-tools
 
 # end-to-end smoke over the real sample app: converts every samples/WinForms/*.csproj into
 # samples/Avalonia/<name>/ and adds each to a generated solution
@@ -177,6 +180,13 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    `--dry-run` and the tests possible. It defaults to `ExistingFileStrategy.PreserveExisting`:
    a re-run never clobbers a file the user has edited, writing the regenerated version beside it
    as `*.w2a-new` instead (`--overwrite-all` opts out). Keep new write paths going through it.
+   `--with-web` is bolted on as a **post-processing pass** over the finished VFS -
+   `AvaloniaProjectScaffolder.SplitIntoHeads` (in the `.WebHeads.cs` partial) re-roots everything
+   under `{projectName}/`, rewrites that csproj as a library, moves `Program.cs`/`app.manifest`
+   into a desktop head, and adds a `net10.0-browser` head plus the `.slnx`. Deliberately last:
+   the pipeline keeps adding to the VFS after the scaffolder is done (components, assets,
+   `MIGRATION.md`, fallback templates), and every one of those call sites would otherwise have to
+   learn where the project root moved to.
 
 `WinFormsToAvalonia.FallbackControls` ships the fallback control sources as **embedded text, not
 compiled code** (`Compile Remove` in its csproj): they reference Avalonia types on purpose, and
@@ -252,6 +262,26 @@ not by building.
   `GeneratedAppStartupTests` now catches the whole class: it walks the booted window and fails on
   any `TemplatedControl` whose `Template` is still null.
   The generated project's Avalonia / CommunityToolkit.Mvvm versions are `const`s on that same class.
+- **`--with-web` may not change a single byte of the flag-off output.** The layout split is a
+  post-processing pass over the finished VFS, and the View split goes through a `ViewRootKind`
+  that *defaults* to what `WinFormsArtifactKind` always chose. That default is what lets the
+  golden AXAML, the byte-identical `App.axaml` test and the fixed-file-set test stay untouched -
+  keep any new web behaviour behind the same default.
+- **In a browser there is no `Window` at all** — not shown, not constructed. Avalonia's browser
+  backend installs a single-view lifetime and no windowing platform. That is why `--with-web`
+  roots the main Form's View at a `UserControl` with a generated wrapper `Window` for the desktop
+  head, why `WindowOnlyEventCatalog` exists (an `Opened=` on a `UserControl` root is an AVLN2000),
+  and why `ViewNavigationContext` splits "`this` *is* the Window" from "a Window is *reachable*"
+  — the split main View can own a dialog and close itself through `ViewWindow.Of(this)` while
+  having none of a Window's own members. Anything emitted on `this` that only a `TopLevel` has
+  (`StorageProvider`) needs the same treatment; that one was found by the sample, not the
+  fixtures.
+- **The browser head's csproj has two properties that fail silently when missing.** Without
+  `<RuntimeIdentifier>browser-wasm</RuntimeIdentifier>` the WebAssembly SDK targets never run:
+  the project compiles to IL, `dotnet build` exits 0, and no `AppBundle` is produced. Without
+  `<WasmExtraFilesToDeploy Include="wwwroot\**" />` the bundle exists with no `index.html`.
+  `WebHeadConversionBuildTests` therefore asserts on the bundle's *contents*, never on the exit
+  code alone.
 - **App-level components are not per-View.** `NotifyIcon` becomes `TrayIcon.Icons` in `App.axaml`,
   and its icon bytes are copied into the VFS with `AddBinary` — it never reaches an emitter.
 
@@ -290,6 +320,13 @@ not by building.
   parsed. Building alone missed a Windows-only component whose field initializer threw from the
   View constructor — perfectly compiled, unlaunchable. Add an `[InlineData]` row here for anything
   that emits code into a **constructor** or into `App.axaml`.
+- The `--with-web` output has three test classes, one per risk: `AvaloniaProjectScaffolderWebTests`
+  (the split's exact file set and csproj contents), `WebHeadConversionBuildTests` (all three
+  projects build, the browser bundle really exists — including a row for the all-in-one sample,
+  which is the one that caught `StorageProvider` being emitted bare), and
+  `WebHeadSingleViewStartupTests` (the main View constructs and templates with no Window of its
+  own). `ISingleViewApplicationLifetime` cannot be implemented outside Avalonia, so that last one
+  does what the browser backend would do with the View rather than faking the lifetime.
 - Both test csprojs `Compile Remove` their fixture/sample `.cs` files and copy them to output
   instead — fixtures must never be compiled into the test assembly. Keep that when adding fixtures.
 

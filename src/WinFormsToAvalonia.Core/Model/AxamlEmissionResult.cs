@@ -14,4 +14,11 @@ public sealed record AxamlEmissionResult(
     int DirectControlCount,
     int FallbackControlCount,
     int UnsupportedControlCount,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    /// <summary>
+    /// Form-level event attributes this document could not carry because it is rooted at a
+    /// <c>UserControl</c> - see <see cref="Mapping.WindowOnlyEventCatalog"/>. Empty for every
+    /// Window-rooted View, which is all of them unless <c>--with-web</c> asked otherwise; the
+    /// generated wrapper Window takes these and forwards them into the View.
+    /// </summary>
+    IReadOnlyList<(string AttributeName, string HandlerMethodName)>? DeferredWindowEvents = null);

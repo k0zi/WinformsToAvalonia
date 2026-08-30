@@ -464,7 +464,7 @@ public sealed class HandlerBodyRewriter
         confirmed.Add("if (w2aClosing)");
         confirmed.Add("{");
         confirmed.Add($"    {CloseGuardFieldName} = true;");
-        confirmed.Add("    Close();");
+        confirmed.Add($"    {target.WindowMemberPrefix}Close();");
         confirmed.Add("}");
 
         if (condition is null)
@@ -652,8 +652,8 @@ public sealed class HandlerBodyRewriter
         tailCount = 0;
         tailText = "";
 
-        // A ViewModel has no window to close, and a converted UserControl is not one.
-        if (!target.AllowsWindowApis || !target.HostIsWindow || statements.Count == 0)
+        // A ViewModel has no window to close, and a converted UserControl cannot reach one.
+        if (!target.AllowsWindowApis || !target.ReachesWindow || statements.Count == 0)
         {
             return false;
         }
@@ -904,7 +904,7 @@ public sealed class HandlerBodyRewriter
             selectionKey = $"{dialogField}.{kind.PathMemberName}";
             selectionValue = $"{variableName}.Path.LocalPath";
             opener =
-                $"if (await StorageProvider.{kind.PickerMethodName}(new {kind.OptionsTypeName}()) is not "
+                $"if (await {target.StorageProviderExpression}.{kind.PickerMethodName}(new {kind.OptionsTypeName}()) is not "
                 + string.Format(kind.SelectionPattern, variableName) + ")";
             target.Requirements.RequiredUsings.Add("Avalonia.Platform.Storage");
         }
@@ -969,7 +969,7 @@ public sealed class HandlerBodyRewriter
             var parts = new List<RewrittenStatement> { thenBranch };
             var pattern = string.Format(kind.SelectionPattern, variableName);
             var text =
-                $"if (await StorageProvider.{kind.PickerMethodName}(new {kind.OptionsTypeName}()) is {pattern})"
+                $"if (await {target.StorageProviderExpression}.{kind.PickerMethodName}(new {kind.OptionsTypeName}()) is {pattern})"
                 + $"\n{{\n{Indent(thenBranch.Text)}\n}}";
 
             if (ifStatement.Else is { } elseClause)
@@ -1746,7 +1746,7 @@ public sealed class HandlerBodyRewriter
         property = null!;
 
         // `dialog.Text` on a local holding another converted Form's View. That one is a Window
-        // whatever this host is, so it needs no HostIsWindow check of its own.
+        // whatever this host is, so it needs no reachability check of its own.
         if (expression is MemberAccessExpressionSyntax
             {
                 Expression: IdentifierNameSyntax { Identifier.ValueText: var localName },
@@ -1759,9 +1759,9 @@ public sealed class HandlerBodyRewriter
             return WindowPropertyCatalog.TryGet(localMember, out property);
         }
 
-        // `this.Text` or the bare `Text` - only on a View that really is a Window. A converted
+        // `this.Text` or the bare `Text` - only where a Window is reachable. A converted
         // UserControl has no Title, and a ViewModel has no window at all.
-        if (!target.AllowsWindowApis || !target.HostIsWindow)
+        if (!target.AllowsWindowApis || !target.ReachesWindow)
         {
             return false;
         }
@@ -1777,7 +1777,15 @@ public sealed class HandlerBodyRewriter
             _ => "",
         };
 
-        return ownName.Length > 0 && WindowPropertyCatalog.TryGet(ownName, out property);
+        if (ownName.Length == 0 || !WindowPropertyCatalog.TryGet(ownName, out property))
+        {
+            return false;
+        }
+
+        // Empty where the View is the Window, so the emitted text is the bare `Title` it has
+        // always been; the walk up to the Window otherwise.
+        receiverPrefix = target.WindowMemberPrefix;
+        return true;
     }
 
     /// <summary>`i++` / `--i` on a local - the shape a `for` incrementor almost always is.</summary>
@@ -1929,17 +1937,17 @@ public sealed class HandlerBodyRewriter
 
             switch (methodName)
             {
-                // Only a Window has these. A converted UserControl is not one - Avalonia's
-                // UserControl has no Close/Show/Activate at all - so emitting them there would
-                // not compile.
-                case "Close" when target.HostIsWindow:
-                    rewritten = new RewrittenStatement("Close();");
+                // Only a Window has these. A converted UserControl is not one and cannot reach
+                // one - Avalonia's UserControl has no Close/Show/Activate at all - so emitting
+                // them there would not compile.
+                case "Close" when target.ReachesWindow:
+                    rewritten = new RewrittenStatement($"{target.WindowMemberPrefix}Close();");
                     return true;
-                case "Activate" when target.HostIsWindow:
-                    rewritten = new RewrittenStatement("Activate();");
+                case "Activate" when target.ReachesWindow:
+                    rewritten = new RewrittenStatement($"{target.WindowMemberPrefix}Activate();");
                     return true;
-                case "Show" when target.HostIsWindow:
-                    rewritten = new RewrittenStatement("Show();");
+                case "Show" when target.ReachesWindow:
+                    rewritten = new RewrittenStatement($"{target.WindowMemberPrefix}Show();");
                     return true;
 
                 // On a UserControl the same call means what it meant in WinForms: make me
@@ -2046,9 +2054,11 @@ public sealed class HandlerBodyRewriter
 
         switch (methodName)
         {
-            case "ShowDialog" when target.HostIsWindow:
+            case "ShowDialog" when target.ReachesWindow:
                 rewritten = new RewrittenStatement(
-                    $"await {viewExpression}.ShowDialog(this);", RequiredUsings: usings, RequiresAsync: true);
+                    $"await {viewExpression}.ShowDialog({target.WindowExpression});",
+                    RequiredUsings: usings,
+                    RequiresAsync: true);
                 return true;
 
             case "Show" when invocation.ArgumentList.Arguments.Count == 0:
@@ -2541,7 +2551,7 @@ public sealed class HandlerBodyRewriter
         text = "";
 
         var isEquals = comparison.IsKind(SyntaxKind.EqualsExpression);
-        if ((!isEquals && !comparison.IsKind(SyntaxKind.NotEqualsExpression)) || !target.HostIsWindow)
+        if ((!isEquals && !comparison.IsKind(SyntaxKind.NotEqualsExpression)) || !target.ReachesWindow)
         {
             return false;
         }
@@ -2572,7 +2582,7 @@ public sealed class HandlerBodyRewriter
             target.Requirements.RequiredUsings.Add(viewNamespace);
         }
 
-        text = $"{(meansAccepted ? "" : "!")}await {viewExpression}.ShowDialog<bool>(this)";
+        text = $"{(meansAccepted ? "" : "!")}await {viewExpression}.ShowDialog<bool>({target.WindowExpression})";
         return true;
     }
 
@@ -3309,8 +3319,29 @@ public sealed class HandlerBodyRewriter
         /// </summary>
         bool AllowsAsync { get; }
 
-        /// <summary>False in a converted UserControl, which cannot own a modal dialog.</summary>
-        bool HostIsWindow { get; }
+        /// <summary>
+        /// Whether a Window can be named from here at all. False in a ViewModel and in a converted
+        /// UserControl; true both for a View that is the Window and for one that can reach it.
+        /// </summary>
+        bool ReachesWindow { get; }
+
+        /// <summary>
+        /// The Window as an expression - <c>this</c> where the View is one. Everything below
+        /// writes <see cref="WindowMemberPrefix"/> rather than reading this directly, so the
+        /// common case keeps emitting the bare call it always did.
+        /// </summary>
+        string WindowExpression { get; }
+
+        /// <summary>What to put in front of a Window member: nothing, or `expr.`.</summary>
+        string WindowMemberPrefix =>
+            string.Equals(WindowExpression, "this", StringComparison.Ordinal) ? "" : $"{WindowExpression}.";
+
+        /// <summary>
+        /// How the file pickers are reached. <c>StorageProvider</c> hangs off the TopLevel, so the
+        /// bare name only works where the View is one - a Window. Anywhere else it has to be
+        /// walked up to, which is also true of a converted UserControl.
+        /// </summary>
+        string StorageProviderExpression { get; }
 
         /// <summary>Resolves a WinForms Form type name to the View this run generates for it.</summary>
         bool TryResolveFormView(string winFormsTypeName, out FormViewInfo view);
@@ -3498,7 +3529,13 @@ public sealed class HandlerBodyRewriter
         /// </remarks>
         public bool AllowsAsync => signature.EventArgsTypeName != "WindowClosingEventArgs";
 
-        public bool HostIsWindow => navigation.HostIsWindow;
+        public bool ReachesWindow => navigation.ReachesWindow;
+
+        public string WindowExpression => navigation.ResolvedWindowExpression;
+
+        public string StorageProviderExpression => navigation.HostIsWindow
+            ? "StorageProvider"
+            : "TopLevel.GetTopLevel(this)!.StorageProvider";
 
         public bool TryResolveFormView(string winFormsTypeName, out FormViewInfo view) =>
             navigation.FormViews.TryGetValue(winFormsTypeName, out view!);
@@ -3845,7 +3882,12 @@ public sealed class HandlerBodyRewriter
         /// <summary>A promoted command cannot touch EventArgs at all, so nothing here is cancellable.</summary>
         public bool AllowsAsync => true;
 
-        public bool HostIsWindow => false;
+        public bool ReachesWindow => false;
+
+        public string WindowExpression => "this";
+
+        /// <summary>Never reached - a ViewModel refuses the file dialogs outright.</summary>
+        public string StorageProviderExpression => "StorageProvider";
 
         /// <summary>A ViewModel has no business constructing Views; navigation needs a service.</summary>
         public bool TryResolveFormView(string winFormsTypeName, out FormViewInfo view)

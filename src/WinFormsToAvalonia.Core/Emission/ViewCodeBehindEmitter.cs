@@ -35,8 +35,10 @@ public sealed class ViewCodeBehindEmitter
         string viewModelClassName,
         FormMigrationPlan plan,
         RawCodeBehind? rawCodeBehind,
-        WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form)
+        WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form,
+        ViewRootKind? rootKind = null)
     {
+        var root = rootKind ?? artifactKind.DefaultRootKind();
         var ns = NamingConventions.NamespaceOf($"{rootNamespace}.Views", relativeFolder);
         var viewModelNamespace = NamingConventions.NamespaceOf($"{rootNamespace}.ViewModels", relativeFolder);
 
@@ -106,7 +108,7 @@ public sealed class ViewCodeBehindEmitter
         Line();
         // Must match the AXAML root element AxamlEmitter chose for the same artifact - a
         // partial class whose base type disagrees with its .axaml root is an AVLN2000 error.
-        var baseTypeName = artifactKind == WinFormsArtifactKind.UserControl ? "UserControl" : "Window";
+        var baseTypeName = root.ElementName();
 
         // Windows-only components are declared and used all over this class - the field, the
         // constructor, and whichever handlers touch them - so the platform analyser is silenced
@@ -256,16 +258,25 @@ public sealed class ViewCodeBehindEmitter
             EmitPromotedProperty(Line, property);
         }
 
+        // A handler the wrapper Window forwards into is called from another class, so it cannot
+        // stay private. Only those, and only when there is a wrapper - see WindowOnlyEventCatalog.
+        var forwardedHandlers = root == ViewRootKind.Window
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : plan.XamlEventAttributesFor(null)
+                .Where(e => WindowOnlyEventCatalog.IsWindowOnly(e.AttributeName))
+                .Select(e => e.HandlerMethodName)
+                .ToHashSet(StringComparer.Ordinal);
+
         foreach (var handler in plan.CodeBehindHandlers)
         {
             Line();
-            EmitHandler(Line, handler);
+            EmitHandler(Line, handler, forwardedHandlers.Contains(handler.MethodName));
         }
 
         foreach (var dialog in plan.FileDialogs)
         {
             Line();
-            EmitFileDialogMethod(Line, dialog);
+            EmitFileDialogMethod(Line, dialog, root);
         }
 
         foreach (var helper in plan.PromotedHelpers)
@@ -325,12 +336,13 @@ public sealed class ViewCodeBehindEmitter
     /// <summary>The field a handler reads to know the View has finished initializing.</summary>
     private const string InitializationGuardFieldName = "w2aInitialized";
 
-    private static void EmitHandler(Action<string> line, CodeBehindHandlerPlan handler)
+    private static void EmitHandler(Action<string> line, CodeBehindHandlerPlan handler, bool forwarded = false)
     {
         var rewrite = handler.Rewrite;
         var asyncModifier = rewrite?.RequiresAsync == true ? "async " : "";
+        var accessibility = forwarded ? "internal" : "private";
 
-        line($"    private {asyncModifier}void {handler.MethodName}(object? sender, {handler.EventArgsTypeName} e)");
+        line($"    {accessibility} {asyncModifier}void {handler.MethodName}(object? sender, {handler.EventArgsTypeName} e)");
         line("    {");
 
         // The AXAML attribute is wired before the properties it reacts to are set, so this runs
@@ -411,12 +423,18 @@ public sealed class ViewCodeBehindEmitter
     /// (handler bodies aren't part of InitializeComponent), so this is emitted as a callable
     /// method rather than wired to any particular control.
     /// </summary>
-    private static void EmitFileDialogMethod(Action<string> line, FileDialogPlan dialog)
+    private static void EmitFileDialogMethod(Action<string> line, FileDialogPlan dialog, ViewRootKind root)
     {
+        // ...which the View only *is* when it is the Window. Rooted at a UserControl (the browser
+        // head's main view) the TopLevel has to be walked up to.
+        var storageProvider = root == ViewRootKind.Window
+            ? "StorageProvider"
+            : "TopLevel.GetTopLevel(this)!.StorageProvider";
+
         line($"    /// <summary>Avalonia replacement for the WinForms '{dialog.FieldName}.ShowDialog()' call. Call this from the handler that used to open it.</summary>");
         line($"    private async Task {dialog.MethodName}()");
         line("    {");
-        line($"        var result = await StorageProvider.{dialog.PickerMethodName}(new {dialog.OptionsTypeName}());");
+        line($"        var result = await {storageProvider}.{dialog.PickerMethodName}(new {dialog.OptionsTypeName}());");
         line($"        throw new NotImplementedException(\"TODO(Winforms2Avalonia): migrate the logic that used to run after '{dialog.FieldName}.ShowDialog()' here, using 'result'.\");");
         line("    }");
     }

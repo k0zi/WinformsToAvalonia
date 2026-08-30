@@ -38,6 +38,10 @@ public sealed class ConvertCommandSettings : CommandSettings
     [Description("Omit the large commented-out code-behind block from generated views.")]
     public bool SkipCodeBehindComments { get; init; }
 
+    [CommandOption("--with-web")]
+    [Description("Also generate a browser (WebAssembly) head: emits a shared library plus a desktop and a browser project instead of one desktop project. Needs the wasm-tools workload to build.")]
+    public bool WithWeb { get; init; }
+
     [CommandOption("--log-file <PATH>")]
     [Description("Write a full structured (JSON) conversion report alongside the console output.")]
     public string? LogFile { get; init; }

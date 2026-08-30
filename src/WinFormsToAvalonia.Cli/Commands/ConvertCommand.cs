@@ -20,7 +20,8 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
             NoFallbackControls: settings.NoFallbackControls,
             SkipCodeBehindComments: settings.SkipCodeBehindComments,
             LogFile: settings.LogFile,
-            OverwriteAll: settings.OverwriteAll);
+            OverwriteAll: settings.OverwriteAll,
+            WithWeb: settings.WithWeb);
 
         if (SolutionReader.IsSolutionPath(settings.Source))
         {

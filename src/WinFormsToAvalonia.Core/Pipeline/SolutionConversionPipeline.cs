@@ -77,7 +77,8 @@ public sealed class SolutionConversionPipeline
                         SourceProjectPath = projectPath,
                         OutputDirectory = outputDirectory,
                     },
-                    BuildContext(projectPath, outputDirectory, outputDirectories, userControlsByProject));
+                    BuildContext(
+                        projectPath, outputDirectory, outputDirectories, userControlsByProject, options.WithWeb));
 
                 converted.Add(new ConvertedProject(projectPath, outputDirectory, result));
             }
@@ -92,7 +93,7 @@ public sealed class SolutionConversionPipeline
         if (!options.DryRun && converted.Count > 0)
         {
             var vfs = new VirtualFileSystem();
-            vfs.AddText(solutionFileName, BuildSolution(options.OutputDirectory, converted));
+            vfs.AddText(solutionFileName, BuildSolution(converted, options.WithWeb));
             vfs.WriteToDisk(
                 options.OutputDirectory,
                 options.OverwriteAll ? ExistingFileStrategy.Overwrite : ExistingFileStrategy.PreserveExisting);
@@ -113,7 +114,8 @@ public sealed class SolutionConversionPipeline
         string projectPath,
         string outputDirectory,
         IReadOnlyDictionary<string, string> outputDirectories,
-        IReadOnlyDictionary<string, IReadOnlyList<ExternalUserControl>> userControlsByProject)
+        IReadOnlyDictionary<string, IReadOnlyList<ExternalUserControl>> userControlsByProject,
+        bool withWeb)
     {
         var referenced = new WinFormsProjectLoader().Load(projectPath).ProjectReferences
             .Where(outputDirectories.ContainsKey)
@@ -134,7 +136,7 @@ public sealed class SolutionConversionPipeline
         }
 
         var references = referenced
-            .Select(r => RelativeCsprojPath(outputDirectory, outputDirectories[r]))
+            .Select(r => RelativeCsprojPath(outputDirectory, outputDirectories[r], withWeb))
             .ToList();
 
         return new SolutionConversionContext(externals, references);
@@ -176,10 +178,22 @@ public sealed class SolutionConversionPipeline
             .ToList();
     }
 
-    private static string RelativeCsprojPath(string fromOutputDirectory, string referencedOutputDirectory)
+    /// <remarks>
+    /// The reference is written relative to the *referencing csproj's own folder*, which
+    /// <c>--with-web</c> moves one level deeper: the shared library sits in
+    /// <c>&lt;output&gt;/&lt;Proj&gt;/&lt;Proj&gt;/</c> rather than <c>&lt;output&gt;/&lt;Proj&gt;/</c>,
+    /// so both ends of the relative path gain a segment.
+    /// </remarks>
+    private static string RelativeCsprojPath(
+        string fromOutputDirectory, string referencedOutputDirectory, bool withWeb)
     {
+        var fromName = NamingConventions.DeriveProjectName(fromOutputDirectory);
         var name = NamingConventions.DeriveProjectName(referencedOutputDirectory);
-        var relative = Path.GetRelativePath(fromOutputDirectory, referencedOutputDirectory);
+
+        var from = withWeb ? Path.Combine(fromOutputDirectory, fromName) : fromOutputDirectory;
+        var to = withWeb ? Path.Combine(referencedOutputDirectory, name) : referencedOutputDirectory;
+
+        var relative = Path.GetRelativePath(from, to);
         return $"{relative.Replace(Path.DirectorySeparatorChar, '/')}/{name}.csproj";
     }
 
@@ -187,7 +201,7 @@ public sealed class SolutionConversionPipeline
     /// The `.slnx` format rather than the classic one: it needs no project GUIDs, which this
     /// converter would otherwise have to invent and then keep stable across re-runs.
     /// </summary>
-    private static string BuildSolution(string outputDirectory, IReadOnlyList<ConvertedProject> converted)
+    private static string BuildSolution(IReadOnlyList<ConvertedProject> converted, bool withWeb)
     {
         var sb = new StringBuilder();
         sb.Append("<Solution>\n");
@@ -196,7 +210,25 @@ public sealed class SolutionConversionPipeline
         {
             var name = NamingConventions.DeriveProjectName(project.OutputDirectory);
             var folder = Path.GetFileName(project.OutputDirectory.TrimEnd(Path.DirectorySeparatorChar, '/'));
-            sb.Append($"  <Project Path=\"{folder}/{name}.csproj\" />\n");
+
+            // Each converted project is three of them under --with-web, and every one has to be
+            // in the solution or the heads are unbuildable from it.
+            var names = withWeb
+                ?
+                [
+                    name,
+                    AvaloniaProjectScaffolder.BrowserHeadFolder(name),
+                    AvaloniaProjectScaffolder.DesktopHeadFolder(name),
+                ]
+                : new[] { name };
+
+            foreach (var projectName in names.OrderBy(n => n, StringComparer.Ordinal))
+            {
+                var path = withWeb
+                    ? $"{folder}/{projectName}/{projectName}.csproj"
+                    : $"{folder}/{projectName}.csproj";
+                sb.Append($"  <Project Path=\"{path}\" />\n");
+            }
         }
 
         sb.Append("</Solution>\n");

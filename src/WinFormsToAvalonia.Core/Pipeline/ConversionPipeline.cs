@@ -81,7 +81,16 @@ public sealed class ConversionPipeline
             .Concat(ProjectComponentMappers(allPairings, carriedComponentNamespaces.Keys.ToHashSet(StringComparer.Ordinal))));
 
         var axamlEmitter = new AxamlEmitter(mappingRegistry);
+        var windowWrapperEmitter = new WindowWrapperEmitter();
         var migrationPlanner = new FormMigrationPlanner(mappingRegistry, eventMappingRegistry);
+
+        // Under --with-web the startup Form's View is rooted at a UserControl so the browser head
+        // can show it under a single-view lifetime, and a generated Window hosts it on the desktop
+        // head. `pairings` puts UserControls first and Forms after, so the first Form here is the
+        // one AvaloniaProjectScaffolder will pick as the main window.
+        var splitMainFormClassName = options.WithWeb
+            ? pairings.FirstOrDefault(p => p.Kind == WinFormsArtifactKind.Form)?.ClassName
+            : null;
 
         var convertedForms = new List<ConvertedFormOutput>();
         var migrationSummaries = new List<ArtifactMigrationSummary>();
@@ -160,6 +169,9 @@ public sealed class ConversionPipeline
 
             var viewClassName = NamingConventions.DeriveViewName(pairing.ClassName);
             var viewModelClassName = NamingConventions.DeriveViewModelName(pairing.ClassName);
+            var rootKind = string.Equals(pairing.ClassName, splitMainFormClassName, StringComparison.Ordinal)
+                ? ViewRootKind.UserControl
+                : (ViewRootKind?)null;
 
             // One plan per Form, shared by all three emitters, so they can never disagree about
             // where a handler ended up or which properties are bound.
@@ -170,7 +182,8 @@ public sealed class ConversionPipeline
                 // reaches App.axaml, and only those get an accessor a handler could name.
                 notifyIcons.Where(i => i.IconAssetPath is not null)
                     .Select(i => i.FieldName)
-                    .ToHashSet(StringComparer.Ordinal));
+                    .ToHashSet(StringComparer.Ordinal),
+                rootKind);
             allWarnings.AddRange(migrationPlan.Warnings);
 
             // Unlike every other fallback key, these come from a translated *handler body*
@@ -187,7 +200,7 @@ public sealed class ConversionPipeline
 
             var axamlResult = axamlEmitter.EmitView(
                 formModel, projectName, viewClassName, viewModelClassName, migrationPlan, relativeFolder,
-                emitFallbackControls: !options.NoFallbackControls, pairing.Kind, userControlViews);
+                emitFallbackControls: !options.NoFallbackControls, pairing.Kind, userControlViews, rootKind);
             allUsedFallbackKeys.UnionWith(axamlResult.UsedFallbackKeys);
             allRequiredNuGetPackages.UnionWith(axamlResult.RequiredNuGetPackages);
             allWarnings.AddRange(axamlResult.Warnings);
@@ -198,10 +211,18 @@ public sealed class ConversionPipeline
             var viewModel = viewModelEmitter.EmitViewModel(migrationPlan, projectName, relativeFolder, viewModelClassName);
             var rawCodeBehind = options.SkipCodeBehindComments ? null : _codeBehindExtractor.Extract(pairing.PrimaryFilePath);
             var viewCodeBehind = codeBehindEmitter.EmitViewCodeBehind(
-                projectName, relativeFolder, viewClassName, viewModelClassName, migrationPlan, rawCodeBehind, pairing.Kind);
+                projectName, relativeFolder, viewClassName, viewModelClassName, migrationPlan, rawCodeBehind,
+                pairing.Kind, rootKind);
+
+            var windowWrapper = rootKind == ViewRootKind.UserControl
+                ? BuildWindowWrapper(
+                    windowWrapperEmitter, formModel, migrationPlan, projectName, relativeFolder,
+                    pairing.ClassName, viewClassName, axamlResult.DeferredWindowEvents ?? [])
+                : null;
 
             convertedForms.Add(new ConvertedFormOutput(
-                relativeFolder, viewClassName, viewModelClassName, axamlResult.Axaml, viewCodeBehind, viewModel, pairing.Kind));
+                relativeFolder, viewClassName, viewModelClassName, axamlResult.Axaml, viewCodeBehind, viewModel,
+                pairing.Kind, windowWrapper));
 
             migrationSummaries.Add(SummarizeMigration(
                 pairing.ClassName, relativeFolder, viewClassName, viewModelClassName, migrationPlan));
@@ -235,11 +256,26 @@ public sealed class ConversionPipeline
             vfs.AddBinary(assetPath, content);
         }
 
+        // Before the checklist, so what a browser head cannot do is in the same list as everything
+        // else this conversion left to a human.
+        if (options.WithWeb)
+        {
+            allWarnings.AddRange(WebHeadWarnings(allRequiredNuGetPackages, notifyIcons, splitMainFormClassName));
+        }
+
         // The map to the work this conversion deliberately left for a human. Written through the
         // VFS like everything else, so --dry-run and the preserve-existing re-run behave on it.
         vfs.AddText("MIGRATION.md", new MigrationChecklistEmitter().Emit(
             projectName, options.SourceProjectPath, allMigratedStatements, allHandlerStatements,
             allWarnings, migrationSummaries));
+
+        // Last, so every stage above - and the fallback templates, components, assets and
+        // MIGRATION.md added since the scaffold - keeps writing single-project relative paths.
+        if (options.WithWeb)
+        {
+            vfs = _scaffolder.SplitIntoHeads(
+                vfs, projectName, allRequiredNuGetPackages, solutionContext?.ProjectReferences ?? []);
+        }
 
         var preservedFiles = new List<string>();
         if (!options.DryRun)
@@ -613,6 +649,85 @@ public sealed class ConversionPipeline
             _codeBehindAnalyzer.Analyze(pairing.PrimaryFilePath, formModel),
             resx,
             [.. walkResult.Warnings, .. graphWarnings]);
+    }
+
+    /// <summary>
+    /// What a browser head cannot do, said once per conversion rather than discovered at runtime.
+    /// </summary>
+    /// <remarks>
+    /// These are limits of the platform, not of the conversion, so none of them is a reason to
+    /// refuse <c>--with-web</c> - they go into the report and into MIGRATION.md, which is where
+    /// everything this converter deliberately leaves to a human already lives.
+    /// </remarks>
+    private static IEnumerable<string> WebHeadWarnings(
+        IReadOnlySet<string> requiredPackages,
+        IReadOnlyList<NotifyIconInfo> notifyIcons,
+        string? splitMainFormClassName)
+    {
+        var unsupported = requiredPackages
+            .Where(AvaloniaProjectScaffolder.BrowserUnsupportedPackages.Contains)
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToList();
+
+        if (unsupported.Count > 0)
+        {
+            yield return
+                $"Web head: {string.Join(", ", unsupported)} build for the browser but throw "
+                + "PlatformNotSupportedException there. The desktop head is unaffected; rework or guard those "
+                + "call sites before relying on the browser build.";
+        }
+
+        if (notifyIcons.Count > 0)
+        {
+            yield return
+                "Web head: the TrayIcon in App.axaml has no counterpart in a browser - there is no system tray. "
+                + "It stays for the desktop head and is inert in the browser.";
+        }
+
+        if (splitMainFormClassName is not null)
+        {
+            yield return
+                $"Web head: '{splitMainFormClassName}' is emitted as a UserControl with a generated Window "
+                + "wrapper, because Avalonia's browser backend offers only a single-view lifetime. Every *other* "
+                + "Form is still a Window: opening one (Show/ShowDialog) works on the desktop head and throws in "
+                + "the browser, as does anything reaching the hosting Window (Close, Title, WindowState).";
+        }
+    }
+
+    /// <summary>
+    /// The desktop-head Window for a main View that had to be rooted at a UserControl. Its
+    /// forwarders take each handler's own EventArgs type, which is what the View declares and
+    /// therefore what `e` can be passed through as.
+    /// </summary>
+    private static WindowWrapperOutput BuildWindowWrapper(
+        WindowWrapperEmitter emitter,
+        FormModel formModel,
+        FormMigrationPlan plan,
+        string projectName,
+        string relativeFolder,
+        string formClassName,
+        string viewClassName,
+        IReadOnlyList<(string AttributeName, string HandlerMethodName)> deferredWindowEvents)
+    {
+        var windowClassName = NamingConventions.DeriveWindowName(
+            formClassName, new HashSet<string>(StringComparer.Ordinal) { viewClassName });
+
+        var eventArgsTypeNames = deferredWindowEvents
+            .GroupBy(e => e.AttributeName, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => plan.CodeBehindHandlers
+                         .FirstOrDefault(h => string.Equals(h.MethodName, g.First().HandlerMethodName, StringComparison.Ordinal))
+                         ?.EventArgsTypeName
+                     ?? "EventArgs",
+                StringComparer.Ordinal);
+
+        return new WindowWrapperOutput(
+            windowClassName,
+            emitter.EmitAxaml(
+                formModel, projectName, relativeFolder, viewClassName, windowClassName, deferredWindowEvents),
+            emitter.EmitCodeBehind(
+                projectName, relativeFolder, viewClassName, windowClassName, deferredWindowEvents, eventArgsTypeNames));
     }
 
     private static IReadOnlyDictionary<string, FormViewInfo> BuildFormViews(

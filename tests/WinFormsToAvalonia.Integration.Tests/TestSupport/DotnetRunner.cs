@@ -21,8 +21,13 @@ namespace WinFormsToAvalonia.Integration.Tests.TestSupport;
 /// </remarks>
 internal static class DotnetRunner
 {
+    /// <param name="timeout">
+    /// Defaults to five minutes, which is generous for an ordinary build. A browser head is the
+    /// exception: its first build runs the WebAssembly SDK's native link step, and that alone can
+    /// take longer than the whole default budget.
+    /// </param>
     public static async Task<(int ExitCode, string StdOut, string StdErr)> RunAsync(
-        string arguments, string workingDirectory)
+        string arguments, string workingDirectory, TimeSpan? timeout = null)
     {
         var psi = new ProcessStartInfo("dotnet", $"{arguments} -nodeReuse:false")
         {
@@ -36,10 +41,10 @@ internal static class DotnetRunner
         var stdOutTask = process.StandardOutput.ReadToEndAsync();
         var stdErrTask = process.StandardError.ReadToEndAsync();
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        using var deadline = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(5));
         try
         {
-            await process.WaitForExitAsync(timeout.Token);
+            await process.WaitForExitAsync(deadline.Token);
         }
         catch (OperationCanceledException)
         {

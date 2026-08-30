@@ -51,6 +51,17 @@ public static class NamingConventions
     public static string DeriveViewName(string formClassName) => StripFormSuffix(formClassName) + "View";
 
     /// <summary>"UserForm" -> "UserViewModel", "MainWindow" -> "MainWindowViewModel".</summary>
+    /// <summary>
+    /// The wrapper <c>Window</c> generated beside a UserControl-rooted main View: `MainForm` ->
+    /// `MainWindow`. <paramref name="taken"/> guards the one collision this can produce - a Form
+    /// literally named `MainWindow`, whose View is already `MainWindowView`.
+    /// </summary>
+    public static string DeriveWindowName(string formClassName, IReadOnlySet<string>? taken = null)
+    {
+        var name = StripFormSuffix(formClassName) + "Window";
+        return taken?.Contains(name) == true ? name + "Shell" : name;
+    }
+
     public static string DeriveViewModelName(string formClassName) => StripFormSuffix(formClassName) + "ViewModel";
 
     /// <summary>

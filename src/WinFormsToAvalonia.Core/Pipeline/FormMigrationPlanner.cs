@@ -34,6 +34,14 @@ namespace WinFormsToAvalonia.Core.Pipeline;
 /// </remarks>
 public sealed class FormMigrationPlanner
 {
+    /// <summary>
+    /// How a View that is not itself a Window names the one hosting it. Emitted into the
+    /// generated project as <c>Generated/ViewWindow.cs</c>, next to <c>MigrationTodo</c>, whose
+    /// namespace every generated View already imports.
+    /// </summary>
+    internal const string GeneratedWindowAccessor = "ViewWindow.Of(this)";
+
+
     private readonly ControlMappingRegistry _controlMappings;
     private readonly EventMappingRegistry _eventMappings;
 
@@ -66,8 +74,17 @@ public sealed class FormMigrationPlanner
         WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form,
         IReadOnlyDictionary<string, string>? projectComponentNamespaces = null,
         ViewSurfaceContext? viewSurface = null,
-        IReadOnlySet<string>? trayIconFields = null)
+        IReadOnlySet<string>? trayIconFields = null,
+        ViewRootKind? rootKind = null)
     {
+        // The browser head's main Form is rooted at a UserControl, so `this` is not the Window -
+        // but one still hosts it, and the generated helper walks up to it. See ViewRootKind.
+        var root = rootKind ?? artifactKind.DefaultRootKind();
+        var hostIsWindow = root == ViewRootKind.Window && artifactKind != WinFormsArtifactKind.UserControl;
+        var windowExpression = !hostIsWindow && artifactKind != WinFormsArtifactKind.UserControl
+            ? GeneratedWindowAccessor
+            : null;
+
         viewSurface ??= ViewSurfaceContext.None;
         trayIconFields ??= new HashSet<string>(StringComparer.Ordinal);
         var warnings = new List<string>();
@@ -112,7 +129,7 @@ public sealed class FormMigrationPlanner
         }
 
         // A designer-set DialogResult is a whole handler the designer never had to write.
-        codeBehindHandlers.AddRange(PlanDialogResultButtons(formModel, artifactKind));
+        codeBehindHandlers.AddRange(PlanDialogResultButtons(formModel, artifactKind, hostIsWindow ? "" : $"{windowExpression}."));
 
         // A handler that exists only to keep a promoted button's Enabled state in sync is a
         // CanExecute guard written imperatively - fold it into the command and drop it.
@@ -124,7 +141,8 @@ public sealed class FormMigrationPlanner
         var rewriter = new HandlerBodyRewriter(_controlMappings);
         var navigation = new ViewNavigationContext(
             formViews ?? new Dictionary<string, FormViewInfo>(StringComparer.Ordinal),
-            HostIsWindow: artifactKind != WinFormsArtifactKind.UserControl);
+            HostIsWindow: hostIsWindow,
+            WindowExpression: windowExpression);
 
         // Planned *before* the rewrite, unlike the file dialogs below: these fields are something
         // a handler body may name, so the rewriter has to know they exist. (The file dialogs go
@@ -1250,7 +1268,8 @@ public sealed class FormMigrationPlanner
     /// And only on a Form - a converted UserControl has no window to close.
     /// </para>
     /// </remarks>
-    private IEnumerable<CodeBehindHandlerPlan> PlanDialogResultButtons(FormModel formModel, WinFormsArtifactKind artifactKind)
+    private IEnumerable<CodeBehindHandlerPlan> PlanDialogResultButtons(
+        FormModel formModel, WinFormsArtifactKind artifactKind, string windowMemberPrefix)
     {
         if (artifactKind == WinFormsArtifactKind.UserControl)
         {
@@ -1283,7 +1302,8 @@ public sealed class FormMigrationPlanner
                 methodName,
                 OriginalBody: "",
                 [new EventSubscriptionPlan(control.FieldName, control.ClrTypeName, "Click", mapping, methodName)],
-                RewrittenBody.Synthesized($"Close({(closesWithSuccess ? "true" : "false")});"));
+                RewrittenBody.Synthesized(
+                    $"{windowMemberPrefix}Close({(closesWithSuccess ? "true" : "false")});"));
         }
     }
 

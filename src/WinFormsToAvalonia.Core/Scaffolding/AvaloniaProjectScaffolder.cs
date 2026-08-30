@@ -9,7 +9,7 @@ namespace WinFormsToAvalonia.Core.Scaffolding;
 /// MainWindow view+viewmodel (<see cref="BuildEmptySkeleton"/> - used when zero forms were
 /// discovered/converted) or the real converted Views/ViewModels (<see cref="BuildProject"/>).
 /// </summary>
-public sealed class AvaloniaProjectScaffolder
+public sealed partial class AvaloniaProjectScaffolder
 {
     /// <summary>
     /// The Avalonia every generated project is written against. Public because it is a contract
@@ -135,7 +135,8 @@ public sealed class AvaloniaProjectScaffolder
             vfs.AddText("Program.cs", BuildProgram(projectName));
             vfs.AddText("App.axaml", BuildAppAxaml(projectName, notifyIcons ?? [], packages));
             vfs.AddText("App.axaml.cs", BuildAppAxamlCs(
-                projectName, mainForm.ViewClassName, mainForm.RelativeFolder, notifyIcons));
+                projectName, mainForm.ViewClassName, mainForm.RelativeFolder, notifyIcons,
+                mainForm.WindowWrapper?.WindowClassName));
             vfs.AddText("ViewLocator.cs", BuildViewLocator(projectName));
             vfs.AddText("ViewModels/ViewModelBase.cs", BuildViewModelBase(projectName));
         }
@@ -151,6 +152,14 @@ public sealed class AvaloniaProjectScaffolder
             vfs.AddText($"{viewsFolder}/{form.ViewClassName}.axaml", form.AxamlContent);
             vfs.AddText($"{viewsFolder}/{form.ViewClassName}.axaml.cs", form.ViewCodeBehindContent);
             vfs.AddText($"{viewModelsFolder}/{form.ViewModelClassName}.cs", form.ViewModelContent);
+
+            // The desktop-head chrome for a UserControl-rooted main View. Null for every other
+            // View, which is all of them unless --with-web asked for the split.
+            if (form.WindowWrapper is { } wrapper)
+            {
+                vfs.AddText($"{viewsFolder}/{wrapper.WindowClassName}.axaml", wrapper.AxamlContent);
+                vfs.AddText($"{viewsFolder}/{wrapper.WindowClassName}.axaml.cs", wrapper.CodeBehindContent);
+            }
         }
 
         return vfs;
@@ -167,7 +176,8 @@ public sealed class AvaloniaProjectScaffolder
     private static string BuildCsproj(
         string projectName,
         IReadOnlySet<string> extraNuGetPackages,
-        IReadOnlyList<string> projectReferences)
+        IReadOnlyList<string> projectReferences,
+        bool asLibrary = false)
     {
         var extraPackageLines = string.Concat(extraNuGetPackages
             .Where(ExtraPackageVersions.ContainsKey)
@@ -182,14 +192,25 @@ public sealed class AvaloniaProjectScaffolder
                     .Select(p => $"\n    <ProjectReference Include=\"{p.Replace('/', '\\')}\" />"))
                 + "\n  </ItemGroup>";
 
+        // A library has no entry point and no window backend of its own: both live in the heads
+        // that reference it. Everything else - the resource globs, the theme, the extras a mapper
+        // asked for - is the same project either way.
+        var executableProperties = asLibrary
+            ? ""
+            : "\n    <OutputType>WinExe</OutputType>";
+        var manifestProperty = asLibrary
+            ? ""
+            : "\n    <ApplicationManifest>app.manifest</ApplicationManifest>";
+        var desktopBackendPackage = asLibrary
+            ? ""
+            : $"\n    <PackageReference Include=\"Avalonia.Desktop\" Version=\"{AvaloniaVersion}\" />";
+
         return $"""
             <Project Sdk="Microsoft.NET.Sdk">
-              <PropertyGroup>
-                <OutputType>WinExe</OutputType>
+              <PropertyGroup>{executableProperties}
                 <TargetFramework>net10.0</TargetFramework>
                 <Nullable>enable</Nullable>
-                <ImplicitUsings>enable</ImplicitUsings>
-                <ApplicationManifest>app.manifest</ApplicationManifest>
+                <ImplicitUsings>enable</ImplicitUsings>{manifestProperty}
                 <RootNamespace>{projectName}</RootNamespace>
               </PropertyGroup>
 
@@ -200,8 +221,7 @@ public sealed class AvaloniaProjectScaffolder
               </ItemGroup>
 
               <ItemGroup>
-                <PackageReference Include="Avalonia" Version="{AvaloniaVersion}" />
-                <PackageReference Include="Avalonia.Desktop" Version="{AvaloniaVersion}" />
+                <PackageReference Include="Avalonia" Version="{AvaloniaVersion}" />{desktopBackendPackage}
                 <PackageReference Include="Avalonia.Themes.Simple" Version="{AvaloniaVersion}" />
                 <PackageReference Include="Avalonia.Fonts.Inter" Version="{AvaloniaVersion}" />
                 <PackageReference Include="CommunityToolkit.Mvvm" Version="{CommunityToolkitMvvmVersion}" />{extraPackageLines}
@@ -375,11 +395,30 @@ public sealed class AvaloniaProjectScaffolder
         string projectName,
         string mainViewClassName,
         string relativeFolder,
-        IReadOnlyList<NotifyIconInfo>? notifyIcons = null)
+        IReadOnlyList<NotifyIconInfo>? notifyIcons = null,
+        string? mainWindowClassName = null)
     {
-        var mainViewRef = string.IsNullOrEmpty(relativeFolder)
-            ? mainViewClassName
-            : $"{NamingConventions.NamespaceOf($"{projectName}.Views", relativeFolder)}.{mainViewClassName}";
+        string Qualify(string className) => string.IsNullOrEmpty(relativeFolder)
+            ? className
+            : $"{NamingConventions.NamespaceOf($"{projectName}.Views", relativeFolder)}.{className}";
+
+        var mainViewRef = Qualify(mainViewClassName);
+
+        // Without the split the main View is the Window, and the browser branch would have
+        // nothing it could legally assign - so it is emitted only when there is a wrapper.
+        var desktopWindowRef = mainWindowClassName is null ? mainViewRef : Qualify(mainWindowClassName);
+        var singleViewBranch = mainWindowClassName is null
+            ? ""
+            : $$"""
+
+                        // Avalonia's browser backend has no windowing platform: the whole app is
+                        // one view. {{mainViewClassName}} is a UserControl for exactly this reason.
+                        else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
+                        {
+                            singleView.MainView = new {{mainViewRef}}();
+                        }
+                """;
+
         return $$"""
             using Avalonia;
             using Avalonia.Controls;
@@ -405,8 +444,8 @@ public sealed class AvaloniaProjectScaffolder
                         // Every generated View sets its own DataContext in its constructor, so the
                         // {Binding}s work no matter how the window is opened - not only for the one
                         // window App happens to construct here.
-                        desktop.MainWindow = new {{mainViewRef}}();
-                    }
+                        desktop.MainWindow = new {{desktopWindowRef}}();
+                    }{{singleViewBranch}}
 
                     base.OnFrameworkInitializationCompleted();
                 }

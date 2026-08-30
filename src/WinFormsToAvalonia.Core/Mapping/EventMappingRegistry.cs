@@ -463,6 +463,17 @@ public sealed class EventMappingRegistry
     public static IEnumerable<string> FormEventNames => FormEvents.Keys;
 
     /// <summary>
+    /// The distinct Avalonia events a Form-level subscription can actually be emitted as - the
+    /// input to <see cref="WindowOnlyEventCatalog"/>, which has to classify every one of them.
+    /// </summary>
+    public static IEnumerable<string> AllFormEventTargets =>
+        FormEvents.Values
+            .Select(m => m.AvaloniaEventName)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(n => n, StringComparer.Ordinal);
+
+    /// <summary>
     /// Every WinForms event name some table here answers for <em>by name</em> - as opposed to the
     /// generic "no equivalent registered" that any unknown name gets.
     /// </summary>

@@ -962,3 +962,44 @@ required before anything is written into a non-empty output directory at all.
   the sample's nine 992x602 pages each produced a 602-pixel-tall tab header, which filled the
   window and pushed every page out of it. Adding a mapper whose target holds items means adding
   it to that set.
+
+## Browser (WebAssembly) head
+
+Only produced by `--with-web`. Building it needs the `wasm-tools` workload
+(`dotnet workload install wasm-tools`); nothing below applies to the desktop head, which behaves
+exactly as the single-project output always did.
+
+- **There is no `Window` in a browser.** Avalonia's browser backend installs a single-view
+  lifetime and has no windowing platform at all, so a `Window` cannot be instantiated there -
+  not shown, not constructed. This is the constraint everything else here follows from.
+- The startup Form's View is therefore rooted at a `UserControl`, with a generated
+  `<Name>Window` wrapping it for the desktop head. That wrapper carries the title, the size and
+  the events only a `Window` raises, and forwards those into the View - so a `FormClosing`
+  confirmation still runs on the desktop and simply never fires in the browser, where nothing
+  closes a window.
+- **Every other Form is still a `Window`.** Opening one - `Show()`, `ShowDialog()`, a
+  `DialogResult` comparison - works on the desktop head and throws in the browser. Converting
+  them all would mean inventing an overlay-based dialog stack the original never described, which
+  is not something this converter does.
+- Anything reaching the hosting window from the main View (`Close`, `Activate`, `Title`,
+  `Topmost`, `WindowState`, `ShowInTaskbar`, a dialog owner) is emitted through the generated
+  `ViewWindow.Of(this)` helper. Same story: fine on the desktop, throws in the browser, with a
+  message naming what to rework.
+- `NotifyIcon` → `TrayIcon` is emitted into `App.axaml` and is inert in a browser - there is no
+  system tray.
+- The Windows-flavoured packages a component can pull in - `System.IO.Ports`,
+  `System.Diagnostics.EventLog`, `System.Diagnostics.PerformanceCounter`,
+  `System.ServiceProcess.ServiceController`, `System.Windows.Extensions` - are `net10.0`
+  libraries, so a `net10.0-browser` project references them happily and the build says nothing.
+  They throw `PlatformNotSupportedException` the first time the converted code touches one. The
+  conversion lists whichever ones are present in `MIGRATION.md`; none of them can be fixed by
+  the conversion, because a serial port and the Windows event log genuinely are not in a browser.
+- File dialogs already go through `TopLevel.StorageProvider`, which the browser backend
+  implements over the File System Access API - so those do work, subject to what the browser
+  allows.
+- The two csproj properties that make the head build are easy to lose and both fail *silently*:
+  without `<RuntimeIdentifier>browser-wasm</RuntimeIdentifier>` the WebAssembly SDK targets never
+  run, the project compiles to plain IL and reports success while producing no `AppBundle`; and
+  without `<WasmExtraFilesToDeploy Include="wwwroot\**" />` the bundle is built with no
+  `index.html` to open. `WebHeadConversionBuildTests` asserts on the bundle's contents rather
+  than the exit code for exactly this reason.

@@ -54,6 +54,14 @@ source project is never modified.
 Generated projects target `net10.0` and reference Avalonia 12.1.1 + CommunityToolkit.Mvvm 8.4.2.
 The tool itself has **no Avalonia dependency** — you can run it anywhere the SDK runs.
 
+For `--with-web` you also need the WebAssembly workload, once:
+
+```bash
+dotnet workload install wasm-tools
+```
+
+It is needed to *build* the generated browser head, not to run the converter.
+
 ## Quick start
 
 It installs as a .NET tool called `wf2a`:
@@ -116,6 +124,7 @@ dotnet tool install --global --add-source ./artifacts WinFormsToAvalonia
 | `--verbose` | Show every warning, not just the first few. |
 | `--no-fallback-controls` | Strict mode: skip fallback controls instead of emitting them. |
 | `--skip-code-behind-comments` | Omit the preserved code-behind block. |
+| `--with-web` | Also generate a browser (WebAssembly) head — see [Web (WASM) head](#web-wasm-head). |
 | `--log-file <path>` | Also write the conversion report as JSON. |
 
 ## Example
@@ -295,6 +304,41 @@ raises `Loaded` — so a throwing stub used to kill the converted app during XAM
 before its first window appeared. Set `MigrationTodo.ThrowOnUnmigratedCall = true` (e.g. in a smoke
 test) to make un-migrated code fail loudly again, and read `MigrationTodo.ReportedMembers` to see
 what ran un-migrated.
+
+### Web (WASM) head
+
+`--with-web` generates the cross-platform layout instead of the single desktop project: a shared
+library holding everything the conversion produced, plus a head per target.
+
+```
+Out/
+  MyApp.slnx
+  MyApp/                    Views, ViewModels, App.axaml, Assets — a library
+  MyApp.Desktop/            Program.cs, app.manifest, Avalonia.Desktop
+  MyApp.Browser/            Program.cs, wwwroot/, Avalonia.Browser, net10.0-browser
+```
+
+```bash
+wf2a convert --source MyApp.csproj --output ./Out --with-web
+dotnet run --project ./Out/MyApp.Browser     # serves the WASM build
+dotnet run --project ./Out/MyApp.Desktop     # unchanged desktop app
+```
+
+**The main Form becomes a `UserControl`.** Avalonia's browser backend offers only a single-view
+lifetime — there is no windowing platform in a browser, and a `Window` cannot be instantiated
+there at all. So under `--with-web` the startup Form's View is rooted at a `UserControl`, and a
+thin generated `MyAppWindow` hosts it for the desktop head, carrying the title, the size, and the
+events only a `Window` raises (`Closing`, `Opened`, …), which it forwards into the View. The
+desktop head behaves exactly as it did before; `App.axaml.cs` picks the branch at startup.
+
+Every *other* Form is still a `Window`, and everything reaching the hosting window
+(`Close`, `Title`, `WindowState`, `ShowDialog`) goes through a generated `ViewWindow.Of(this)`
+that walks up to it. Those work on the desktop head and throw in the browser — the conversion
+reports each one in `MIGRATION.md` rather than pretending otherwise. See
+[known-limitations](docs/known-limitations.md#browser-webassembly-head) for the full list.
+
+Without the flag the output is byte-for-byte what it has always been: the split is a
+post-processing pass, not a branch through the converter.
 
 ## Project layout
 

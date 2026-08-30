@@ -35,9 +35,13 @@ public sealed class AxamlEmitter
     }
 
     /// <param name="artifactKind">
-    /// Decides the root element: a Form becomes a <c>Window</c> (with a Title), a UserControl
-    /// an Avalonia <c>UserControl</c> - which has neither a Title nor a ClientSize, so its size
-    /// comes from the designer's own <c>Size</c> assignment instead.
+    /// The WinForms semantics: a Form takes its size from <c>ClientSize</c>, a UserControl from
+    /// the designer's own <c>Size</c> assignment.
+    /// </param>
+    /// <param name="rootKind">
+    /// The Avalonia element to root the document at, when it must differ from what
+    /// <paramref name="artifactKind"/> would choose - a Form emitted as a <c>UserControl</c> so
+    /// it can be shown under the browser's single-view lifetime. Null keeps the two in step.
     /// </param>
     /// <param name="userControlViews">
     /// Every UserControl the source project defines, so their <c>xmlns</c> prefixes can be
@@ -53,16 +57,23 @@ public sealed class AxamlEmitter
         string relativeFolder = "",
         bool emitFallbackControls = true,
         WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form,
-        IReadOnlyList<UserControlViewInfo>? userControlViews = null)
+        IReadOnlyList<UserControlViewInfo>? userControlViews = null,
+        ViewRootKind? rootKind = null)
     {
         var viewNamespace = NamingConventions.NamespaceOf($"{rootNamespace}.Views", relativeFolder);
         var viewModelNamespace = NamingConventions.NamespaceOf($"{rootNamespace}.ViewModels", relativeFolder);
         var isUserControl = artifactKind == WinFormsArtifactKind.UserControl;
 
+        // The root element and the artifact kind are two different questions - see ViewRootKind.
+        // Everything below that reads `isUserControl` is asking about WinForms semantics; the
+        // ones asking what element we are actually writing go through `rootElementName`.
+        var root = rootKind ?? artifactKind.DefaultRootKind();
+        var rootElementName = root.ElementName();
+
         var builder = new AxamlDocumentBuilder();
         var state = new EmissionState(formModel, plan ?? FormMigrationPlan.Empty);
 
-        builder.OpenElement(isUserControl ? "UserControl" : "Window");
+        builder.OpenElement(rootElementName);
         builder.Attribute("xmlns", "https://github.com/avaloniaui");
         builder.Attribute("xmlns:x", "http://schemas.microsoft.com/winfx/2006/xaml");
         builder.Attribute("xmlns:vm", $"using:{viewModelNamespace}");
@@ -87,7 +98,7 @@ public sealed class AxamlEmitter
             builder.Attribute("Height", FormatInt(formHeight));
         }
 
-        if (!isUserControl)
+        if (root == ViewRootKind.Window)
         {
             builder.Attribute("Title", GetFormTitle(formModel, viewClassName));
         }
@@ -97,15 +108,24 @@ public sealed class AxamlEmitter
         // never overrode it, and Avalonia's font properties inherit the same way - so one
         // attribute here restores the typeface for a whole form's worth of controls.
         EmitVisualStyleAttributes(
-            builder, formModel.FormProperties, isUserControl ? "UserControl" : "Window", NoBoundAttributes);
+            builder, formModel.FormProperties, rootElementName, NoBoundAttributes);
 
-        // Form-level events (Load/FormClosing/...) subscribe on the Window element itself.
+        // Form-level events (Load/FormClosing/...) subscribe on the root element itself - except
+        // the ones only a Window declares, which a UserControl-rooted View has to hand to the
+        // wrapper Window that hosts it.
+        var deferredWindowEvents = new List<(string AttributeName, string HandlerMethodName)>();
         foreach (var (attributeName, handlerMethodName) in state.Plan.XamlEventAttributesFor(null))
         {
+            if (root == ViewRootKind.UserControl && WindowOnlyEventCatalog.IsWindowOnly(attributeName))
+            {
+                deferredWindowEvents.Add((attributeName, handlerMethodName));
+                continue;
+            }
+
             builder.Attribute(attributeName, handlerMethodName);
         }
 
-        EmitCanvasLayoutStyles(builder, isUserControl ? "UserControl" : "Window");
+        EmitCanvasLayoutStyles(builder, rootElementName);
 
         builder.OpenElement("Design.DataContext");
         builder.OpenElement($"vm:{viewModelClassName}");
@@ -129,7 +149,8 @@ public sealed class AxamlEmitter
             state.DirectCount,
             state.FallbackCount,
             state.UnsupportedCount,
-            state.Warnings);
+            state.Warnings,
+            deferredWindowEvents);
     }
 
     /// <summary>
@@ -801,7 +822,7 @@ public sealed class AxamlEmitter
         return false;
     }
 
-    private static bool TryGetSize(IReadOnlyDictionary<string, PropertyValue> properties, string propertyName, out int width, out int height)
+    internal static bool TryGetSize(IReadOnlyDictionary<string, PropertyValue> properties, string propertyName, out int width, out int height)
     {
         if (properties.TryGetValue(propertyName, out var value) && value is PropertyValue.SizeValue size)
         {
@@ -815,7 +836,7 @@ public sealed class AxamlEmitter
         return false;
     }
 
-    private static string GetFormTitle(FormModel formModel, string fallback)
+    internal static string GetFormTitle(FormModel formModel, string fallback)
     {
         if (formModel.FormProperties.TryGetValue("Text", out var value)
             && value is PropertyValue.Literal { Value: string text }
@@ -827,5 +848,5 @@ public sealed class AxamlEmitter
         return fallback;
     }
 
-    private static string FormatInt(int value) => value.ToString(CultureInfo.InvariantCulture);
+    internal static string FormatInt(int value) => value.ToString(CultureInfo.InvariantCulture);
 }

@@ -41,6 +41,17 @@ if [ -z "$SLN_FILE" ]; then
     SLN_FILE="$AVALONIA_DIR/Avalonia.slnx"
 fi
 
+# Set W2A_WITH_WEB=1 to also generate the browser (WebAssembly) head for every sample. Off by
+# default because building the result needs the `wasm-tools` workload, which not every machine
+# has - and the checked-in samples/Avalonia output is the single-project layout.
+CONVERT_FLAGS=(--force --overwrite-all)
+CSPROJ_DEPTH=1
+if [ "${W2A_WITH_WEB:-0}" != "0" ]; then
+    CONVERT_FLAGS+=(--with-web)
+    # --with-web puts three projects one level down: <name>/, <name>.Desktop/, <name>.Browser/.
+    CSPROJ_DEPTH=2
+fi
+
 echo "==> Converting WinForms projects to Avalonia..."
 success_count=0
 fail_count=0
@@ -62,11 +73,15 @@ while IFS= read -r proj_file; do
     # version alongside as *.w2a-new - right for a user's half-migrated project, exactly wrong
     # here. Hand-written files the converter does not produce (samples/Avalonia's Dialogs/,
     # Models/, Components/) survive either way: it only ever writes what it generates.
-    if dotnet "$CLI_DLL" convert --source "$proj_file" --output "$output_dir" --force --overwrite-all; then
-        gen_csproj="$(find "$output_dir" -maxdepth 1 -name "*.csproj" | head -n 1 || true)"
-        if [ -n "$gen_csproj" ]; then
-            echo "Adding $gen_csproj to solution $SLN_FILE..."
-            dotnet sln "$SLN_FILE" add "$gen_csproj"
+    if dotnet "$CLI_DLL" convert --source "$proj_file" --output "$output_dir" "${CONVERT_FLAGS[@]}"; then
+        # Every generated csproj, not just the first: --with-web produces three per sample, and
+        # a head that is not in the solution cannot be built from it.
+        mapfile -t gen_csprojs < <(find "$output_dir" -maxdepth "$CSPROJ_DEPTH" -name "*.csproj" | sort)
+        if [ "${#gen_csprojs[@]}" -gt 0 ]; then
+            for gen_csproj in "${gen_csprojs[@]}"; do
+                echo "Adding $gen_csproj to solution $SLN_FILE..."
+                dotnet sln "$SLN_FILE" add "$gen_csproj"
+            done
             success_count=$((success_count + 1))
         else
             echo "Warning: No .csproj found in $output_dir to add to solution." >&2

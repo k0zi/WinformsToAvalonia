@@ -17,4 +17,15 @@ public sealed record ConvertedFormOutput(
     string AxamlContent,
     string ViewCodeBehindContent,
     string ViewModelContent,
-    WinFormsArtifactKind Kind = WinFormsArtifactKind.Form);
+    WinFormsArtifactKind Kind = WinFormsArtifactKind.Form,
+    /// <summary>
+    /// The desktop-head <c>Window</c> generated beside a <c>UserControl</c>-rooted main View, if
+    /// this is one. Only <c>--with-web</c> produces it - see <see cref="ViewRootKind"/>.
+    /// </summary>
+    WindowWrapperOutput? WindowWrapper = null);
+
+/// <summary>The generated wrapper Window's two files. See <see cref="ConvertedFormOutput"/>.</summary>
+public sealed record WindowWrapperOutput(
+    string WindowClassName,
+    string AxamlContent,
+    string CodeBehindContent);
