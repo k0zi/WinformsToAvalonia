@@ -3394,6 +3394,95 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- Paint handlers: Graphics -> DrawingContext ------------------------------------------
+
+    private static RewrittenBody RewritePaint(string body) =>
+        Rewriter.RewriteForView(
+            body,
+            FormWith(("canvasPanel", "Panel")),
+            signature: new HandlerSignature("e", "PaintSurfaceEventArgs", ["canvasPanel"]));
+
+    /// <summary>
+    /// The two frameworks disagree on shape: WinForms names the operation twice (DrawEllipse
+    /// outlines, FillEllipse fills) where Avalonia has one method taking both a brush and a pen,
+    /// either of which may be null. The catalog is where that is written down.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        "e.Graphics.DrawEllipse(Pens.Black, 1, 2, 3, 4);",
+        "e.Context.DrawEllipse(null, new Pen(new SolidColorBrush(Color.Parse(\"#FF000000\"))), new Rect(1, 2, 3, 4));")]
+    [InlineData(
+        "e.Graphics.FillEllipse(Brushes.Black, 1, 2, 3, 4);",
+        "e.Context.DrawEllipse(new SolidColorBrush(Color.Parse(\"#FF000000\")), null, new Rect(1, 2, 3, 4));")]
+    [InlineData(
+        "e.Graphics.DrawRectangle(Pens.Black, 1, 2, 3, 4);",
+        "e.Context.DrawRectangle(null, new Pen(new SolidColorBrush(Color.Parse(\"#FF000000\"))), new Rect(1, 2, 3, 4));")]
+    [InlineData(
+        "e.Graphics.FillRectangle(Brushes.Black, 1, 2, 3, 4);",
+        "e.Context.DrawRectangle(new SolidColorBrush(Color.Parse(\"#FF000000\")), null, new Rect(1, 2, 3, 4));")]
+    [InlineData(
+        "e.Graphics.DrawLine(Pens.Black, 1, 2, 3, 4);",
+        "e.Context.DrawLine(new Pen(new SolidColorBrush(Color.Parse(\"#FF000000\"))), new Point(1, 2), new Point(3, 4));")]
+    public void RewriteForView_GraphicsCall_BecomesTheDrawingContextEquivalent(string body, string expected)
+    {
+        var result = RewritePaint(body);
+
+        Assert.Equal([expected], result.MigratedStatements);
+        Assert.Contains("Avalonia.Media", result.RequiredUsings);
+    }
+
+    /// <summary>
+    /// A system colour has no named Avalonia brush at all, so resolving both palettes through the
+    /// one colour pipeline is what keeps <c>Brushes.Control</c> from becoming a name that does not
+    /// exist on the other side.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SystemColourBrush_BecomesExplicitArgb()
+    {
+        var result = RewritePaint("e.Graphics.FillRectangle(SystemBrushes.Control, 0, 0, 1, 1);");
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.Contains("Color.Parse(\"#FF", statement, StringComparison.Ordinal);
+        Assert.DoesNotContain("Brushes.Control", statement, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// DrawString is refused: Avalonia's DrawText wants a Typeface and an em size where WinForms
+    /// passed one Font object, and splitting one argument into two this converter cannot read is
+    /// the kind of guess it does not make. The prefix rule then leaves the rest to a human.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DrawString_IsNotMigrated()
+    {
+        var result = RewritePaint("e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, 1, 2);");
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>An overload with a different arity is a different call, and is refused.</summary>
+    [Fact]
+    public void RewriteForView_GraphicsOverloadWithAnotherArity_IsNotMigrated()
+    {
+        var result = RewritePaint("e.Graphics.DrawEllipse(Pens.Black, someRectangle);");
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Outside a Paint handler <c>e.Graphics</c> resolves to nothing, so the shape is not
+    /// recognised at all - which is what keeps this bounded to the one surface that has a context.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_GraphicsCallOutsideAPaintHandler_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "e.Graphics.DrawEllipse(Pens.Black, 1, 2, 3, 4);",
+            FormWith(("canvasPanel", "Panel")),
+            signature: new HandlerSignature("e", "PointerPressedEventArgs", ["canvasPanel"]));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     // ---- BindingSource rows and Details-ListView rows -------------------------------------
     //
     // These two shapes are the only place this rewriter reads an object initializer or an array,

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -1889,6 +1890,75 @@ public sealed class HandlerBodyRewriter
         return true;
     }
 
+    /// <summary>
+    /// <c>e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);</c> - the body of a WinForms
+    /// <c>Paint</c> handler, onto Avalonia's <c>DrawingContext</c>.
+    /// </summary>
+    /// <remarks>
+    /// Reachable only inside a handler whose args type is the bundled paint surface's, because
+    /// that is the one place <c>e.Graphics</c> resolves to anything - see
+    /// <c>EventArgsMemberCatalog</c>. Every argument still has to translate on its own: the pen or
+    /// brush through the same colour pipeline the designer path uses, the coordinates through
+    /// <see cref="TryRewriteExpression"/>. A call the catalog does not list, or an overload with a
+    /// different arity, refuses - and the prefix rule then leaves the remainder to a human, which
+    /// is what happens to <c>DrawString</c>.
+    /// </remarks>
+    private static bool TryRewriteGraphicsCall(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (receiver is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Graphics" } graphics
+            || !target.TryResolveEventArgsMember(graphics.Expression, "Graphics", out var context)
+            || !GraphicsMemberCatalog.TryGet(methodName, out var call)
+            || invocation.ArgumentList.Arguments.Count != call.ArgumentCount
+            || !TryRewriteStroke(invocation.ArgumentList.Arguments[0].Expression, call.Stroke, target, out var stroke))
+        {
+            return false;
+        }
+
+        var values = new List<object> { stroke };
+
+        foreach (var argument in invocation.ArgumentList.Arguments.Skip(1))
+        {
+            if (!TryRewriteExpression(argument.Expression, target, out var text))
+            {
+                return false;
+            }
+
+            values.Add(text);
+        }
+
+        rewritten = new RewrittenStatement(
+            $"{context}.{string.Format(CultureInfo.InvariantCulture, call.Format, [.. values])};",
+            // Point/Rect live in Avalonia, the brushes and pens in Avalonia.Media.
+            RequiredUsings: ["Avalonia", "Avalonia.Media"]);
+        return true;
+    }
+
+    /// <summary>
+    /// The pen or brush a drawing call leads with. WinForms has a <c>Pens</c> and a
+    /// <c>Brushes</c> palette; Avalonia has neither, so both resolve to an explicit colour and a
+    /// pen is built around the brush.
+    /// </summary>
+    private static bool TryRewriteStroke(
+        ExpressionSyntax expression, GraphicsStrokeKind kind, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (!TryRewriteColorExpression(expression, target, out var brush))
+        {
+            return false;
+        }
+
+        text = kind == GraphicsStrokeKind.Pen ? $"new Pen({brush})" : brush;
+        return true;
+    }
+
     /// <summary>The two WinForms colour properties, and what each becomes.</summary>
     private static readonly IReadOnlyDictionary<string, (string AvaloniaName, AvaloniaStyleProperties Surface)> StyleColorProperties =
         new Dictionary<string, (string, AvaloniaStyleProperties)>(StringComparer.Ordinal)
@@ -2104,6 +2174,12 @@ public sealed class HandlerBodyRewriter
 
         // `listView1.Items.Add(new ListViewItem("x"));` - only where the ListView became a
         // ListBox, which is the only shape with a faithful answer.
+        // `e.Graphics.DrawEllipse(...)` inside a Paint handler.
+        if (TryRewriteGraphicsCall(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
+        }
+
         if (TryRewriteListViewItemCall(receiver, methodName, invocation, target, out rewritten))
         {
             return true;

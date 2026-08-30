@@ -28,6 +28,45 @@ public class GeneratedAppStartupTests
 {
     private const string SuccessMarker = "W2A-SMOKE-OK";
 
+
+    /// <summary>
+    /// Injected only for the fixture that has a paint surface, because it names the generated
+    /// template type - which does not exist in an app that has none.
+    /// </summary>
+    /// <remarks>
+    /// This is the one thing building cannot tell you. Avalonia draws by calling
+    /// <c>Render(DrawingContext)</c> during the render pass; if that never reached the surface -
+    /// a zero-sized control, a visual never attached - the handler would simply not run, the app
+    /// would start perfectly, and the drawing would be absent. Exactly the "compiles, starts,
+    /// renders as nothing" shape this suite exists for.
+    /// </remarks>
+    private const string PaintReportSource = """
+                    private static void ReportPaintSurfaces(Window? window)
+                    {
+                        if (window is null)
+                        {
+                            return;
+                        }
+
+                        foreach (var surface in Descendants(window).OfType<__ROOT__.Controls.PaintSurfaceFallback>())
+                        {
+                            var painted = 0;
+                            surface.Paint += (_, _) => painted++;
+
+                            window.UpdateLayout();
+                            surface.InvalidateVisual();
+
+                            // Renders a real frame, which is the only thing that makes Avalonia
+                            // walk the tree calling Render on each visual.
+                            using (window.CaptureRenderedFrame())
+                            {
+                            }
+
+                            Console.WriteLine($"w2a-paint:{surface.Name}:{painted}");
+                        }
+                    }
+        """;
+
     /// <summary>Must match the Avalonia version AvaloniaProjectScaffolder writes into the csproj.</summary>
     private const string HeadlessPackageVersion = "12.1.1";
 
@@ -95,6 +134,7 @@ public class GeneratedAppStartupTests
                 RepositoryRoot(), "samples", "WinForms", "All-In-One-WinForms", "All-In-One-WinForms.csproj"),
             "All-In-One-WinForms",
             clickButtons: false,
+            reportPaint: false,
             // Row counts only: both grids live on TabItems that are never selected, so nothing
             // under them is ever laid out and no cell is realized. The counts are what matters
             // here anyway - they prove MainForm_Load really ran and really populated both
@@ -117,6 +157,7 @@ public class GeneratedAppStartupTests
             Path.Combine(AppContext.BaseDirectory, "SampleApps", "DataGridViewColumnsApp", "DataGridViewColumnsApp.csproj"),
             "DataGridViewColumnsApp",
             clickButtons: true,
+            reportPaint: false,
             "w2a-grid:detailsListView:1:notes.txt");
 
     /// <summary>
@@ -133,10 +174,29 @@ public class GeneratedAppStartupTests
             Path.Combine(AppContext.BaseDirectory, "SampleApps", "BindingNavigatorApp", "BindingNavigatorApp.csproj"),
             "BindingNavigatorApp",
             clickButtons: true,
+            reportPaint: false,
             "w2a-grid:tracksGrid:3:First selected=2");
 
+    /// <summary>
+    /// A Paint handler on the bundled surface: the drawing really reaches Avalonia.
+    /// </summary>
+    /// <remarks>
+    /// Its own test rather than a row above, because the assertion needs the harness to name the
+    /// generated template type - and because "the handler ran" is the whole claim. The count is 1:
+    /// the report subscribes, invalidates, and forces exactly one render pass.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedCodeBehindMigrationApp_ReallyRendersItsPaintHandler() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "CodeBehindMigrationApp", "CodeBehindMigrationApp.csproj"),
+            "CodeBehindMigrationApp",
+            clickButtons: false,
+            reportPaint: true,
+            "w2a-paint:canvasPanel:1");
+
     private static async Task AssertStarts(
-        string sourceProject, string name, bool clickButtons, params string[] expectedGrids)
+        string sourceProject, string name, bool clickButtons, bool reportPaint = false,
+        params string[] expectedGrids)
     {
         Assert.True(File.Exists(sourceProject), $"Source project not found: {sourceProject}");
 
@@ -144,7 +204,7 @@ public class GeneratedAppStartupTests
         try
         {
             new ConversionPipeline().Run(new ConversionOptions(sourceProject, outputDir));
-            InjectHeadlessHarness(outputDir, clickButtons);
+            InjectHeadlessHarness(outputDir, clickButtons, reportPaint);
 
             var run = await DotnetRunner.RunAsync("run", outputDir);
 
@@ -178,11 +238,13 @@ public class GeneratedAppStartupTests
     /// the package that provides it. Both are test-side edits: nothing here changes what the
     /// converter emits.
     /// </summary>
-    private static void InjectHeadlessHarness(string outputDir, bool clickButtons)
+    private static void InjectHeadlessHarness(string outputDir, bool clickButtons, bool reportPaint)
     {
         var programPath = Path.Combine(outputDir, "Program.cs");
         var rootNamespace = Regex.Match(File.ReadAllText(programPath), @"namespace\s+([\w.]+)\s*;").Groups[1].Value;
         Assert.False(rootNamespace.Length == 0, "Could not read the generated root namespace from Program.cs.");
+
+        var paintReport = reportPaint ? PaintReportSource.Replace("__ROOT__", rootNamespace, StringComparison.Ordinal) : "";
 
         File.WriteAllText(programPath, $$"""
             using System.Reflection;
@@ -211,7 +273,11 @@ public class GeneratedAppStartupTests
 
                     // Runs OnFrameworkInitializationCompleted, which constructs the main View.
                     AppBuilder.Configure<App>()
-                        .UseHeadless(new AvaloniaHeadlessPlatformOptions())
+                        // UseHeadlessDrawing short-circuits drawing entirely, which is fine for
+                        // everything else here and useless for proving a Render override runs -
+                        // so the paint fixture asks for the real Skia backend instead.
+                        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = {{(reportPaint ? "false" : "true")}} })
+                        {{(reportPaint ? ".UseSkia()" : "")}}
                         .SetupWithLifetime(lifetime);
 
                     // ...and one frame through the visual tree the AXAML just produced.
@@ -222,6 +288,7 @@ public class GeneratedAppStartupTests
                     ExecutePromotedCommands(lifetime.MainWindow?.DataContext);
                     {{(clickButtons ? "ClickEveryButton(lifetime.MainWindow);" : "")}}
                     ReportGrids(lifetime.MainWindow);
+                    {{(reportPaint ? "ReportPaintSurfaces(lifetime.MainWindow);" : "")}}
 
                     Console.WriteLine("{{SuccessMarker}}");
                     return 0;
@@ -378,6 +445,8 @@ public class GeneratedAppStartupTests
                     }
                 }
 
+                {{paintReport}}
+
                 private static IEnumerable<Control> Descendants(Control root)
                 {
                     foreach (var child in root.GetLogicalChildren().OfType<Control>())
@@ -433,7 +502,11 @@ public class GeneratedAppStartupTests
             ReplaceFirst(
                 csproj,
                 "  </ItemGroup>",
-                $"""    <PackageReference Include="Avalonia.Headless" Version="{HeadlessPackageVersion}" />{Environment.NewLine}  </ItemGroup>"""));
+                $"""    <PackageReference Include="Avalonia.Headless" Version="{HeadlessPackageVersion}" />{Environment.NewLine}"""
+                + (reportPaint
+                    ? $"""    <PackageReference Include="Avalonia.Skia" Version="{HeadlessPackageVersion}" />{Environment.NewLine}"""
+                    : "")
+                + "  </ItemGroup>"));
     }
 
     /// <summary>

@@ -307,6 +307,19 @@ not by building.
   a ListView row's cell count must equal the designer's column count. A carried-over model type is
   lifted `public`, not `internal` — the ViewModel's `ObservableCollection<T>` is a public property,
   and CS0053 is a build error in the **generated** project and nowhere else.
+- **A WinForms `Paint` handler needs a *subclass*, which is why it changes the target element.**
+  Avalonia draws by overriding `Render(DrawingContext)`. `PaintSurfaceFallback` is that subclass
+  and raises the override back as an event; `PaintSurfaceMapper` retargets a `Panel`/`PictureBox`
+  onto it, and `FormMigrationPlanner.SuppressPaintOnNonSurfaces` asks the *same* predicate before
+  subscribing, so the mapper and the planner cannot disagree. It derives from `Control`, not
+  `Canvas`, because **`Panel.Render` is `sealed`** - hence the "no children" rule. `Render` is only
+  reached on a real render pass, which the default headless platform does not do: the proof test
+  asks for Skia and `CaptureRenderedFrame`, and with the no-op drawing backend it reported zero.
+- **Only the *attribute* is exclusive, not the event.** Two WinForms events mapping onto one
+  Avalonia event used to mean the second handler was emitted and never subscribed. A duplicate XML
+  attribute fails to parse, but an event takes any number of handlers - so the loser goes in the
+  constructor (`ChainedInConstructor`, distinct from `Suppressed`, which still means "there is
+  nothing to subscribe to at all").
 - **`FallbackControlMemberSupport` answers two different questions, and the second one bites.**
   It gates what a handler *body* may name — and it is also what `AxamlEmitter.FilterBindableForTarget`
   asks before writing a planned binding onto a fallback element. An unlisted property is dropped

@@ -63,8 +63,26 @@ public sealed class EventMappingRegistry
     private static EventMapping RangeValueChanged { get; } =
         new("ValueChanged", "ValueChanged", "RangeBaseValueChangedEventArgs", RaisedDuringInitialization: true);
 
+    /// <summary>
+    /// The bundled paint surface's own event, for the two control types <see cref="PaintSurfaceMapper"/>
+    /// can retarget onto it.
+    /// </summary>
+    /// <remarks>
+    /// Subscribed from the constructor rather than as an AXAML attribute: it is a plain CLR event
+    /// on a template this repo ships, not a routed event on an Avalonia element. Whether an
+    /// *instance* really became a surface is a per-control question this table cannot answer, so
+    /// <c>FormMigrationPlanner</c> suppresses the subscription again where it did not - a
+    /// PictureBox that also carries an Image keeps the image and reports its Paint as before.
+    /// </remarks>
+    private static readonly EventMapping PaintSurfacePaint =
+        new("Paint", "Paint", "PaintSurfaceEventArgs", SubscribeInCode: true,
+            FallbackTemplateKey: PaintSurfaceMapper.TemplateKey);
+
     private static readonly Dictionary<(string ControlType, string EventName), EventMapping> ControlTypeOverrides = new()
     {
+        [("Panel", "Paint")] = PaintSurfacePaint,
+        [("PictureBox", "Paint")] = PaintSurfacePaint,
+
         // A NotifyIcon has no element - it becomes App.axaml's TrayIcon - so every one of its
         // events resolves here or nowhere. Without these rows they fell through to the generic
         // control table, which produced a perfectly translated handler on the View that nothing
@@ -295,7 +313,8 @@ public sealed class EventMappingRegistry
         ["DpiChangedAfterParent"] = new("DpiChangedAfterParent", null, Guidance: ScalingIsTopLevel),
         ["DpiChangedBeforeParent"] = new("DpiChangedBeforeParent", null, Guidance: ScalingIsTopLevel),
 
-        // No Avalonia equivalent.
+        // No Avalonia equivalent. The two control types that *can* become a paint surface
+        // override this below; everywhere else drawing means writing the custom control yourself.
         ["Paint"] = new("Paint", null, Guidance: "Avalonia has no Paint event - override Control.Render(DrawingContext) on a custom control, or use a Path/Shape."),
         ["Validating"] = new("Validating", null, Guidance: "Avalonia has no Validating event - use INotifyDataErrorInfo / DataAnnotations validation on the bound view model property."),
         ["Validated"] = new("Validated", null, Guidance: "Avalonia has no Validated event - see the Validating guidance."),

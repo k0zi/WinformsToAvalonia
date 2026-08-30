@@ -57,7 +57,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 | `UserControl` | ✅ Converted | `UserControl` | | A conversion root like `Form`, not a table entry. A project's *own* UserControls additionally get a per-run `UserControlMapper`, so a Form hosting one emits the generated View element. See [Implementation plan](#usercontrol-conversion). |
 | `ScrollableControl` | — | | | Base class. |
 | `ContainerControl` | — | | | Base class. |
-| `Panel` | ✅ Direct | `Canvas` | | |
+| `Panel` | ✅ Direct | `Canvas` / `PaintSurfaceFallback` | | A childless Panel with a designer-wired `Paint` handler becomes the bundled paint surface instead — see [Implementation plan](#paint-handlers). |
 | `SplitContainer` | ✅ Direct | `Grid` | | `Panel1`/`Panel2` children map either side of a `GridSplitter` (`Orientation=Horizontal` → stacked rows, default `Vertical` → side-by-side columns). |
 | `Splitter` | ✅ Direct | `GridSplitter` | | WinForms' standalone docked drag-handle. Under the fixed Canvas layout strategy it is emitted as a positioned element; its original `Dock` stays in the `w2a:LayoutHint` attached property. |
 | `TabControl` | ✅ Direct | `TabControl` | | |
@@ -114,7 +114,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 
 | WinForms type | Status | Avalonia target | Why not | Notes |
 |---|---|---|---|---|
-| `PictureBox` | ✅ Direct | `Image` | | Its `Image` is recovered from the form's `.resx` and copied into `Assets/`, then bound via `Source`. A payload `ResxImageExtractor` can't decode is reported instead of emitted. |
+| `PictureBox` | ✅ Direct | `Image` / `PaintSurfaceFallback` | | With a `Paint` handler and no image it becomes the bundled paint surface. Otherwise: its `Image` is recovered from the form's `.resx` and copied into `Assets/`, then bound via `Source`. A payload `ResxImageExtractor` can't decode is reported instead of emitted. |
 | `ProgressBar` | ✅ Direct | `ProgressBar` | | |
 | `TrackBar` | ✅ Direct | `Slider` | | Its `Scroll` maps to `ValueChanged` (which also fires on programmatic changes). |
 | `HScrollBar` | ✅ Direct | `ScrollBar` | | Fixed `Orientation="Horizontal"`; its `Scroll` maps to Avalonia's `ScrollBar.Scroll`. |
@@ -537,6 +537,27 @@ Three things are deliberately not wired, and each is reported by name: `AddNewIt
 semantics), a role button that already has its **own** `Click` handler (the developer's code wins),
 and a navigator whose designer recorded no roles at all — the bindings are still emitted, since the
 count and the selection are worth having, but no button is guessed at from its name or caption.
+
+### Paint handlers
+
+**Done**, for the geometric drawing calls.
+Avalonia has no `Paint` event: a control draws by overriding `Render(DrawingContext)`, which is a
+subclass. So the bundled `PaintSurfaceFallback` **is** that subclass, and it turns the override
+back into the event the WinForms code was written against.
+
+A `Panel` or a `PictureBox` whose designer wired a `Paint` handler is retargeted onto it, and the
+handler is subscribed from the generated constructor (a CLR event on a template, not an element
+attribute). `e.Graphics.DrawLine/DrawRectangle/FillRectangle/DrawEllipse/FillEllipse` translate to
+their `DrawingContext` equivalents, and `Pens.X`/`Brushes.X`/`SystemBrushes.X` resolve through the
+same colour pipeline the designer path uses — so a system colour, which has no named Avalonia
+brush at all, comes out as explicit ARGB rather than a name that does not exist.
+
+Three cases keep today's behaviour and say why: a control **with children** (Avalonia seals
+`Panel.Render`, so the surface derives from `Control` and can draw or contain, not both), a
+`PictureBox` that also carries an **Image** (WinForms drew over the picture; there is no honest way
+to do both), and any other control type. `DrawString` is refused too — Avalonia's `DrawText` wants
+a `Typeface` and an em size where WinForms passed one `Font`, and splitting one argument into two
+this converter cannot read is exactly the guess it does not make.
 
 ### HelpProvider
 

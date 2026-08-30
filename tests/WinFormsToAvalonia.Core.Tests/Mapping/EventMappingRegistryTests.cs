@@ -93,14 +93,40 @@ public class EventMappingRegistryTests
         Assert.True(mapping.IsCommandCandidate);
     }
 
+    /// <summary>
+    /// Everywhere except the two types that can become a paint surface, drawing still means
+    /// writing the custom control yourself - so the guidance that says so has to survive.
+    /// </summary>
     [Fact]
     public void ResolveControlEvent_Paint_HasNoEquivalentButKeepsGuidance()
     {
-        var mapping = _registry.ResolveControlEvent("Panel", "Paint");
+        var mapping = _registry.ResolveControlEvent("Label", "Paint");
 
         Assert.Null(mapping.AvaloniaEventName);
         Assert.Null(mapping.XamlAttributeName);
         Assert.Contains("Render", mapping.Guidance);
+    }
+
+    /// <summary>
+    /// A Panel and a PictureBox can be retargeted onto the bundled paint surface, which turns the
+    /// Render override back into the event the WinForms code was written against.
+    /// </summary>
+    /// <remarks>
+    /// Never an AXAML attribute: it is a plain CLR event on a template this repo ships, so the
+    /// generated constructor subscribes it. Whether a given *instance* really became a surface is
+    /// a question this table cannot answer - see FormMigrationPlanner.SuppressPaintOnNonSurfaces.
+    /// </remarks>
+    [Theory]
+    [InlineData("Panel")]
+    [InlineData("PictureBox")]
+    public void ResolveControlEvent_PaintOnARetargetableControl_IsTheSurfacesOwnEvent(string controlType)
+    {
+        var mapping = _registry.ResolveControlEvent(controlType, "Paint");
+
+        Assert.Equal("Paint", mapping.AvaloniaEventName);
+        Assert.Equal("PaintSurfaceEventArgs", mapping.AvaloniaEventArgsTypeName);
+        Assert.True(mapping.SubscribeInCode);
+        Assert.Null(mapping.XamlAttributeName);
     }
 
     [Fact]

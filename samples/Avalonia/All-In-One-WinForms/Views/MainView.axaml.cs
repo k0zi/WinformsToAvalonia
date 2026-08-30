@@ -13,6 +13,7 @@ using System.Media;
 using System.ServiceProcess;
 using All_In_One_WinForms.Models;
 using All_In_One_WinForms.Views.Forms;
+using Avalonia;
 using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -67,6 +68,10 @@ public partial class MainView : Window
 
         clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         clockTimer.Tick += clockTimer_Tick;
+
+        pictureBox1.PointerPressed += pictureBox1_Click;
+
+        pictureBox1.Paint += pictureBox1_Paint;
 
         navigatorMoveFirstButton.Click += (_, _) => bindingNavigator1.MoveFirst();
         navigatorMoveNextButton.Click += (_, _) => bindingNavigator1.MoveNext();
@@ -301,10 +306,11 @@ public partial class MainView : Window
         statusLabel.Text = $"Mouse down at {e.GetPosition(pictureBox1).X},{e.GetPosition(pictureBox1).Y}";
     }
 
-    private void pictureBox1_Paint(object? sender, EventArgs e)
+    private void pictureBox1_Paint(object? sender, PaintSurfaceEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'pictureBox1_Paint' - TODO(Winforms2Avalonia): migrate it into this method.
-        e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);
+        e.Context.DrawEllipse(null, new Pen(new SolidColorBrush(Color.Parse("#FF4682B4"))), new Rect(10, 10, 200, 120));
+
+        /* REMAINING WINFORMS BODY of 'pictureBox1_Paint' - TODO(Winforms2Avalonia): migrate it into this method.
         e.Graphics.DrawString("PictureBox.Paint", this.Font, Brushes.SteelBlue, 20, 60);
         */
         MigrationTodo.NotMigrated(nameof(pictureBox1_Paint), "pictureBox1_Paint");

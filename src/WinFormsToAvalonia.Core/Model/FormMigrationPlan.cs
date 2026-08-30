@@ -6,10 +6,17 @@ namespace WinFormsToAvalonia.Core.Model;
 /// </summary>
 /// <param name="ControlFieldName">The designer field raising the event, or null for a Form/Window-level event.</param>
 /// <param name="Suppressed">
+/// Set when there is nothing to subscribe to at all - a NotifyIcon whose icon never resolved has
+/// no TrayIcon in App.axaml, so naming it would not compile. The handler method is still
+/// generated; only the subscription is dropped, with a warning.
+/// </param>
+/// <param name="ChainedInConstructor">
 /// Set when another subscription on the same element already claimed this Avalonia event. Two
-/// distinct WinForms events can collapse onto one Avalonia event (a PictureBox's Click and
-/// MouseDown both become PointerPressed), and emitting both would be a duplicate XML attribute.
-/// The handler method is still generated; only the subscription is dropped, with a warning.
+/// distinct WinForms events can collapse onto one (a PictureBox's Click and MouseDown both become
+/// PointerPressed), and emitting both as attributes would be a duplicate XML attribute - which
+/// does not merge, it fails to parse. An <em>event</em> takes any number of handlers though, so
+/// the loser is subscribed from the constructor with a <c>+=</c> instead of being dropped. Both
+/// bodies run, which is what the WinForms original did.
 /// </param>
 public sealed record EventSubscriptionPlan(
     string? ControlFieldName,
@@ -17,7 +24,8 @@ public sealed record EventSubscriptionPlan(
     string WinFormsEventName,
     EventMapping Mapping,
     string HandlerMethodName,
-    bool Suppressed = false);
+    bool Suppressed = false,
+    bool ChainedInConstructor = false);
 
 /// <summary>
 /// A handler that stays event-driven: emitted as a real method on the generated View, with the
@@ -373,7 +381,16 @@ public sealed record FormMigrationPlan(
     /// ConversionPipeline has to union them in separately.
     /// </summary>
     public IReadOnlyList<string> RequiredFallbackKeys =>
-        [.. AllEmittedRewrites.SelectMany(r => r.RequiredFallbackKeys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal)];
+        [.. AllEmittedRewrites.SelectMany(r => r.RequiredFallbackKeys)
+            // An event can pull a template in too, without any body naming it: the paint surface's
+            // Paint declares the args type the generated handler is *signed* with.
+            .Concat(CodeBehindHandlers
+                .SelectMany(h => h.Subscriptions)
+                .Where(s => !s.Suppressed)
+                .Select(s => s.Mapping.FallbackTemplateKey)
+                .OfType<string>())
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(k => k, StringComparer.Ordinal)];
 
     /// <summary>
     /// NuGet packages the emitted component fields need. Like a mapper's
@@ -392,8 +409,40 @@ public sealed record FormMigrationPlan(
         CodeBehindHandlers
             .SelectMany(h => h.Subscriptions)
             .Where(s => string.Equals(s.ControlFieldName, controlFieldName, StringComparison.Ordinal))
-            .Where(s => !s.Suppressed && s.Mapping.XamlAttributeName is not null)
+            .Where(s => !s.Suppressed && !s.ChainedInConstructor && s.Mapping.XamlAttributeName is not null)
             .Select(s => (s.Mapping.XamlAttributeName!, s.HandlerMethodName));
+
+    /// <summary>
+    /// Subscriptions the generated constructor has to make with a <c>+=</c> on a control field.
+    /// </summary>
+    /// <remarks>
+    /// Two reasons land here. One is a WinForms event whose Avalonia counterpart is not an element
+    /// attribute at all - a bundled template's own CLR event, like the paint surface's
+    /// <c>Paint</c>. The other is the loser of two WinForms events that mapped onto the same
+    /// Avalonia one: only the *attribute* is exclusive, so the second handler is subscribed here
+    /// instead of dropped. Disjoint from <see cref="XamlEventAttributesFor"/> by construction.
+    /// Timers, project components and NotifyIcon are excluded because each already has an emission
+    /// path of its own, and subscribing twice would run every handler twice.
+    /// </remarks>
+    public IEnumerable<(string FieldName, string AvaloniaEventName, string HandlerMethodName)> ConstructorEventSubscriptions
+    {
+        get
+        {
+            var handledElsewhere = Timers.Select(t => t.FieldName)
+                .Concat(Components.Select(c => c.FieldName))
+                .ToHashSet(StringComparer.Ordinal);
+
+            return CodeBehindHandlers
+                .SelectMany(h => h.Subscriptions)
+                .Where(s => !s.Suppressed
+                    && s.ControlFieldName is not null
+                    && s.Mapping.AvaloniaEventName is not null
+                    && s.ControlClrTypeName != "NotifyIcon"
+                    && !handledElsewhere.Contains(s.ControlFieldName)
+                    && (s.ChainedInConstructor || s.Mapping.SubscribeInCode))
+                .Select(s => (s.ControlFieldName!, s.Mapping.AvaloniaEventName!, s.HandlerMethodName));
+        }
+    }
 
     /// <summary>
     /// Tray-icon events the generated View's constructor has to subscribe, because a NotifyIcon

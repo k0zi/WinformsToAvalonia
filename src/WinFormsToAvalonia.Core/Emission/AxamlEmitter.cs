@@ -567,7 +567,12 @@ public sealed class AxamlEmitter
 
         foreach (var (attributeName, handlerMethodName) in state.Plan.XamlEventAttributesFor(control.FieldName))
         {
-            if (isWireable)
+            // A bundled template is a real Avalonia control with a real x:Name, so the events it
+            // inherits from Control can be wired like any other element's. Only those: a property
+            // differs template by template, and so does an event a template adds itself.
+            if (isWireable
+                || (mapped is { Status: MappingStatus.Fallback, SupportsName: true }
+                    && FallbackControlMemberSupport.ExposesEvent(mapped.FallbackTemplateKey, attributeName)))
             {
                 builder.Attribute(attributeName, handlerMethodName);
             }

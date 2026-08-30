@@ -55,6 +55,7 @@ public static class FallbackControlCatalog
             ["PropertyGridFallback"] = new("PropertyGridFallback", "PropertyGridFallback.cs", "PropertyGridFallback.cs"),
             ["BindingNavigatorFallback"] = new("BindingNavigatorFallback", "BindingNavigatorFallback.cs", "BindingNavigatorFallback.cs"),
             ["WebBrowserFallback"] = new("WebBrowserFallback", "WebBrowserFallback.cs", "WebBrowserFallback.cs"),
+            ["PaintSurfaceFallback"] = new("PaintSurfaceFallback", "PaintSurfaceFallback.cs", "PaintSurfaceFallback.cs"),
             ["PrintPreviewControlFallback"] = new("PrintPreviewControlFallback", "PrintPreviewControlFallback.cs", "PrintPreviewControlFallback.cs"),
             ["ToolStripContainerFallback"] = new(
                 "ToolStripContainerFallback", "ToolStripContainerFallback.cs", "ToolStripContainerFallback.cs",

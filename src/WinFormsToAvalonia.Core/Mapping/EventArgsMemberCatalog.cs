@@ -68,6 +68,12 @@ public static class EventArgsMemberCatalog
     private static readonly IReadOnlyDictionary<(string ArgsType, string Member), EventArgsMember> ByArgsTypeAndMember =
         new Dictionary<(string, string), EventArgsMember>
         {
+            // The bundled paint surface's args. `Graphics` is a DrawingContext rather than a
+            // System.Drawing one, so it is not a pass-through: only the calls in
+            // GraphicsMemberCatalog translate, and the rewriter refuses the rest.
+            [("PaintSurfaceEventArgs", "Graphics")] = new("{0}.Context"),
+            [("PaintSurfaceEventArgs", "ClipRectangle")] = new("{0}.ClipRectangle"),
+
             // Avalonia spells these exactly as WinForms did.
             [("WindowClosingEventArgs", "Cancel")] = new("{0}.Cancel"),
             [("ScrollEventArgs", "NewValue")] = new("{0}.NewValue"),

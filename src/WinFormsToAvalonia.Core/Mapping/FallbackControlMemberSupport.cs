@@ -24,6 +24,41 @@ namespace WinFormsToAvalonia.Core.Mapping;
 public static class FallbackControlMemberSupport
 {
     /// <summary>
+    /// The Avalonia events every bundled template raises, because every one of them derives from
+    /// <c>Control</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Fallback controls used to get <em>no</em> event attribute at all - the emitter's
+    /// "is this a direct Avalonia element" test doubled as its "can this be wired" test, so a
+    /// designer-wired <c>Click</c> on a converted ToolStrip button, or a <c>MouseDown</c> on a
+    /// paint surface, was reported and dropped. That caution is right for a template's
+    /// *properties*, which differ template by template; it is wrong for these events, which are
+    /// declared by <c>Control</c> and inherited by all of them.
+    /// </para>
+    /// <para>
+    /// Deliberately only the Control-level ones. An event a specific template adds (a
+    /// <c>TextChanged</c> on the RichTextBox fallback) is still refused and reported, because
+    /// nothing here knows it exists. <c>FallbackControlEventTests</c> checks every name below
+    /// against Avalonia's real <c>Control</c>.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlySet<string> ControlEvents { get; } =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "PointerPressed", "PointerReleased", "PointerMoved", "PointerEntered", "PointerExited",
+            "PointerWheelChanged", "Tapped", "DoubleTapped", "KeyDown", "KeyUp", "TextInput",
+            "GotFocus", "LostFocus",
+        };
+
+    /// <summary>Whether a bundled template raises this Avalonia event.</summary>
+    public static bool ExposesEvent(string? templateKey, string avaloniaEventName) =>
+        templateKey is not null && ControlEvents.Contains(avaloniaEventName);
+
+    /// <summary>Every Control-level event name, for the test that checks them against Avalonia.</summary>
+    public static IEnumerable<string> ControlEventNames => ControlEvents;
+
+    /// <summary>
     /// What every template that derives from Avalonia's <c>Control</c> has, whatever else it adds.
     /// </summary>
     /// <remarks>
@@ -90,6 +125,7 @@ public static class FallbackControlMemberSupport
             // table before it writes a binding onto a fallback - see AxamlEmitter's
             // FilterBindableForTarget, which silently drops one the template does not expose.
             ["BindingNavigatorFallback"] = Plus(PanelStyleMembers, "Position", "Count"),
+            ["PaintSurfaceFallback"] = Plus(PanelStyleMembers),
             ["StatusStripFallback"] = Plus(PanelStyleMembers),
             ["ToolStripContainerFallback"] = Plus(PanelStyleMembers),
             ["ToolStripContentPanelFallback"] = Plus(PanelStyleMembers),

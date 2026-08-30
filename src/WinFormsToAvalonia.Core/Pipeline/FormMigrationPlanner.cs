@@ -190,7 +190,8 @@ public sealed class FormMigrationPlanner
 
         var trayResolved = SuppressUnresolvedTrayIconSubscriptions(codeBehindHandlers, trayIconFields, warnings);
 
-        var rewrittenHandlers = ResolveDuplicateXamlAttributes(trayResolved, warnings)
+        var paintResolved = SuppressPaintOnNonSurfaces(trayResolved, formModel, warnings);
+        var rewrittenHandlers = ResolveDuplicateXamlAttributes(paintResolved, formModel, _controlMappings, warnings)
             .Select(h => h.Rewrite is not null
                 // Already synthesized (a designer-set DialogResult) - there is no original body
                 // to translate, and re-running the rewriter would erase it.
@@ -289,6 +290,66 @@ public sealed class FormMigrationPlanner
     }
 
     /// <summary>
+    /// A <c>Paint</c> subscription only survives on a control that really became the bundled
+    /// paint surface.
+    /// </summary>
+    /// <remarks>
+    /// <c>EventMappingRegistry</c> is keyed on the control *type*, and whether a given PictureBox
+    /// becomes a surface is a question about the instance - a PictureBox carrying an Image keeps
+    /// its Image element, which has no Paint event to subscribe. Asking
+    /// <see cref="PaintSurfaceMapper.IsPaintSurface"/> is what stops the two from disagreeing:
+    /// the mapper and this pass answer from the same predicate.
+    /// </remarks>
+    private static List<CodeBehindHandlerPlan> SuppressPaintOnNonSurfaces(
+        List<CodeBehindHandlerPlan> handlers, FormModel formModel, List<string> warnings)
+    {
+        bool NeedsSuppressing(EventSubscriptionPlan subscription) =>
+            subscription.WinFormsEventName == "Paint"
+            && subscription.Mapping.AvaloniaEventName is not null
+            && !subscription.Suppressed
+            && !(subscription.ControlFieldName is { } field
+                && formModel.Controls.TryGetValue(field, out var control)
+                && PaintSurfaceMapper.IsPaintSurface(control));
+
+        if (!handlers.SelectMany(h => h.Subscriptions).Any(NeedsSuppressing))
+        {
+            return handlers;
+        }
+
+        return
+        [
+            .. handlers.Select(handler => handler with
+            {
+                Subscriptions =
+                [
+                    .. handler.Subscriptions.Select(subscription =>
+                    {
+                        if (!NeedsSuppressing(subscription))
+                        {
+                            return subscription;
+                        }
+
+                        var reason =
+                            subscription.ControlFieldName is { } named
+                            && formModel.Controls.TryGetValue(named, out var owner)
+                            && owner.Children.Count > 0
+                                ? "it has child controls, and the bundled paint surface derives from Control "
+                                  + "because Avalonia seals Panel.Render - so it can draw or contain, not both"
+                                : "it also carries an Image, which WinForms drew the handler's output over and "
+                                  + "there is no honest way to do both here";
+
+                        warnings.Add(
+                            $"'{subscription.ControlFieldName}' subscribes 'Paint', but {reason}. "
+                            + $"'{subscription.HandlerMethodName}' is emitted but not subscribed.");
+
+                        return subscription with { Suppressed = true };
+                    }),
+                ],
+            }),
+        ];
+    }
+
+    /// <summary>
     /// WinForms distinguishes events that Avalonia merges: a PictureBox's <c>Click</c> and
     /// <c>MouseDown</c> both become <c>PointerPressed</c>. Emitting both would be a duplicate XML
     /// attribute on the same element, which fails the Avalonia XAML parser (AVLN1001) and breaks
@@ -299,10 +360,23 @@ public sealed class FormMigrationPlanner
     /// </summary>
     private static List<CodeBehindHandlerPlan> ResolveDuplicateXamlAttributes(
         List<CodeBehindHandlerPlan> handlers,
+        FormModel formModel,
+        ControlMappingRegistry controlMappings,
         List<string> warnings)
     {
         var claimedBy = new Dictionary<(string? Control, string Attribute), EventSubscriptionPlan>();
+        var chained = new HashSet<(string? Control, string WinFormsEvent)>();
         var suppressed = new HashSet<(string? Control, string WinFormsEvent)>();
+
+        // The constructor can only name a field the AXAML declared, which is the same condition
+        // AxamlEmitter uses to decide whether to write an event attribute at all.
+        bool CanCarry(string? fieldName, string avaloniaEventName) =>
+            fieldName is not null
+            && formModel.Controls.TryGetValue(fieldName, out var control)
+            && controlMappings.Map(control) is { SupportsName: true } mapped
+            && (mapped.Status == MappingStatus.Direct
+                || (mapped.Status == MappingStatus.Fallback
+                    && FallbackControlMemberSupport.ExposesEvent(mapped.FallbackTemplateKey, avaloniaEventName)));
 
         var candidates = handlers
             .SelectMany(h => h.Subscriptions)
@@ -314,19 +388,35 @@ public sealed class FormMigrationPlanner
             var key = (subscription.ControlFieldName, subscription.Mapping.XamlAttributeName!);
             if (claimedBy.TryGetValue(key, out var winner))
             {
-                suppressed.Add((subscription.ControlFieldName, subscription.WinFormsEventName));
                 var owner = subscription.ControlFieldName is null ? "the Form" : $"'{subscription.ControlFieldName}'";
+                var both =
+                    $"{owner} subscribes both '{winner.WinFormsEventName}' and '{subscription.WinFormsEventName}', which map to "
+                    + $"the same Avalonia event '{key.Item2}'";
+
+                // Only the *attribute* is exclusive - an event takes any number of handlers - so
+                // the loser is subscribed from the constructor rather than dropped.
+                if (subscription.Mapping.AvaloniaEventName is { } avaloniaEventName
+                    && CanCarry(subscription.ControlFieldName, avaloniaEventName))
+                {
+                    chained.Add((subscription.ControlFieldName, subscription.WinFormsEventName));
+                    warnings.Add(
+                        $"{both}. '{winner.HandlerMethodName}' carries the AXAML attribute and "
+                        + $"'{subscription.HandlerMethodName}' is subscribed from the constructor instead, so both run - "
+                        + "but they now run at the same moment, which the two WinForms events did not.");
+                    continue;
+                }
+
+                suppressed.Add((subscription.ControlFieldName, subscription.WinFormsEventName));
                 warnings.Add(
-                    $"{owner} subscribes both '{winner.WinFormsEventName}' and '{subscription.WinFormsEventName}', which map to the " +
-                    $"same Avalonia event '{key.Item2}' - only '{winner.HandlerMethodName}' is subscribed; " +
-                    $"call '{subscription.HandlerMethodName}' from it by hand.");
+                    $"{both} - only '{winner.HandlerMethodName}' is subscribed; "
+                    + $"call '{subscription.HandlerMethodName}' from it by hand.");
                 continue;
             }
 
             claimedBy[key] = subscription;
         }
 
-        if (suppressed.Count == 0)
+        if (suppressed.Count == 0 && chained.Count == 0)
         {
             return handlers;
         }
@@ -336,7 +426,9 @@ public sealed class FormMigrationPlanner
             .. handlers.Select(h => h with
             {
                 Subscriptions = [.. h.Subscriptions.Select(s =>
-                    suppressed.Contains((s.ControlFieldName, s.WinFormsEventName)) ? s with { Suppressed = true } : s)],
+                    suppressed.Contains((s.ControlFieldName, s.WinFormsEventName)) ? s with { Suppressed = true }
+                    : chained.Contains((s.ControlFieldName, s.WinFormsEventName)) ? s with { ChainedInConstructor = true }
+                    : s)],
             }),
         ];
     }

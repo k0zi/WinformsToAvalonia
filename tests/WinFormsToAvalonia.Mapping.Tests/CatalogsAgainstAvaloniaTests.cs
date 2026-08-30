@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 using WinFormsToAvalonia.Core.Scaffolding;
+using WinFormsToAvalonia.FallbackControls;
 
 namespace WinFormsToAvalonia.Mapping.Tests;
 
@@ -52,6 +53,18 @@ public class CatalogsAgainstAvaloniaTests
     [MemberData(nameof(EventArgsMembers))]
     public void EventArgsMember_ExistsOnItsArgsType(string argsTypeName, string memberName, string source)
     {
+        // Not every args type is Avalonia's. A bundled template can raise an event of its own -
+        // the paint surface's - and that type ships in this repo, so its members are checked
+        // against the template source the generated project will actually compile.
+        if (BundledArgsTypeMembers(argsTypeName) is { } bundled)
+        {
+            Assert.True(
+                bundled.Contains(memberName),
+                $"{source} is translated through '{argsTypeName}.{memberName}', which the bundled "
+                + "template does not declare.");
+            return;
+        }
+
         var argsType = AvaloniaMetadata.FindElement(argsTypeName);
         Assert.True(argsType is not null, $"Avalonia has no '{argsTypeName}' type at all.");
 
@@ -60,6 +73,90 @@ public class CatalogsAgainstAvaloniaTests
             || AvaloniaMetadata.FindMethod(argsType!, memberName, 1) is not null
             || AvaloniaMetadata.FindMethod(argsType!, memberName, 0) is not null,
             $"{source} is translated through '{argsTypeName}.{memberName}', which does not exist.");
+    }
+
+    /// <summary>
+    /// The events a bundled fallback is allowed to carry an AXAML attribute for, against the
+    /// Avalonia <c>Control</c> every one of those templates derives from.
+    /// </summary>
+    /// <remarks>
+    /// This table is what lifted a real restriction - a fallback used to get no event attribute at
+    /// all - so it has to stay honest in exactly one direction: a name here that Control does not
+    /// declare is an AVLN error in the generated project and nowhere else.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(FallbackControlEvents))]
+    public void FallbackControlEvent_IsDeclaredByAvaloniaControl(string eventName)
+    {
+        var control = AvaloniaMetadata.FindElement("Control");
+        Assert.True(control is not null, "Avalonia has no Control type - something is very wrong.");
+
+        Assert.True(
+            AvaloniaMetadata.FindEvent(control!, eventName) is not null,
+            $"FallbackControlMemberSupport lets a bundled template carry '{eventName}', but Avalonia's "
+            + "Control does not declare it - so the attribute would not resolve.");
+    }
+
+    public static TheoryData<string> FallbackControlEvents()
+    {
+        var data = new TheoryData<string>();
+        foreach (var name in FallbackControlMemberSupport.ControlEventNames.OrderBy(n => n, StringComparer.Ordinal))
+        {
+            data.Add(name);
+        }
+
+        return data;
+    }
+
+    /// <summary>
+    /// Every <c>Graphics</c> call this converter translates, against Avalonia's
+    /// <c>DrawingContext</c>.
+    /// </summary>
+    /// <remarks>
+    /// The two frameworks do not agree on shape - WinForms names the operation twice
+    /// (<c>DrawEllipse</c> outlines, <c>FillEllipse</c> fills) where Avalonia has one method taking
+    /// both a brush and a pen - so the catalog's value is the call it emits, and this checks that
+    /// call exists rather than the WinForms name.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(GraphicsCalls))]
+    public void GraphicsCall_NamesAMethodDrawingContextHas(string winFormsMethod, string avaloniaMethod, int arity)
+    {
+        var context = AvaloniaMetadata.FindElement("DrawingContext");
+        Assert.True(context is not null, "Avalonia has no DrawingContext type - something is very wrong.");
+
+        Assert.True(
+            AvaloniaMetadata.FindMethod(context!, avaloniaMethod, arity) is not null,
+            $"GraphicsMemberCatalog translates Graphics.{winFormsMethod} into "
+            + $"DrawingContext.{avaloniaMethod} with {arity} arguments, which does not exist.");
+    }
+
+    public static TheoryData<string, string, int> GraphicsCalls()
+    {
+        var data = new TheoryData<string, string, int>();
+
+        foreach (var (methodName, call) in GraphicsMemberCatalog.All.OrderBy(e => e.MethodName, StringComparer.Ordinal))
+        {
+            var open = call.Format.IndexOf('(', StringComparison.Ordinal);
+            var emitted = call.Format[..open];
+
+            // Top-level commas only: the WinForms coordinates collapse into a Rect or a pair of
+            // Points on the way across, so counting every comma would count theirs too.
+            var depth = 0;
+            var arity = 1;
+            foreach (var character in call.Format[(open + 1)..^1])
+            {
+                depth += character switch { '(' => 1, ')' => -1, _ => 0 };
+                if (character == ',' && depth == 0)
+                {
+                    arity++;
+                }
+            }
+
+            data.Add(methodName, emitted, arity);
+        }
+
+        return data;
     }
 
     [Theory]
@@ -314,4 +411,26 @@ public class CatalogsAgainstAvaloniaTests
         Assert.Contains("LeftToRight", members);
         Assert.Contains("RightToLeft", members);
     }
+    /// <summary>
+    /// The public properties a bundled template's own EventArgs type declares, or null when no
+    /// template declares a type of that name.
+    /// </summary>
+    private static IReadOnlySet<string>? BundledArgsTypeMembers(string argsTypeName)
+    {
+        foreach (var definition in FallbackControlCatalog.All.Values)
+        {
+            var templateSource = FallbackControlCatalog.ReadTemplateSource(definition.ResourceLogicalName);
+            if (!Regex.IsMatch(templateSource, $@"class\s+{Regex.Escape(argsTypeName)}\b"))
+            {
+                continue;
+            }
+
+            return Regex.Matches(templateSource, @"public\s+[\w.<>?]+\s+(\w+)\s*\{\s*get;")
+                .Select(m => m.Groups[1].Value)
+                .ToHashSet(StringComparer.Ordinal);
+        }
+
+        return null;
+    }
+
 }

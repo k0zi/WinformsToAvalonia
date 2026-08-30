@@ -945,6 +945,31 @@ rule itself; what follows is what the rule does *not* cover yet.
   button: the designer never records which handler opened which dialog, since handler bodies
   are not part of `InitializeComponent()`.
 
+## Paint handlers and custom drawing
+
+- **A `Paint` handler needs a subclass, so the conversion supplies one.** Avalonia has no `Paint`
+  event; a control draws by overriding `Render(DrawingContext)`. The bundled `PaintSurfaceFallback`
+  is that subclass and raises the override back as an event, and a `Panel` or `PictureBox` whose
+  designer wired `Paint` is retargeted onto it. The subscription is made in the generated
+  constructor - it is a CLR event on a template, not an element attribute.
+- **It can draw or contain, not both.** `Panel.Render` is `sealed` in Avalonia, so the surface
+  derives from `Control` and hosts no children. A Panel with children keeps them and reports that
+  its Paint was not wired; a PictureBox that also carries an Image keeps the picture, since
+  WinForms drew the handler's output over it and there is no honest way to do both here.
+- **Only the geometric calls translate.** `DrawLine`, `DrawRectangle`, `FillRectangle`,
+  `DrawEllipse` and `FillEllipse`, in their four-coordinate form. WinForms overloads each of those
+  over `Rectangle`, `RectangleF`, point arrays and float/int coordinates; a different arity refuses
+  rather than being guessed at, and the prefix rule leaves the rest of the handler to a human.
+  `DrawString` is the notable absence: Avalonia's `DrawText` takes a `FormattedText` needing a
+  `Typeface` and an em size where WinForms passed one `Font` object - usually `this.Font` or a
+  control's - and splitting one argument into two this converter cannot read is the kind of guess
+  it does not make.
+- **Both colour palettes resolve through the colour pipeline, not a palette table.**
+  `Pens.SteelBlue`, `Brushes.SteelBlue`, `SystemBrushes.Control` and `SystemPens.Control` all
+  evaluate to the same `KnownColor` the designer path already understood, and come out as explicit
+  ARGB. That is deliberate: Avalonia's `Brushes` has no system colours at all, so translating a
+  name to a name would emit `Brushes.Control`, which does not exist there.
+
 ## Multiple projects
 
 `--source` takes a `.sln` or `.slnx` as well as a `.csproj`. Every WinForms project the solution
@@ -1002,6 +1027,17 @@ required before anything is written into a non-empty output directory at all.
   whatever the designer put 26 pixels below it. Both setters are needed - dropping the minimum
   alone only trades the overlap for clipped text. A designer-set `Padding` on the element itself
   still wins over the style.
+- **Two WinForms events that map onto one Avalonia event both run now.** A PictureBox's `Click`
+  and `MouseDown` are both `PointerPressed`, and emitting both as attributes is a duplicate XML
+  attribute - which does not merge, it fails to parse. Only the *attribute* is exclusive though:
+  an event takes any number of handlers, so the second is subscribed from the constructor with a
+  `+=` instead of being dropped. It is still reported, because the two now run at the same moment
+  where WinForms raised `Click` on the button coming back up.
+- **A bundled fallback can carry event attributes.** It used to carry none: the emitter's "is this
+  a direct Avalonia element" test doubled as its "can this be wired" test, so a designer-wired
+  handler on a converted ToolStrip button or paint surface was reported and dropped. Only the
+  events `Control` itself declares are allowed, listed in `FallbackControlMemberSupport` and
+  checked against Avalonia's real `Control`; an event a specific template adds is still refused.
 - Absolute layout is emitted everywhere *except* where the parent element holds items rather
   than positioned children - a `TabControl`'s pages, a `Menu`'s items, a `DataGrid`'s columns
   (`AxamlEmitter.HostsItems`). A `TabPage`'s WinForms bounds are the tab control's client area,

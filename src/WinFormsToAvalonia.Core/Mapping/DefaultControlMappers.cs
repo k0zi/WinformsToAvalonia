@@ -71,7 +71,9 @@ public static class DefaultControlMappers
         [
             ("BorderStyle", "BorderThickness", PropertyValueFormatters.AsBorderThickness),
         ]),
-        new SimplePropertyMapper("Panel", "Canvas", []),
+        // Wrapped rather than replaced: only an instance with a designer-wired Paint handler
+        // changes target - see PaintSurfaceMapper.
+        new PaintSurfaceMapper(new SimplePropertyMapper("Panel", "Canvas", [])),
         // TableLayoutPanel/FlowLayoutPanel map to Canvas like every other container, per the
         // project's fixed Canvas-everywhere layout strategy - their original WinForms
         // layout semantics (row/column/flow) are not translated, only their children's
@@ -92,10 +94,10 @@ public static class DefaultControlMappers
         ]),
         // Image is only set when ConversionPipeline managed to recover the picture from the
         // form's .resx and copy it into Assets/ - by then the property holds the asset path.
-        new SimplePropertyMapper("PictureBox", "Image",
+        new PaintSurfaceMapper(new SimplePropertyMapper("PictureBox", "Image",
         [
             ("Image", "Source", PropertyValueFormatters.AsText),
-        ]),
+        ])),
         new SimplePropertyMapper("MonthCalendar", "Calendar", []),
         // HyperlinkButton (core Avalonia, no extra package) rather than TextBlock: it is the
         // one built-in control that both *looks* like a link and has the real Click/Command

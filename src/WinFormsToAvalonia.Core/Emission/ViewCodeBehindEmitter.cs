@@ -233,6 +233,14 @@ public sealed class ViewCodeBehindEmitter
             Line($"        App.{NamingConventions.Capitalize(fieldName)}.{avaloniaEventName} += {handlerMethodName};");
         }
 
+        // Events the AXAML cannot carry: a bundled template's own CLR event, and the loser of two
+        // WinForms events that mapped onto one Avalonia event (only the attribute is exclusive).
+        foreach (var (fieldName, avaloniaEventName, handlerMethodName) in plan.ConstructorEventSubscriptions)
+        {
+            Line();
+            Line($"        {fieldName}.{avaloniaEventName} += {handlerMethodName};");
+        }
+
         // What the BindingNavigator's own buttons did in WinForms. Subscribed here rather than
         // through a XAML Click attribute because there is no handler method to point at: the
         // behaviour belongs to the framework, and the clamping to the fallback control.

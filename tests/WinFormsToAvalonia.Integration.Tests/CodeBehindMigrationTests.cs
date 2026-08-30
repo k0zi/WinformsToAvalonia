@@ -49,10 +49,26 @@ public class CodeBehindMigrationTests
             Assert.Contains("PointerPressed=\"canvasPanel_MouseDown\"", axaml);
             Assert.Contains("private void canvasPanel_MouseDown(object? sender, PointerPressedEventArgs e)", codeBehind);
 
-            // Paint has no Avalonia equivalent: method emitted, nothing subscribed, warning raised.
-            Assert.Contains("private void canvasPanel_Paint(object? sender, EventArgs e)", codeBehind);
+            // Avalonia has no Paint event - drawing is a Render(DrawingContext) override, which is
+            // a subclass - so a childless Panel with a Paint handler becomes the bundled surface
+            // that turns that override back into the event, and the body really translates.
+            Assert.Contains("private void canvasPanel_Paint(object? sender, PaintSurfaceEventArgs e)", codeBehind);
+            Assert.Contains(
+                "e.Context.DrawRectangle(null, new Pen(new SolidColorBrush(Color.Parse(\"#FF000000\"))), "
+                + "new Rect(0, 0, 10, 10));",
+                codeBehind);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(canvasPanel_Paint)", codeBehind);
+
+            // Still never an AXAML attribute: it is a CLR event on a template, so the constructor
+            // subscribes it.
             Assert.DoesNotContain("Paint=", axaml);
-            Assert.Contains(result.Report.Warnings, w => w.Contains("Paint") && w.Contains("no Avalonia equivalent"));
+            Assert.Contains("canvasPanel.Paint += canvasPanel_Paint;", codeBehind);
+            Assert.Contains("<controls:PaintSurfaceFallback x:Name=\"canvasPanel\"", axaml);
+
+            // And the *other* handler on that same control survives the retarget - a bundled
+            // template is a real Avalonia control, so the events it inherits from Control can
+            // carry an attribute like any element's. They used to be dropped with a warning.
+            Assert.Contains("PointerPressed=\"canvasPanel_MouseDown\"", axaml);
 
             // Form.Load becomes the Window's Opened event - the one raised as the window opens,
             // where Loaded is raised only after layout and render, with the window already up.

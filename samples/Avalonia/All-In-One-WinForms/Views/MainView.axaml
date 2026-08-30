@@ -173,7 +173,7 @@
             </TabItem>
             <TabItem x:Name="graphicsTabPage" Header="Graphics &amp; Range">
                 <Canvas>
-                    <Image x:Name="pictureBox1" Canvas.Left="12" Canvas.Top="12" Width="240" Height="160" PointerPressed="pictureBox1_MouseDown" />
+                    <controls:PaintSurfaceFallback x:Name="pictureBox1" Canvas.Left="12" Canvas.Top="12" Width="240" Height="160" PointerPressed="pictureBox1_MouseDown" />
                     <ProgressBar x:Name="progressBar1" Canvas.Left="270" Canvas.Top="12" Width="240" Height="23" Value="40" />
                     <Slider x:Name="trackBar1" Canvas.Left="270" Canvas.Top="41" Width="240" Height="45" Maximum="100" Value="40" ValueChanged="trackBar1_Scroll" />
                     <ScrollBar x:Name="hScrollBar1" Canvas.Left="270" Canvas.Top="92" Width="240" Height="17" Orientation="Horizontal" Scroll="hScrollBar1_Scroll" />

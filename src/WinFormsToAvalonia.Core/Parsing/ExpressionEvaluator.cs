@@ -154,8 +154,14 @@ public static class ExpressionEvaluator
 
         if (expression is MemberAccessExpressionSyntax namedColorAccess)
         {
+            // `Brushes.SteelBlue` and `Pens.SteelBlue` name the same KnownColor as `Color.SteelBlue`,
+            // and the System* pair the same colours as `SystemColors`. All four resolve through the
+            // one colour pipeline rather than a palette table of their own - which is what keeps a
+            // system colour, for which Avalonia has no named brush at all, coming out as explicit
+            // ARGB instead of a name that does not exist on the other side.
             var qualifierName = GetQualifierSimpleName(namedColorAccess.Expression);
-            if (qualifierName is "Color" or "SystemColors" or "KnownColor")
+            if (qualifierName is "Color" or "SystemColors" or "KnownColor"
+                or "Brushes" or "Pens" or "SystemBrushes" or "SystemPens")
             {
                 color = new PropertyValue.ColorValue(namedColorAccess.Name.Identifier.ValueText, null, null, null, null);
                 return true;

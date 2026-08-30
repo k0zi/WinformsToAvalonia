@@ -160,18 +160,22 @@ public class FormMigrationPlannerTests
         Assert.Contains(plan.Warnings, w => w.Contains("same Avalonia event 'PointerPressed'"));
     }
 
+    /// <summary>
+    /// A Label cannot become a paint surface - the fallback derives from Control and hosts
+    /// nothing, and a Label is not a rectangle you draw on - so Paint there is still unmapped.
+    /// </summary>
     [Fact]
     public void Plan_EventWithNoAvaloniaEquivalent_EmitsAnUnsubscribedMethodAndAWarning()
     {
-        var formModel = FormWith(("panel1", "Panel"));
-        Wire(formModel, "panel1", "Paint", "panel1_Paint");
+        var formModel = FormWith(("label1", "Label"));
+        Wire(formModel, "label1", "Paint", "label1_Paint");
 
         var plan = PlanFor(formModel, """
             namespace Demo
             {
                 public partial class Form1 : Form
                 {
-                    private void panel1_Paint(object sender, PaintEventArgs e)
+                    private void label1_Paint(object sender, PaintEventArgs e)
                     {
                     }
                 }
@@ -180,8 +184,74 @@ public class FormMigrationPlannerTests
 
         var handler = Assert.Single(plan.CodeBehindHandlers);
         Assert.Empty(handler.Subscriptions);
-        Assert.Empty(plan.XamlEventAttributesFor("panel1"));
+        Assert.Empty(plan.XamlEventAttributesFor("label1"));
         Assert.Contains(plan.Warnings, w => w.Contains("no Avalonia equivalent"));
+    }
+
+    // ---- Paint surfaces ---------------------------------------------------------------------
+
+    private static FormMigrationPlan PlanPaintHandler(FormModel formModel, string fieldName) =>
+        PlanFor(formModel, $$"""
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void {{fieldName}}_Paint(object sender, PaintEventArgs e)
+                    {
+                    }
+                }
+            }
+            """);
+
+    /// <summary>
+    /// A childless Panel becomes the bundled surface, and its handler is subscribed from the
+    /// constructor - the event is a CLR event on a template, not an element attribute.
+    /// </summary>
+    [Fact]
+    public void Plan_PaintOnAChildlessPanel_IsSubscribedFromTheConstructor()
+    {
+        var formModel = FormWith(("panel1", "Panel"));
+        Wire(formModel, "panel1", "Paint", "panel1_Paint");
+
+        var plan = PlanPaintHandler(formModel, "panel1");
+
+        Assert.Equal([("panel1", "Paint", "panel1_Paint")], plan.ConstructorEventSubscriptions);
+        Assert.Empty(plan.XamlEventAttributesFor("panel1"));
+    }
+
+    /// <summary>
+    /// A Panel with children keeps them. Avalonia seals <c>Panel.Render</c>, so the bundled
+    /// surface derives from <c>Control</c> and can draw or contain, not both - and losing the
+    /// children to gain the drawing is the worse trade.
+    /// </summary>
+    [Fact]
+    public void Plan_PaintOnAPanelWithChildren_IsNotSubscribed()
+    {
+        var formModel = FormWith(("panel1", "Panel"), ("innerLabel", "Label"));
+        formModel.Controls["panel1"].Children.Add(formModel.Controls["innerLabel"]);
+        Wire(formModel, "panel1", "Paint", "panel1_Paint");
+
+        var plan = PlanPaintHandler(formModel, "panel1");
+
+        Assert.Empty(plan.ConstructorEventSubscriptions);
+        Assert.Contains(plan.Warnings, w => w.Contains("it has child controls", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A PictureBox with an Image keeps the picture: WinForms drew the handler's output over it,
+    /// and an Avalonia Image element has no Paint event to subscribe.
+    /// </summary>
+    [Fact]
+    public void Plan_PaintOnAPictureBoxWithAnImage_IsNotSubscribed()
+    {
+        var formModel = FormWith(("pictureBox1", "PictureBox"));
+        formModel.Controls["pictureBox1"].Properties["Image"] = new PropertyValue.Literal("/Assets/logo.png");
+        Wire(formModel, "pictureBox1", "Paint", "pictureBox1_Paint");
+
+        var plan = PlanPaintHandler(formModel, "pictureBox1");
+
+        Assert.Empty(plan.ConstructorEventSubscriptions);
+        Assert.Contains(plan.Warnings, w => w.Contains("it also carries an Image", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -723,6 +793,55 @@ public class FormMigrationPlannerTests
         var plan = PlanFor(formModel, "namespace Demo { public partial class Form1 : Form { } }");
 
         Assert.Empty(plan.ListViewRows);
+    }
+
+    // ---- Two WinForms events on one Avalonia event ------------------------------------------
+
+    /// <summary>
+    /// A PictureBox's Click and MouseDown both become PointerPressed. Only the *attribute* is
+    /// exclusive - an event takes any number of handlers - so the loser is subscribed from the
+    /// constructor and both bodies run, which is what the WinForms original did.
+    /// </summary>
+    [Fact]
+    public void Plan_TwoEventsOnOneAvaloniaEvent_ChainsTheLoserFromTheConstructor()
+    {
+        var formModel = FormWith(("pictureBox1", "PictureBox"));
+        Wire(formModel, "pictureBox1", "MouseDown", "pictureBox1_MouseDown");
+        Wire(formModel, "pictureBox1", "Click", "pictureBox1_Click");
+
+        var plan = PlanEmpty(formModel);
+
+        Assert.Equal(
+            [("pictureBox1", "PointerPressed", "pictureBox1_MouseDown")],
+            plan.XamlEventAttributesFor("pictureBox1")
+                .Select(a => ("pictureBox1", a.AttributeName, a.HandlerMethodName)));
+
+        Assert.Equal(
+            [("pictureBox1", "PointerPressed", "pictureBox1_Click")],
+            plan.ConstructorEventSubscriptions);
+
+        // Reported anyway: both run, but they now run at the same moment. WinForms raised Click on
+        // the button going back up, and nothing here can recover that.
+        Assert.Contains(plan.Warnings, w => w.Contains("subscribed from the constructor", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The two lists are disjoint by construction - exactly one of the pair claims the attribute -
+    /// so nothing is subscribed twice.
+    /// </summary>
+    [Fact]
+    public void Plan_ChainedSubscription_IsNotAlsoAnAttribute()
+    {
+        var formModel = FormWith(("pictureBox1", "PictureBox"));
+        Wire(formModel, "pictureBox1", "MouseDown", "pictureBox1_MouseDown");
+        Wire(formModel, "pictureBox1", "Click", "pictureBox1_Click");
+
+        var plan = PlanEmpty(formModel);
+
+        Assert.Empty(
+            plan.XamlEventAttributesFor("pictureBox1")
+                .Select(a => a.HandlerMethodName)
+                .Intersect(plan.ConstructorEventSubscriptions.Select(c => c.HandlerMethodName), StringComparer.Ordinal));
     }
 
     // ---- BindingNavigator ------------------------------------------------------------------

@@ -19,6 +19,12 @@ namespace WinFormsToAvalonia.Core.Model;
 /// event carries state or payload that a parameterless ICommand cannot express, so it is never
 /// eligible for ViewModel promotion regardless of what its body does.
 /// </param>
+/// <param name="FallbackTemplateKey">
+/// Set when the event belongs to a bundled fallback control rather than to an Avalonia element -
+/// the paint surface's <c>Paint</c>. The generated handler's args type is declared by that
+/// template, so the View's code-behind needs the generated <c>Controls</c> namespace whether or
+/// not anything else in the plan pulled a template in.
+/// </param>
 /// <param name="RaisedDuringInitialization">
 /// True when Avalonia raises this event <em>while the AXAML is still being populated</em> - a
 /// TabControl selects its first tab as it initialises, a CheckBox raises IsCheckedChanged when
@@ -36,6 +42,7 @@ public sealed record EventMapping(
     bool SubscribeInCode = false,
     bool IsCommandCandidate = false,
     bool RaisedDuringInitialization = false,
+    string? FallbackTemplateKey = null,
     string? Guidance = null)
 {
     /// <summary>The AXAML attribute name for this event, e.g. "Click" or "DragDrop.Drop".</summary>

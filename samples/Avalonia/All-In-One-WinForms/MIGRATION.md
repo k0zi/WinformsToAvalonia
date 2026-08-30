@@ -2,7 +2,7 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**96 of 106 handler statements (91%)** came across as real Avalonia code.
+**97 of 106 handler statements (92%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
@@ -19,13 +19,13 @@ one is the first the conversion could not prove equivalent.
 
 - [ ] `MainForm_FormClosing` — `this.notifyIcon1.Visible = false;`
 - [ ] `pageSetupButton_Click` — `this.pageSetupDialog1.ShowDialog(this);`
-- [ ] `pictureBox1_Paint` — `e.Graphics.DrawEllipse(Pens.SteelBlue, 10, 10, 200, 120);`
+- [ ] `pictureBox1_Paint` — `e.Graphics.DrawString("PictureBox.Paint", this.Font, Brushes.SteelBlue, 20, 60);`
 - [ ] `printButton_Click` — `if (this.printDialog1.ShowDialog(this) == DialogResult.OK)`
 - [ ] `printDocument1_PrintPage` — `e.Graphics!.DrawString(`
 - [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 
-## Needs your attention (52)
+## Needs your attention (51)
 
 Everything the conversion decided not to guess at, and why.
 
@@ -49,7 +49,6 @@ Everything the conversion decided not to guess at, and why.
 - Click handler 'validateButton_Click' stays in code-behind: 'errorProvider1' (ErrorProvider) has no direct Avalonia element to bind against.
 - Click handler 'refreshButton_Click' stays in code-behind: it uses 'itemsTreeView.Nodes', which has no bindable Avalonia equivalent.
 - Click handler 'clockToggleButton_Click' stays in code-behind: 'clockTimer' (Timer) has no direct Avalonia element to bind against.
-- 'pictureBox1' subscribes 'Paint', which has no Avalonia equivalent - 'pictureBox1_Paint' is emitted but never subscribed. Avalonia has no Paint event - override Control.Render(DrawingContext) on a custom control, or use a Path/Shape.
 - Click handler 'openFileButton_Click' stays in code-behind: it drives the Form itself (DialogResult).
 - Click handler 'saveFileButton_Click' stays in code-behind: it drives the Form itself (DialogResult).
 - Click handler 'folderBrowserButton_Click' stays in code-behind: it drives the Form itself (DialogResult).
@@ -77,7 +76,7 @@ Everything the conversion decided not to guess at, and why.
 - Component 'performanceCounter1' (PerformanceCounter) is Windows-only. The generated View declares it and compiles everywhere, with the platform analyser suppressed for that file - but these calls throw on Linux and macOS.
 - Component 'serviceController1' (ServiceController) is Windows-only. The generated View declares it and compiles everywhere, with the platform analyser suppressed for that file - but these calls throw on Linux and macOS.
 - Component 'soundPlayer1' (SoundPlayer) is Windows-only. The generated View declares it and compiles everywhere, with the platform analyser suppressed for that file - but these calls throw on Linux and macOS.
-- 'pictureBox1' subscribes both 'MouseDown' and 'Click', which map to the same Avalonia event 'PointerPressed' - only 'pictureBox1_MouseDown' is subscribed; call 'pictureBox1_Click' from it by hand.
+- 'pictureBox1' subscribes both 'MouseDown' and 'Click', which map to the same Avalonia event 'PointerPressed'. 'pictureBox1_MouseDown' carries the AXAML attribute and 'pictureBox1_Click' is subscribed from the constructor instead, so both run - but they now run at the same moment, which the two WinForms events did not.
 - 'checkedListBox1' is a CheckedListBox, which becomes a multi-selection ListBox: Avalonia has no per-item checkbox list, so ticking is approximated by selection and CheckedItems/CheckedIndices have no equivalent. Bind an ItemTemplate containing a CheckBox if the check state has to be a value of its own.
 - Click handler 'okButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 - Click handler 'cancelButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
