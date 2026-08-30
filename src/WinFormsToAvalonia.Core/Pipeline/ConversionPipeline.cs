@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using WinFormsToAvalonia.Core.Emission;
 using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
@@ -261,6 +263,11 @@ public sealed class ConversionPipeline
         _fallbackControlResolver.CopyResolvedTemplates(vfs, projectName, allUsedFallbackKeys);
 
         foreach (var (relativePath, text) in carriedComponents.SelectMany(c => c.Files))
+        {
+            vfs.AddText(relativePath, text);
+        }
+
+        foreach (var (relativePath, text) in CarryOverModelTypes(pairings, projectName, allWarnings))
         {
             vfs.AddText(relativePath, text);
         }
@@ -549,9 +556,14 @@ public sealed class ConversionPipeline
             .Where(p => p.Kind == WinFormsArtifactKind.Component)
             .Select(p => new UnsupportedControlMapper(
                 p.ClassName,
-                // A project's own Component: no Avalonia counterpart exists for it as a control,
-                // whether or not its source came across.
-                UnsupportedDisposition.NoAvaloniaApi,
+                // Neither kind emits an element, but they are not the same news: a component whose
+                // source was copied in and given a real field is converted - just not as a control -
+                // which is exactly what FeatureElsewhere means. Saying NoAvaloniaApi for both put a
+                // working component in the red "unsupported" count and in the checklist's
+                // needs-attention list, contradicting the guidance printed beside it.
+                carriedOver.Contains(p.ClassName)
+                    ? UnsupportedDisposition.FeatureElsewhere
+                    : UnsupportedDisposition.NoAvaloniaApi,
                 carriedOver.Contains(p.ClassName)
                     ? $"'{p.ClassName}' is a Component defined by this project - no visual representation, so no control "
                         + "mapping. Its source names nothing that would not survive the conversion, so it is copied into "
@@ -563,6 +575,61 @@ public sealed class ConversionPipeline
     /// Every project-defined Component whose source can be carried over verbatim, with the reason
     /// reported for each one that cannot.
     /// </summary>
+    /// <summary>
+    /// Model types a Form or UserControl declares inside itself, lifted into <c>Models/</c>.
+    /// </summary>
+    /// <remarks>
+    /// A WinForms form routinely keeps its row type as a private nested class. That type is plain
+    /// .NET and comes across fine - but nested inside a class this converter does not carry over,
+    /// it only ever reached the generated project inside the "NOT COMPILED" comment block, so the
+    /// code a human then migrates had no type to name. Same safety rule as a carried-over
+    /// component: anything mentioning something that does not survive is refused and reported.
+    /// </remarks>
+    private static List<(string RelativePath, string Text)> CarryOverModelTypes(
+        IReadOnlyList<DesignerFilePairing> pairings, string projectName, List<string> warnings)
+    {
+        var winFormsTypeNames = new ControlMappingRegistry().Mappers.Keys.ToHashSet(StringComparer.Ordinal);
+        var otherClassNames = pairings.Select(p => p.ClassName).ToHashSet(StringComparer.Ordinal);
+        var carried = new List<(string, string)>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var pairing in pairings.Where(p => p.PrimaryFilePath is not null && File.Exists(p.PrimaryFilePath)))
+        {
+            var root = CSharpSyntaxTree.ParseText(File.ReadAllText(pairing.PrimaryFilePath!)).GetRoot();
+
+            var owner = root.DescendantNodes()
+                .OfType<ClassDeclarationSyntax>()
+                .FirstOrDefault(c => c.Identifier.ValueText == pairing.ClassName);
+
+            if (owner is null)
+            {
+                continue;
+            }
+
+            foreach (var nested in owner.Members.OfType<TypeDeclarationSyntax>())
+            {
+                var typeName = nested.Identifier.ValueText;
+                if (!seen.Add(typeName))
+                {
+                    continue;
+                }
+
+                if (ComponentSourceAnalyzer.TryCarryOverNestedType(
+                        nested, $"{projectName}.Models", winFormsTypeNames, otherClassNames, out var source, out var reason))
+                {
+                    carried.Add(($"Models/{typeName}.cs", source));
+                }
+                else
+                {
+                    warnings.Add(
+                        $"'{typeName}', a type declared inside '{pairing.ClassName}', was not carried into Models/: {reason}.");
+                }
+            }
+        }
+
+        return carried;
+    }
+
     private static List<CarriedOverComponent> CarryOverProjectComponents(
         IReadOnlyList<DesignerFilePairing> allPairings, string projectName, List<string> warnings)
     {

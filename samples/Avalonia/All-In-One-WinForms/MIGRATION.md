@@ -26,7 +26,7 @@ one is the first the conversion could not prove equivalent.
 - [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 
-## Needs your attention (54)
+## Needs your attention (53)
 
 Everything the conversion decided not to guess at, and why.
 
@@ -34,13 +34,12 @@ Everything the conversion decided not to guess at, and why.
 - 'toolStripContainer1.TopToolStripPanel' holds 'containerToolStrip', which is a nested container region this conversion cannot place - only a SplitContainer's Panel1/Panel2 are translated. Those controls are not emitted; add them to the generated 'toolStripContainer1' by hand.
 - 'helpProvider1' (HelpProvider) calls 'SetShowHelp(...)', which has no Avalonia equivalent - that setting is not carried over.
 - 'ToolStrip' has no built-in Avalonia equivalent; using the bundled fallback control 'ToolStripFallback'.
-- No runtime equivalent shipped - recommend an ObservableCollection<T> in the ViewModel instead.
+- No runtime equivalent shipped - but a control whose DataSource named this BindingSource now gets an ItemsSource binding, and the ViewModel the ObservableCollection behind it. The rows are not carried over: populate the collection where the WinForms code set DataSource. A row type declared inside the Form is lifted into Models/ so you have it to construct.
 - No built-in Avalonia printing API - manual migration required.
 - No built-in Avalonia printing API - manual migration required.
 - No built-in Avalonia printing API - manual migration required.
 - No built-in Avalonia printing API - manual migration required.
 - NotifyIcon 'notifyIcon1': couldn't resolve a literal icon file path from Designer.cs (it is usually a resx resource) - App.axaml's TrayIcon is emitted commented out, since referencing an icon file the conversion cannot produce would throw at startup. Copy the real icon into Assets/ and uncomment the block.
-- 'DemoComponent' is a Component defined by this project - no visual representation, so no control mapping. Its source names nothing that would not survive the conversion, so it is copied into the generated project and a real field is emitted for it.
 - 'ErrorProvider' has no built-in Avalonia equivalent; using the bundled fallback control 'ErrorProviderFallback'.
 - Click handler 'newMenuItem_Click' stays in code-behind: it uses 'titleTextBox.Clear', which has no bindable Avalonia equivalent.
 - Click handler 'openMenuItem_Click' stays in code-behind: it drives the Form itself (DialogResult).
@@ -85,7 +84,7 @@ Everything the conversion decided not to guess at, and why.
 - Click handler 'okButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 - Click handler 'cancelButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 
-## Converted differently (19)
+## Converted differently (20)
 
 No action needed - these have no Avalonia element, so here is where each one went.
 
@@ -106,6 +105,7 @@ No action needed - these have no Avalonia element, so here is where each one wen
 - No per-View mapping - Avalonia's tray-icon support is app-level, configured in App.axaml's TrayIcon.Icons (now generated automatically by ConversionPipeline.Run's cross-form aggregation - see AvaloniaProjectScaffolder.BuildTrayIconsSection). A literal icon path that resolves to a real file is copied into the generated project's Assets/ folder; otherwise (the common case - resx/dynamic icons) the TrayIcon block is emitted commented out with a TODO, since Avalonia resolves TrayIcon.Icon at run time and a dangling asset reference would throw out of App.Initialize(). Designer-wired events: Click becomes TrayIcon.Clicked and is subscribed from the generated View's constructor for an icon that resolved; DoubleClick and the mouse/balloon events have no Avalonia counterpart and are reported by name rather than emitted as a handler nothing subscribes.
 - The component itself has no element, but its this.helpProvider1.SetHelpString(this.control1, "text") calls ARE translated - into AutomationProperties.HelpText on the target control, which is the one Avalonia slot that means 'help text about this control'. The F1 gesture itself has no equivalent, so SetShowHelp and HelpNamespace are reported rather than guessed at.
 - The ContextMenuStrip component itself has no element - but this.someControl.ContextMenuStrip = this.contextMenuStrip1 assignments ARE now translated automatically into a nested <Control.ContextMenu><ContextMenu>...</ContextMenu></Control.ContextMenu> on the target control (see AxamlEmitter.EmitContextMenuIfPresent). NotifyIcon.ContextMenuStrip is translated too, into App.axaml's TrayIcon.Menu as a NativeMenu - a native menu the OS draws, so an item carries a header, an enabled flag and a submenu and nothing else; a designer-wired Click on one is reported, since NativeMenuItem raises Click as an event XAML cannot point at a method.
+- 'DemoComponent' is a Component defined by this project - no visual representation, so no control mapping. Its source names nothing that would not survive the conversion, so it is copied into the generated project and a real field is emitted for it.
 - No control mapping, but the images are not lost - each one is written to Assets/<field>_<index>.png and set on the menu items that used it. MenuItem.Icon is the only per-item image slot Avalonia has; anywhere else, place the extracted file by hand.
 - The ToolTip component itself has no element - but its this.toolTip1.SetToolTip(this.control1, "text") calls ARE now translated automatically into a ToolTip.Tip attribute on the target control (see DesignerSyntaxWalker.HandleExtenderProviderInvocation, driven by ExtenderProviderCatalog).
 

@@ -116,7 +116,7 @@
             </TabItem>
             <TabItem x:Name="dataTabPage" Header="Data">
                 <Canvas>
-                    <DataGrid x:Name="dataGridView1" Canvas.Left="12" Canvas.Top="12" Width="940" Height="300" CellPointerPressed="dataGridView1_CellClick" ToolTip.Tip="Bound to bindingSource1">
+                    <DataGrid x:Name="dataGridView1" Canvas.Left="12" Canvas.Top="12" Width="940" Height="300" ItemsSource="{Binding DataGridView1Items}" CellPointerPressed="dataGridView1_CellClick" ToolTip.Tip="Bound to bindingSource1">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Name" Binding="{ReflectionBinding Name}" />
                             <DataGridCheckBoxColumn Header="Active" Binding="{ReflectionBinding Active}" />

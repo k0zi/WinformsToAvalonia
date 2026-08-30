@@ -94,6 +94,53 @@ public static class ComponentSourceAnalyzer
     }
 
     /// <summary>
+    /// A model type declared <b>inside</b> a Form, lifted out into a file of its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// WinForms forms routinely carry their row/model types as private nested classes. Those are
+    /// plain .NET and survive the conversion perfectly well - but nested inside a class the
+    /// conversion does not carry over, they were only ever preserved in the "NOT COMPILED"
+    /// comment block, so the migrated code had nothing to name.
+    /// </para>
+    /// <para>
+    /// The same safety rule as a carried-over component: a type that mentions anything which does
+    /// not come across is refused rather than emitted broken. Visibility is raised because a
+    /// private nested type cannot be a top-level one.
+    /// </para>
+    /// </remarks>
+    public static bool TryCarryOverNestedType(
+        TypeDeclarationSyntax declaration,
+        string targetNamespace,
+        IReadOnlySet<string> winFormsTypeNames,
+        IReadOnlySet<string> otherProjectClassNames,
+        out string source,
+        out string reason)
+    {
+        source = "";
+        reason = "";
+
+        var typeName = declaration.Identifier.ValueText;
+
+        if (FindDisqualifyingName(declaration, typeName, winFormsTypeNames, otherProjectClassNames) is { } offender)
+        {
+            reason = $"it mentions '{offender}', which does not come across";
+            return false;
+        }
+
+        var lifted = declaration.WithModifiers(SyntaxFactory.TokenList(
+            declaration.Modifiers
+                .Where(m => !m.IsKind(SyntaxKind.PrivateKeyword)
+                    && !m.IsKind(SyntaxKind.ProtectedKeyword)
+                    && !m.IsKind(SyntaxKind.PublicKeyword)
+                    && !m.IsKind(SyntaxKind.InternalKeyword))
+                .Prepend(SyntaxFactory.Token(SyntaxKind.InternalKeyword))));
+
+        source = $"namespace {targetNamespace};\n\n{lifted.NormalizeWhitespace().ToFullString()}\n";
+        return true;
+    }
+
+    /// <summary>
     /// The first name in the file that this converter cannot promise survives: a WinForms
     /// namespace, a WinForms control type, or another class of this project that is not itself
     /// carried over.

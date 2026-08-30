@@ -500,6 +500,13 @@ public sealed class AxamlEmitter
             builder.Attribute(bound.AvaloniaPropertyName, $"{{Binding {bound.ViewModelPropertyName}, Mode=TwoWay}}");
         }
 
+        // Not through the loop above: that one hardcodes Mode=TwoWay, which an ItemsSource is not.
+        foreach (var collection in state.Plan.DataSourceBindings.Where(
+                     b => string.Equals(b.ControlFieldName, control.FieldName, StringComparison.Ordinal)))
+        {
+            builder.Attribute("ItemsSource", $"{{Binding {collection.ViewModelPropertyName}}}");
+        }
+
         if (state.Plan.CommandPropertyFor(control.FieldName) is { } commandProperty)
         {
             builder.Attribute("Command", $"{{Binding {commandProperty}}}");

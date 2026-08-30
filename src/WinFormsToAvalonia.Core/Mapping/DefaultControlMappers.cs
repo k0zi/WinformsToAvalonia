@@ -308,7 +308,7 @@ public static class DefaultControlMappers
         new FallbackControlMapper("PrintPreviewControl", "PrintPreviewControlFallback"),
 
         new UnsupportedControlMapper("BackgroundWorker", UnsupportedDisposition.FeatureElsewhere, EmittedAsField + "It predates async/await, so Task.Run with IProgress<T> is usually the better end state - but that is a design improvement, not a migration step: the converted code runs as it is."),
-        new UnsupportedControlMapper("BindingSource", UnsupportedDisposition.NoAvaloniaApi, "No runtime equivalent shipped - recommend an ObservableCollection<T> in the ViewModel instead."),
+        new UnsupportedControlMapper("BindingSource", UnsupportedDisposition.NoAvaloniaApi, "No runtime equivalent shipped - but a control whose DataSource named this BindingSource now gets an ItemsSource binding, and the ViewModel the ObservableCollection behind it. The rows are not carried over: populate the collection where the WinForms code set DataSource. A row type declared inside the Form is lifted into Models/ so you have it to construct."),
 
         // Menu/toolbar family - ContextMenuStrip is never Controls.Add-ed (assigned to
         // another control's .ContextMenuStrip property instead), and the container/panel

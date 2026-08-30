@@ -30,12 +30,18 @@ public sealed class ViewModelEmitter
     {
         var ns = NamingConventions.NamespaceOf($"{rootNamespace}.ViewModels", relativeFolder);
         var properties = plan.BoundProperties;
+        var collections = plan.DataSourceBindings;
         var commands = plan.ViewModelCommands;
 
         var sb = new StringBuilder();
         void Line(string text = "") => sb.Append(text).Append('\n');
 
         Line("using System;");
+        if (collections.Count > 0)
+        {
+            Line("using System.Collections.ObjectModel;");
+        }
+
         if (properties.Count > 0)
         {
             Line("using CommunityToolkit.Mvvm.ComponentModel;");
@@ -54,6 +60,25 @@ public sealed class ViewModelEmitter
         Line("{");
 
         var isFirstMember = true;
+
+        // A get-only ObservableCollection rather than an [ObservableProperty]: the reference never
+        // changes, and what ItemsSource actually listens to is INotifyCollectionChanged, which the
+        // collection raises itself. `object` because the row type is usually a private nested class
+        // in the WinForms form that cannot be carried over - and does not need to be, since the
+        // generated columns bind with {ReflectionBinding}.
+        foreach (var collection in collections)
+        {
+            if (!isFirstMember)
+            {
+                Line();
+            }
+
+            isFirstMember = false;
+            Line($"    /// <summary>Bound to {collection.ControlFieldName}.ItemsSource in the view, replacing");
+            Line($"    /// the WinForms BindingSource '{collection.SourceFieldName}'. Generated empty: the wiring is");
+            Line("    /// here, the rows are not - populate it where the WinForms code set DataSource.</summary>");
+            Line($"    public ObservableCollection<object> {collection.ViewModelPropertyName} {{ get; }} = [];");
+        }
 
         foreach (var property in properties)
         {

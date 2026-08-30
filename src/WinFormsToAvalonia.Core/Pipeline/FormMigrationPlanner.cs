@@ -147,6 +147,7 @@ public sealed class FormMigrationPlanner
         // Planned *before* the rewrite, unlike the file dialogs below: these fields are something
         // a handler body may name, so the rewriter has to know they exist. (The file dialogs go
         // the other way - what to emit for them depends on what the rewrite did.)
+        var dataSourceBindings = PlanDataSourceBindings(formModel);
         var timers = PlanTimers(formModel);
         var timerFields = timers.Select(t => t.FieldName).ToHashSet(StringComparer.Ordinal);
         var components = PlanComponents(
@@ -223,7 +224,8 @@ public sealed class FormMigrationPlanner
                 && !(m.Kind == HelperMemberKind.Property
                     && viewSurface.Own.Any(p => string.Equals(p.Name, m.Name, StringComparison.Ordinal))))],
             codeBehind.ConstructorExtraStatements,
-            warnings);
+            warnings,
+            dataSourceBindings);
     }
 
     /// <summary>
@@ -333,6 +335,38 @@ public sealed class FormMigrationPlanner
     /// evidence-driven rule as everywhere else. Interval/Enabled are ordinary designer literals
     /// DesignerSyntaxWalker already captured.
     /// </summary>
+    /// <summary>
+    /// A control whose designer <c>DataSource</c> pointed at a <c>BindingSource</c> component.
+    /// </summary>
+    /// <remarks>
+    /// Planned from designer facts alone rather than from a handler body - unlike every other
+    /// ViewModel property here, which exists because a promoted command names it. The designer
+    /// records the whole relationship (<c>dataGridView1.DataSource = this.bindingSource1;</c>),
+    /// so nothing has to be inferred from code.
+    /// </remarks>
+    private static List<DataSourceBindingPlan> PlanDataSourceBindings(FormModel formModel)
+    {
+        var plans = new List<DataSourceBindingPlan>();
+
+        foreach (var control in formModel.Controls.Values.OrderBy(c => c.FieldName, StringComparer.Ordinal))
+        {
+            if (!control.Properties.TryGetValue("DataSource", out var value)
+                || value is not PropertyValue.ControlReference(var sourceField)
+                || !formModel.Controls.TryGetValue(sourceField, out var source)
+                || source.ClrTypeName != "BindingSource")
+            {
+                continue;
+            }
+
+            plans.Add(new DataSourceBindingPlan(
+                control.FieldName,
+                sourceField,
+                $"{NamingConventions.Capitalize(control.FieldName)}Items"));
+        }
+
+        return plans;
+    }
+
     private static List<TimerFieldPlan> PlanTimers(FormModel formModel)
     {
         var timers = new List<TimerFieldPlan>();

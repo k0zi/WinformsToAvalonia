@@ -197,6 +197,30 @@ public sealed record PromotedPropertyPlan(
 /// by all three emitters (AXAML, View code-behind, ViewModel) so they can never disagree about
 /// where a handler went or which properties are bound.
 /// </summary>
+/// <summary>
+/// A control bound to a WinForms <c>BindingSource</c>, and the ViewModel collection that replaces
+/// it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The element type is deliberately <c>object</c>. The row type in a WinForms form is usually a
+/// private nested class the conversion cannot carry over, and it does not need to: the generated
+/// <c>DataGridTextColumn</c>s bind with <c>{ReflectionBinding}</c>, which resolves against the
+/// row's runtime type. So the columns start working the moment real rows are added, whatever
+/// their type turns out to be.
+/// </para>
+/// <para>
+/// What this is <b>not</b> is a translation of the data. The collection is generated empty and
+/// stays empty: <c>bindingSource1.DataSource = new BindingList&lt;T&gt; { ... }</c> in a handler is
+/// still refused. This is the wiring, and the conversion says so rather than implying the rows
+/// came across.
+/// </para>
+/// </remarks>
+public sealed record DataSourceBindingPlan(
+    string ControlFieldName,
+    string SourceFieldName,
+    string ViewModelPropertyName);
+
 public sealed record FormMigrationPlan(
     IReadOnlyList<CodeBehindHandlerPlan> CodeBehindHandlers,
     IReadOnlyList<ViewModelCommandPlan> ViewModelCommands,
@@ -210,8 +234,15 @@ public sealed record FormMigrationPlan(
     IReadOnlyList<PromotedPropertyPlan> PromotedProperties,
     IReadOnlyList<HelperMemberModel> PreservedMembers,
     IReadOnlyList<string> ConstructorExtraStatements,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<string> Warnings,
+    /// <summary>
+    /// Controls whose WinForms <c>DataSource</c> pointed at a <c>BindingSource</c>, and the
+    /// ViewModel collection each one now binds its <c>ItemsSource</c> to.
+    /// </summary>
+    IReadOnlyList<DataSourceBindingPlan>? DataSourceBindings = null)
 {
+    public IReadOnlyList<DataSourceBindingPlan> DataSourceBindings { get; } = DataSourceBindings ?? [];
+
     public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], [], [], [], [], []);
 
     /// <summary>Every body rewrite in this plan - both the code-behind and the ViewModel side.</summary>

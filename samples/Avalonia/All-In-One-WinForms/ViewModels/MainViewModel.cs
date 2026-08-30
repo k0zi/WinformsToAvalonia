@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using All_In_One_WinForms.Generated;
@@ -7,6 +8,11 @@ namespace All_In_One_WinForms.ViewModels;
 
 public sealed partial class MainViewModel : ViewModelBase
 {
+    /// <summary>Bound to dataGridView1.ItemsSource in the view, replacing
+    /// the WinForms BindingSource 'bindingSource1'. Generated empty: the wiring is
+    /// here, the rows are not - populate it where the WinForms code set DataSource.</summary>
+    public ObservableCollection<object> DataGridView1Items { get; } = [];
+
     /// <summary>Bound to toolStripProgressBar1.Value in the view.</summary>
     [ObservableProperty]
     public partial double ToolStripProgressBar1Value { get; set; }

@@ -1032,6 +1032,30 @@ Two more mappings gained precision rather than a new control:
   Avalonia has no per-item checkbox list, so ticking is approximated by selection and
   `CheckedItems`/`CheckedIndices`/`GetItemChecked` have no equivalent. This used to be silent.
 
+## Data binding: `BindingSource`
+
+A control whose designer `DataSource` pointed at a `BindingSource` now gets a real
+`ItemsSource="{Binding …}"`, and the ViewModel gets the `ObservableCollection<object>` behind it.
+The generated `DataGridTextColumn`s already bind with `{ReflectionBinding}`, so they resolve
+against whatever the rows turn out to be - the columns start working the moment rows exist.
+
+**The rows themselves do not come across.** `bindingSource1.DataSource = new BindingList<T> { … }`
+in a handler is still refused: translating it would mean teaching the body rewriter collection and
+object initializers, i.e. general C#, which is exactly what its finite proven vocabulary is not.
+So the collection is generated empty and the conversion says so rather than implying otherwise.
+
+What *is* now possible is writing that population by hand, because the row type exists: a type
+declared **inside** a Form or UserControl is lifted into `Models/<Name>.cs` as an `internal` type
+in the `<project>.Models` namespace. WinForms forms routinely keep their row type as a private
+nested class, and until now it reached the generated project only inside the "NOT COMPILED"
+comment block - so the code a human then migrated had nothing to name. A nested type that mentions
+something which does not survive the conversion is refused and reported, the same rule a
+carried-over `Component` follows.
+
+`BindingSource` therefore keeps its guidance-only registry entry: an empty collection with a live
+binding is a seam, not a converted feature, and counting it as converted would be the kind of
+claim this repo's tests exist to prevent.
+
 ## Browser (WebAssembly) head
 
 Only produced by `--with-web`. Building it needs the `wasm-tools` workload
