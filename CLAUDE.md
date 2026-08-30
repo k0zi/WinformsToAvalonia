@@ -307,6 +307,13 @@ not by building.
   a ListView row's cell count must equal the designer's column count. A carried-over model type is
   lifted `public`, not `internal` — the ViewModel's `ObservableCollection<T>` is a public property,
   and CS0053 is a build error in the **generated** project and nowhere else.
+- **`FallbackControlMemberSupport` answers two different questions, and the second one bites.**
+  It gates what a handler *body* may name — and it is also what `AxamlEmitter.FilterBindableForTarget`
+  asks before writing a planned binding onto a fallback element. An unlisted property is dropped
+  there **in silence**. `BindingNavigatorFallback.Position` was deliberately unregistered on the
+  grounds that no WinForms `BindingNavigator` has a `Position` (true, and irrelevant): the
+  conversion binds it itself, and the binding simply vanished. Registering a template member is
+  about what the *template* exposes, not about what a WinForms body could have said.
 - **A `DataGridTextColumn` with no `Binding` is a column that can never show a cell.** A
   Details-mode ListView's `ColumnHeader`s used to emit exactly that — a header over a strip
   nothing could fill, not even after a hand migration. `ListViewRowsPlan` is what gives them one:

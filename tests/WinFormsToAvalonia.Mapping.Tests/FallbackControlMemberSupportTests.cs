@@ -78,10 +78,11 @@ public class FallbackControlMemberSupportTests
             // reading it back could not, and half a pair is worse than none.
             [("WebBrowserFallback", "Url")] = "WinForms' Url is a Uri, the template's a string",
 
-            // The template's own display state. WinForms' BindingNavigator has no such property -
-            // the BindingSource does - so there is nothing on the WinForms side to name.
-            [("BindingNavigatorFallback", "Position")] = "WinForms' BindingNavigator has no Position",
-            [("BindingNavigatorFallback", "Count")] = "WinForms' BindingNavigator has no Count",
+            // BindingNavigatorFallback's Position and Count used to sit here, on the grounds that
+            // no WinForms BindingNavigator has either. Still true of a *handler body* - and beside
+            // the point, because the conversion binds them itself now. This table is also what the
+            // AXAML emitter consults before writing a binding onto a fallback, and an unlisted
+            // property is dropped there without a word.
 
             // Its value is a PrintDocument, a WinForms type the converted code cannot produce.
             [("PrintPreviewControlFallback", "Document")] = "a PrintDocument cannot be constructed on this side",

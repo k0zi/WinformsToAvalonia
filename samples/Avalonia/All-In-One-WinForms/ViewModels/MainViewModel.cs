@@ -49,6 +49,10 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial int ItemsComboBoxSelectedIndex { get; set; }
 
+    /// <summary>Bound to bindingNavigator1.Position in the view.</summary>
+    [ObservableProperty]
+    public partial int BindingNavigator1Position { get; set; }
+
     [RelayCommand]
     private void ToolStripNewButton()
     {

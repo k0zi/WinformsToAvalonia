@@ -68,6 +68,9 @@ public partial class MainView : Window
         clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         clockTimer.Tick += clockTimer_Tick;
 
+        navigatorMoveFirstButton.Click += (_, _) => bindingNavigator1.MoveFirst();
+        navigatorMoveNextButton.Click += (_, _) => bindingNavigator1.MoveNext();
+
         w2aInitialized = true;
     }
 

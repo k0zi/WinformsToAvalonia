@@ -897,9 +897,12 @@ rule itself; what follows is what the rule does *not* cover yet.
   `FallbackControlMemberSupportTests` checks the reverse direction too: a property a template
   declares is either registered or listed as deliberately out of reach with the reason. Three are:
   `WebBrowser.Url` (a `Uri` in WinForms, a `string` on the template - a change of value shape, and
-  half a pair is worse than none), `BindingNavigator.Position`/`Count` (the template's own display
-  state; WinForms' BindingNavigator has no such property), and `PrintPreviewControl.Document`
-  (a `PrintDocument`, which the converted code cannot produce). A template absent from that table behaves as before, and a binding
+  half a pair is worse than none) and `PrintPreviewControl.Document` (a `PrintDocument`, which the
+  converted code cannot produce). `BindingNavigator.Position`/`Count` used to be a third: no
+  WinForms BindingNavigator has either, so no *body* can name them. That turned out to be the wrong
+  question - this same table is what the AXAML emitter consults before writing a binding onto a
+  fallback, and an unlisted property is dropped there in silence, which is exactly what happened to
+  the navigator's own `Position` binding until it was registered. A template absent from that table behaves as before, and a binding
   dropped because of it is reported rather than emitted as a broken attribute.
 - **`CanExecute` is derived, but only from the one shape that provably means a guard.** A handler
   whose *entire body* is `someButton.Enabled = <condition>;`, that ignores sender/EventArgs, is

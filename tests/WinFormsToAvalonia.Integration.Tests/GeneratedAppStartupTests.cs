@@ -119,6 +119,22 @@ public class GeneratedAppStartupTests
             clickButtons: true,
             "w2a-grid:detailsListView:1:notes.txt");
 
+    /// <summary>
+    /// A BindingNavigator wired to a BindingSource: the buttons move the grid's selection.
+    /// </summary>
+    /// <remarks>
+    /// The harness clicks every button in tree order - MoveFirst, MovePrevious, MoveNext,
+    /// MoveLast - so the position ends on the last row. That is the assertion: three rows loaded
+    /// by the Load handler, and a selection the navigator moved to the end of them.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedBindingNavigatorApp_NavigatesTheBoundGrid() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "BindingNavigatorApp", "BindingNavigatorApp.csproj"),
+            "BindingNavigatorApp",
+            clickButtons: true,
+            "w2a-grid:tracksGrid:3:First selected=2");
+
     private static async Task AssertStarts(
         string sourceProject, string name, bool clickButtons, params string[] expectedGrids)
     {
@@ -353,7 +369,12 @@ public class GeneratedAppStartupTests
                             .Select(t => t.Text)
                             .FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "";
 
-                        Console.WriteLine($"w2a-grid:{grid.Name}:{rows}:{cell}");
+                        // Appended rather than inserted, so the existing prefix assertions still
+                        // match. This is what proves a BindingNavigator really drives the grid:
+                        // its buttons move a ViewModel property that is the grid's SelectedIndex.
+                        var selected = grid.GetType().GetProperty("SelectedIndex")?.GetValue(grid);
+
+                        Console.WriteLine($"w2a-grid:{grid.Name}:{rows}:{cell} selected={selected}");
                     }
                 }
 

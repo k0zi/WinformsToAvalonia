@@ -152,6 +152,10 @@ public sealed class FormMigrationPlanner
         // the other way - what to emit for them depends on what the rewrite did.)
         var dataSourceBindings = PlanDataSourceBindings(formModel, codeBehind, modelTypes);
         var listViewRows = PlanListViewRows(formModel, _controlMappings);
+
+        // After DeriveCanExecuteGuards, which rebuilds the bound-property list wholesale - an
+        // entry added before it would be dropped on the floor.
+        var bindingNavigators = PlanBindingNavigators(formModel, dataSourceBindings, boundProperties, warnings);
         var timers = PlanTimers(formModel);
         var timerFields = timers.Select(t => t.FieldName).ToHashSet(StringComparer.Ordinal);
         var components = PlanComponents(
@@ -231,7 +235,8 @@ public sealed class FormMigrationPlanner
             codeBehind.ConstructorExtraStatements,
             warnings,
             dataSourceBindings,
-            listViewRows);
+            listViewRows,
+            bindingNavigators);
     }
 
     /// <summary>
@@ -434,6 +439,123 @@ public sealed class FormMigrationPlanner
         MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } member => member.Name.Identifier.ValueText,
         _ => null,
     };
+
+    /// <summary>
+    /// The navigator's properties that name one of its own buttons, and what that button did.
+    /// </summary>
+    /// <remarks>
+    /// The designer records the role, so nothing is inferred from a button's name or its caption -
+    /// which is the only reason this can be wired automatically at all. The two roles left out are
+    /// <c>AddNewItem</c> and <c>DeleteItem</c>: those change the collection, and adding a row means
+    /// constructing the element type, which a navigator knows nothing about.
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, string> BindingNavigatorButtonRoles =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["MoveFirstItem"] = "MoveFirst",
+            ["MovePreviousItem"] = "MovePrevious",
+            ["MoveNextItem"] = "MoveNext",
+            ["MoveLastItem"] = "MoveLast",
+        };
+
+    /// <summary>
+    /// BindingNavigators pointed at a BindingSource some control is bound to.
+    /// </summary>
+    /// <remarks>
+    /// Adds the shared <c>Position</c> as a bound property, so the ViewModel gets the
+    /// <c>[ObservableProperty]</c> and the navigator its two-way binding through the same path
+    /// every other bound property takes. The bound control's <c>SelectedIndex</c> is emitted from
+    /// the plan instead: it is the *second* element to bind to that one property, and a bound
+    /// property is one ViewModel member per element by construction.
+    /// </remarks>
+    private static List<BindingNavigatorPlan> PlanBindingNavigators(
+        FormModel formModel,
+        IReadOnlyList<DataSourceBindingPlan> dataSourceBindings,
+        List<BoundPropertyPlan> boundProperties,
+        List<string> warnings)
+    {
+        var plans = new List<BindingNavigatorPlan>();
+
+        foreach (var navigator in formModel.Controls.Values
+                     .Where(c => c.ClrTypeName == "BindingNavigator")
+                     .OrderBy(c => c.FieldName, StringComparer.Ordinal))
+        {
+            if (!navigator.Properties.TryGetValue("BindingSource", out var value)
+                || value is not PropertyValue.ControlReference(var sourceField))
+            {
+                continue;
+            }
+
+            // No control bound to that BindingSource means no collection was generated for it, so
+            // there is nothing for the navigator to move through.
+            if (dataSourceBindings.FirstOrDefault(b =>
+                    string.Equals(b.SourceFieldName, sourceField, StringComparison.Ordinal)) is not { } bound)
+            {
+                warnings.Add(
+                    $"'{navigator.FieldName}' navigates '{sourceField}', but no control's DataSource names that "
+                    + "BindingSource - so no ViewModel collection was generated for it and the navigator is not wired.");
+                continue;
+            }
+
+            var positionPropertyName = $"{NamingConventions.Capitalize(navigator.FieldName)}Position";
+            var buttons = new List<BindingNavigatorButtonPlan>();
+
+            foreach (var (roleProperty, methodName) in BindingNavigatorButtonRoles
+                         .OrderBy(r => r.Key, StringComparer.Ordinal))
+            {
+                if (!navigator.Properties.TryGetValue(roleProperty, out var role)
+                    || role is not PropertyValue.ControlReference(var buttonField)
+                    || !formModel.Controls.TryGetValue(buttonField, out var button))
+                {
+                    continue;
+                }
+
+                // The designer's own Click wins. Overwriting it would silently replace what the
+                // developer wrote with the framework behaviour they chose to override.
+                if (button.Events.Any(e => string.Equals(e.EventName, "Click", StringComparison.Ordinal)))
+                {
+                    warnings.Add(
+                        $"'{buttonField}' is '{navigator.FieldName}'.{roleProperty} but has its own Click handler, "
+                        + "so it is left alone rather than wired to the navigator.");
+                    continue;
+                }
+
+                buttons.Add(new BindingNavigatorButtonPlan(buttonField, methodName));
+            }
+
+            foreach (var unwired in new[] { "AddNewItem", "DeleteItem" }
+                         .Where(navigator.Properties.ContainsKey))
+            {
+                warnings.Add(
+                    $"'{navigator.FieldName}'.{unwired} changes the collection rather than the position, which needs "
+                    + "the row type's own constructor and delete semantics - that button is emitted but not wired.");
+            }
+
+            // The bindings are worth having on their own - the navigator shows the right count and
+            // follows the grid's selection either way - so this reports rather than refuses.
+            if (buttons.Count == 0)
+            {
+                warnings.Add(
+                    $"'{navigator.FieldName}' is bound to '{bound.ControlFieldName}' through "
+                    + $"'{bound.ViewModelPropertyName}', but its designer records no "
+                    + "MoveFirstItem/MovePreviousItem/MoveNextItem/MoveLastItem, so none of its buttons is wired. "
+                    + $"Call {navigator.FieldName}.MoveFirst()/MovePrevious()/MoveNext()/MoveLast() from whichever "
+                    + "button did which.");
+            }
+
+            boundProperties.Add(new BoundPropertyPlan(
+                navigator.FieldName, "Position", positionPropertyName, "int", ""));
+
+            plans.Add(new BindingNavigatorPlan(
+                navigator.FieldName,
+                bound.ControlFieldName,
+                bound.ViewModelPropertyName,
+                positionPropertyName,
+                buttons));
+        }
+
+        return plans;
+    }
 
     /// <summary>
     /// Details-mode ListViews, whose rows become <c>string[]</c>s on the ViewModel.

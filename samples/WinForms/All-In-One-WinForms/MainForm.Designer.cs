@@ -1064,6 +1064,8 @@ namespace AllInOneWinForms
                 this.navigatorSeparator,
                 this.navigatorPositionLabel});
             this.bindingNavigator1.Location = new System.Drawing.Point(12, 320);
+            this.bindingNavigator1.MoveFirstItem = this.navigatorMoveFirstButton;
+            this.bindingNavigator1.MoveNextItem = this.navigatorMoveNextButton;
             this.bindingNavigator1.Name = "bindingNavigator1";
             this.bindingNavigator1.Size = new System.Drawing.Size(940, 25);
             this.bindingNavigator1.TabIndex = 1;

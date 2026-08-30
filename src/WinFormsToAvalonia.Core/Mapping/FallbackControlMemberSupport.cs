@@ -84,7 +84,12 @@ public static class FallbackControlMemberSupport
             // styling surface. Listing it is what stops a designer's BackColor being dropped on
             // the technicality that a template key is not an Avalonia element name.
             ["DomainUpDownFallback"] = Plus(PanelStyleMembers, "SelectedIndex", "Wrap"),
-            ["BindingNavigatorFallback"] = Plus(PanelStyleMembers),
+            // Position and Count are bound by the conversion itself, not by a handler body: no
+            // WinForms BindingNavigator has either (the BindingSource does), so nothing on the
+            // WinForms side can name them. They are listed because the *emitter* asks this same
+            // table before it writes a binding onto a fallback - see AxamlEmitter's
+            // FilterBindableForTarget, which silently drops one the template does not expose.
+            ["BindingNavigatorFallback"] = Plus(PanelStyleMembers, "Position", "Count"),
             ["StatusStripFallback"] = Plus(PanelStyleMembers),
             ["ToolStripContainerFallback"] = Plus(PanelStyleMembers),
             ["ToolStripContentPanelFallback"] = Plus(PanelStyleMembers),

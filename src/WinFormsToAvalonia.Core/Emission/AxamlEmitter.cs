@@ -533,6 +533,23 @@ public sealed class AxamlEmitter
             builder.Attribute("ItemsSource", $"{{Binding {rows.ViewModelPropertyName}}}");
         }
 
+        // The navigator's Position comes through the bound-property loop above, like any other
+        // two-way binding. These two do not: Count is a read-only path into the collection itself,
+        // and SelectedIndex belongs to a *different* element than the property was planned on -
+        // which is the whole point, since BindingSource.Position was the one number both showed.
+        foreach (var navigator in state.Plan.BindingNavigators)
+        {
+            if (string.Equals(navigator.ControlFieldName, control.FieldName, StringComparison.Ordinal))
+            {
+                builder.Attribute("Count", $"{{Binding {navigator.CollectionPropertyName}.Count}}");
+            }
+
+            if (string.Equals(navigator.BoundControlFieldName, control.FieldName, StringComparison.Ordinal))
+            {
+                builder.Attribute("SelectedIndex", $"{{Binding {navigator.PositionPropertyName}, Mode=TwoWay}}");
+            }
+        }
+
         // A ColumnHeader carries a caption and nothing else, so its DataGridTextColumn used to be
         // emitted with no Binding at all - a column that can never show a cell, in a grid nothing
         // could ever fill. Its index in the owning ListView's column list *is* its binding, since

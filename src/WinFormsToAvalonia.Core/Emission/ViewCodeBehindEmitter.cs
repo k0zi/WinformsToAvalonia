@@ -233,6 +233,19 @@ public sealed class ViewCodeBehindEmitter
             Line($"        App.{NamingConventions.Capitalize(fieldName)}.{avaloniaEventName} += {handlerMethodName};");
         }
 
+        // What the BindingNavigator's own buttons did in WinForms. Subscribed here rather than
+        // through a XAML Click attribute because there is no handler method to point at: the
+        // behaviour belongs to the framework, and the clamping to the fallback control.
+        foreach (var navigator in plan.BindingNavigators.Where(n => n.Buttons.Count > 0))
+        {
+            Line();
+            foreach (var button in navigator.Buttons)
+            {
+                Line($"        {button.ButtonFieldName}.Click += (_, _) => "
+                    + $"{navigator.ControlFieldName}.{button.MethodName}();");
+            }
+        }
+
         if (plan.ConstructorExtraStatements.Count > 0)
         {
             Line();

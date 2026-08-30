@@ -248,6 +248,41 @@ public sealed record ListViewRowsPlan(
     IReadOnlyList<string> ColumnFieldNames);
 
 /// <summary>
+/// One of a <c>BindingNavigator</c>'s buttons, and the navigation it performed.
+/// </summary>
+/// <param name="MethodName">
+/// The <c>BindingNavigatorFallback</c> method to call - the clamping lives there, not in the
+/// generated code.
+/// </param>
+public sealed record BindingNavigatorButtonPlan(string ButtonFieldName, string MethodName);
+
+/// <summary>
+/// A <c>BindingNavigator</c> whose <c>BindingSource</c> a control is bound to, and the ViewModel
+/// state the two now share.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <c>BindingSource.Position</c> is the current record index, and the navigator and the grid were
+/// two views of that one number. So it becomes one ViewModel property: the navigator's
+/// <c>Position</c> and the bound control's <c>SelectedIndex</c> both bind to it two-way, and
+/// moving either moves the other - which is what the WinForms pair did.
+/// </para>
+/// <para>
+/// Planned from designer facts only. <c>bindingNavigator1.BindingSource = this.bindingSource1</c>
+/// says which collection, and the navigator's <c>MoveFirstItem</c>/<c>MovePreviousItem</c>/
+/// <c>MoveNextItem</c>/<c>MoveLastItem</c> properties say which button did what. A navigator whose
+/// designer recorded no roles gets the bindings and no buttons, and the conversion says so - the
+/// alternative would be guessing a button's job from its name.
+/// </para>
+/// </remarks>
+public sealed record BindingNavigatorPlan(
+    string ControlFieldName,
+    string BoundControlFieldName,
+    string CollectionPropertyName,
+    string PositionPropertyName,
+    IReadOnlyList<BindingNavigatorButtonPlan> Buttons);
+
+/// <summary>
 /// The single migration decision set for one Form, built once by FormMigrationPlanner and shared
 /// by all three emitters (AXAML, View code-behind, ViewModel) so they can never disagree about
 /// where a handler went or which properties are bound.
@@ -274,11 +309,17 @@ public sealed record FormMigrationPlan(
     /// <summary>
     /// Details-mode ListViews, whose DataGrid rows are their ListViewItems' sub-item texts.
     /// </summary>
-    IReadOnlyList<ListViewRowsPlan>? ListViewRows = null)
+    IReadOnlyList<ListViewRowsPlan>? ListViewRows = null,
+    /// <summary>
+    /// BindingNavigators wired to a BindingSource a control is bound to.
+    /// </summary>
+    IReadOnlyList<BindingNavigatorPlan>? BindingNavigators = null)
 {
     public IReadOnlyList<DataSourceBindingPlan> DataSourceBindings { get; } = DataSourceBindings ?? [];
 
     public IReadOnlyList<ListViewRowsPlan> ListViewRows { get; } = ListViewRows ?? [];
+
+    public IReadOnlyList<BindingNavigatorPlan> BindingNavigators { get; } = BindingNavigators ?? [];
 
     /// <summary>
     /// Whether the generated View needs a typed field for its ViewModel rather than constructing

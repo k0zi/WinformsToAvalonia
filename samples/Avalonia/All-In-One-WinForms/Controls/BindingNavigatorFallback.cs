@@ -1,3 +1,4 @@
+using System;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -16,10 +17,20 @@ namespace All_In_One_WinForms.Controls;
 /// other ToolStrip's.
 /// </summary>
 /// <remarks>
-/// It navigates nothing on its own. <see cref="Position"/> and <see cref="Count"/> are here so
-/// the converted code has the BindingSource's two properties to bind to; wiring them - and the
-/// buttons' Click handlers - to your collection is the manual step, since Designer.cs records
-/// the navigator's items but not the data behind them.
+/// <para>
+/// It does navigate, but it owns no data. <see cref="Position"/> and <see cref="Count"/> are the
+/// BindingSource's two properties, and the conversion binds them: <c>Count</c> to the generated
+/// <c>ObservableCollection</c>'s own count, <c>Position</c> two-way to a ViewModel property the
+/// bound control's <c>SelectedIndex</c> shares - which is what <c>BindingSource.Position</c>
+/// actually meant.
+/// </para>
+/// <para>
+/// The four <c>Move*</c> methods below are what the navigator's buttons did in WinForms, and the
+/// generated View wires each designer-recorded button to one of them. They are here rather than in
+/// the generated code so the clamping lives in one testable place - and so an empty collection
+/// lands on -1, which is both what <c>BindingSource.Position</c> reported and what Avalonia reads
+/// as "nothing selected".
+/// </para>
 /// </remarks>
 public class BindingNavigatorFallback : StackPanel
 {
@@ -62,4 +73,16 @@ public class BindingNavigatorFallback : StackPanel
         get => GetValue(CountProperty);
         set => SetValue(CountProperty, value);
     }
+
+    /// <summary>Moves to the first record, or to none at all when the collection is empty.</summary>
+    public void MoveFirst() => Position = Count > 0 ? 0 : -1;
+
+    /// <summary>Moves back one record, stopping at the first.</summary>
+    public void MovePrevious() => Position = Count > 0 ? Math.Max(0, Position - 1) : -1;
+
+    /// <summary>Moves on one record, stopping at the last.</summary>
+    public void MoveNext() => Position = Count > 0 ? Math.Min(Count - 1, Position + 1) : -1;
+
+    /// <summary>Moves to the last record, or to none at all when the collection is empty.</summary>
+    public void MoveLast() => Position = Count - 1;
 }

@@ -181,7 +181,7 @@ The *dialog* it belongs to, `PrintPreviewDialog`, is listed once, under Common D
 | WinForms type | Status | Avalonia target | Why not | Notes |
 |---|---|---|---|---|
 | `BindingSource` | ❌ Unsupported | | 🟡 Elsewhere | Becomes an `ObservableCollection<T>` on the ViewModel plus an `ItemsSource` binding; the row type is lifted into `Models/` and the literal `new BindingList<T> { … }` population is translated. |
-| `BindingNavigator` | ✅ Fallback | `BindingNavigatorFallback` | | A `StackPanel` (it is a `ToolStrip` subclass, so its designer-declared items render for real) with `Position`/`Count` properties to bind. Navigates nothing on its own. See [Implementation plan](#bindingnavigator). |
+| `BindingNavigator` | ✅ Fallback | `BindingNavigatorFallback` | | A `StackPanel` (it is a `ToolStrip` subclass, so its designer-declared items render for real). Bound to a `BindingSource` some control uses, it navigates: `Count` follows the collection, `Position` is shared two-way with the bound control's `SelectedIndex`, and each designer-recorded `Move*Item` button is wired. See [Implementation plan](#bindingnavigator). |
 
 ### Timer / Background Components
 
@@ -512,13 +512,31 @@ from the official `Avalonia.Controls.DataGrid`.
 
 ### BindingNavigator
 
-**Done**, visually.
+**Done.**
 `BindingNavigatorFallback.cs` is a `StackPanel` — `BindingNavigator` is a `ToolStrip` subclass,
-so its designer-declared items are already parsed and now render as real children — plus
-`Position`/`Count` styled properties to bind against. Actually *navigating* is still manual: the
-`BindingSource`→`ObservableCollection<T>` translation now exists, but a `BindingNavigator` is wired
-to its source through `bindingNavigator1.BindingSource = …`, a different property from the
-`DataSource` the binding is planned off, so nothing connects the two automatically.
+so its designer-declared items are parsed and render as real children — with `Position`/`Count`
+styled properties and four `Move*` methods.
+
+It navigates now. `bindingNavigator1.BindingSource = this.bindingSource1;` used to be dropped
+without a word; it is now matched against the `DataSource` bindings, and when some control is
+bound to that same `BindingSource` the navigator gets:
+
+- `Count="{Binding <Collection>.Count}"` — `ObservableCollection<T>` raises `PropertyChanged` for
+  `Count`, so it follows the rows;
+- `Position="{Binding <Nav>Position, Mode=TwoWay}"`, and the **bound control** gets
+  `SelectedIndex="{Binding <Nav>Position, Mode=TwoWay}"`. `BindingSource.Position` was one number
+  the navigator and the grid both showed, so it becomes one ViewModel property and moving either
+  moves the other;
+- one `Click` subscription per designer-recorded `MoveFirstItem`/`MovePreviousItem`/
+  `MoveNextItem`/`MoveLastItem`, onto the template's `MoveFirst()`/`MovePrevious()`/`MoveNext()`/
+  `MoveLast()`. The clamping lives in the template, so an empty collection lands on `-1` — which is
+  both what `BindingSource.Position` reported and what Avalonia reads as "nothing selected".
+
+Three things are deliberately not wired, and each is reported by name: `AddNewItem` and
+`DeleteItem` (they change the collection, which needs the row type's own constructor and delete
+semantics), a role button that already has its **own** `Click` handler (the developer's code wins),
+and a navigator whose designer recorded no roles at all — the bindings are still emitted, since the
+count and the selection are worth having, but no button is guessed at from its name or caption.
 
 ### HelpProvider
 

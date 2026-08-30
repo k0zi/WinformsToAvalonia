@@ -725,6 +725,117 @@ public class FormMigrationPlannerTests
         Assert.Empty(plan.ListViewRows);
     }
 
+    // ---- BindingNavigator ------------------------------------------------------------------
+
+    private static FormModel NavigatedGrid(bool recordRoles = true, bool boundToTheGrid = true)
+    {
+        var formModel = FormWith(
+            ("dataGridView1", "DataGridView"),
+            ("bindingSource1", "BindingSource"),
+            ("bindingNavigator1", "BindingNavigator"),
+            ("moveFirstButton", "ToolStripButton"),
+            ("moveNextButton", "ToolStripButton"));
+
+        if (boundToTheGrid)
+        {
+            formModel.Controls["dataGridView1"].Properties["DataSource"] =
+                new PropertyValue.ControlReference("bindingSource1");
+        }
+
+        var navigator = formModel.Controls["bindingNavigator1"];
+        navigator.Properties["BindingSource"] = new PropertyValue.ControlReference("bindingSource1");
+
+        if (recordRoles)
+        {
+            navigator.Properties["MoveFirstItem"] = new PropertyValue.ControlReference("moveFirstButton");
+            navigator.Properties["MoveNextItem"] = new PropertyValue.ControlReference("moveNextButton");
+        }
+
+        return formModel;
+    }
+
+    private static FormMigrationPlan PlanEmpty(FormModel formModel) =>
+        PlanFor(formModel, "namespace Demo { public partial class Form1 : Form { } }");
+
+    /// <summary>
+    /// <c>BindingSource.Position</c> was one number the navigator and the grid both showed, so it
+    /// becomes one ViewModel property both bind to.
+    /// </summary>
+    [Fact]
+    public void Plan_NavigatorOnABoundSource_SharesOnePositionWithTheBoundControl()
+    {
+        var plan = PlanEmpty(NavigatedGrid());
+
+        var navigator = Assert.Single(plan.BindingNavigators);
+        Assert.Equal("dataGridView1", navigator.BoundControlFieldName);
+        Assert.Equal("DataGridView1Items", navigator.CollectionPropertyName);
+        Assert.Equal("BindingNavigator1Position", navigator.PositionPropertyName);
+
+        // The navigator's half goes through the ordinary bound-property path, so the ViewModel
+        // gets the [ObservableProperty] and the element its two-way binding for free.
+        Assert.Contains(
+            plan.BoundProperties,
+            p => p.ControlFieldName == "bindingNavigator1"
+                && p.AvaloniaPropertyName == "Position"
+                && p.ViewModelPropertyName == "BindingNavigator1Position");
+    }
+
+    /// <summary>The designer records the role, so nothing is inferred from a button's name.</summary>
+    [Fact]
+    public void Plan_NavigatorWithRecordedRoles_WiresEachButtonToItsMove()
+    {
+        var plan = PlanEmpty(NavigatedGrid());
+
+        Assert.Equal(
+            [("moveFirstButton", "MoveFirst"), ("moveNextButton", "MoveNext")],
+            Assert.Single(plan.BindingNavigators).Buttons.Select(b => (b.ButtonFieldName, b.MethodName)));
+    }
+
+    /// <summary>
+    /// Without the roles the bindings are still worth having - the count and the selection follow -
+    /// so this reports rather than refusing, and names the methods to call by hand.
+    /// </summary>
+    [Fact]
+    public void Plan_NavigatorWithNoRecordedRoles_BindsButWiresNothingAndSaysSo()
+    {
+        var plan = PlanEmpty(NavigatedGrid(recordRoles: false));
+
+        Assert.Empty(Assert.Single(plan.BindingNavigators).Buttons);
+        Assert.Contains(plan.Warnings, w => w.Contains("records no MoveFirstItem", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The developer's own Click wins. Replacing it with the framework behaviour they chose to
+    /// override would be the conversion overruling the code it is converting.
+    /// </summary>
+    [Fact]
+    public void Plan_NavigatorButtonWithItsOwnClick_IsLeftAlone()
+    {
+        var formModel = NavigatedGrid();
+        Wire(formModel, "moveNextButton", "Click", "moveNextButton_Click");
+
+        var plan = PlanEmpty(formModel);
+
+        Assert.Equal(
+            ["moveFirstButton"],
+            Assert.Single(plan.BindingNavigators).Buttons.Select(b => b.ButtonFieldName));
+        Assert.Contains(plan.Warnings, w => w.Contains("has its own Click handler", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A navigator whose BindingSource nothing is bound to has no collection to move through, so
+    /// there is nothing to bind Position or Count to either.
+    /// </summary>
+    [Fact]
+    public void Plan_NavigatorOnAnUnusedBindingSource_IsNotWired()
+    {
+        var plan = PlanEmpty(NavigatedGrid(boundToTheGrid: false));
+
+        Assert.Empty(plan.BindingNavigators);
+        Assert.Empty(plan.BoundProperties);
+        Assert.Contains(plan.Warnings, w => w.Contains("no control's DataSource names that", StringComparison.Ordinal));
+    }
+
     private static FormModel FormWith(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };
