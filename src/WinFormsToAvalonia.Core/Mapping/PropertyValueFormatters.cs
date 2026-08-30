@@ -243,6 +243,21 @@ public static class PropertyValueFormatters
         };
 
     /// <summary>
+    /// WinForms' <c>RightToLeft</c> as Avalonia's <c>FlowDirection</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>Inherit</c> deliberately yields nothing: Avalonia registers <c>FlowDirection</c> with
+    /// <c>inherits: true</c>, so emitting no attribute *is* the exact translation of it.
+    /// </remarks>
+    public static string? AsFlowDirection(PropertyValue value) =>
+        AsEnumMember(value) switch
+        {
+            "Yes" => "RightToLeft",
+            "No" => "LeftToRight",
+            _ => null,
+        };
+
+    /// <summary>
     /// WinForms' <c>BorderStyle</c> as an Avalonia <c>BorderThickness</c>.
     /// </summary>
     /// <remarks>

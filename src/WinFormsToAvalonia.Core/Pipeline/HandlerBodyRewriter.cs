@@ -914,7 +914,7 @@ public sealed class HandlerBodyRewriter
             variableName = $"{dialogField}{dialog.ResultMember}";
             selectionKey = $"{dialogField}.{dialog.ResultMember}";
             selectionValue = variableName;
-            opener = $"if (await {dialog.TemplateKey}.ShowAsync(this) is not {{ }} {variableName})";
+            opener = $"if (await {dialog.TemplateKey}.ShowAsync(this{TakeSeedArgument(dialogField, target)}) is not {{ }} {variableName})";
             parts.Add(new RewrittenStatement("", RequiredFallbackKeys: [dialog.TemplateKey]));
         }
         else
@@ -1010,6 +1010,81 @@ public sealed class HandlerBodyRewriter
         };
 
     /// <summary>
+    /// <c>colorDialog1.Color = Color.Red;</c> / <c>fontDialog1.Font = label1.Font;</c> - what
+    /// WinForms uses to open a dialog on a starting value.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The statement emits nothing of its own: Avalonia's replacement takes the seed as an
+    /// argument to the call that replaces <c>ShowDialog</c>, so it is recorded here and spent
+    /// there. This is the one assignment in the translation that legitimately disappears, and it
+    /// is why it may only absorb a value it can actually translate - absorbing one it cannot
+    /// would drop it in silence, and the rewriter has no way to report that.
+    /// </para>
+    /// <para>
+    /// Refusing costs more than the seed: the body translation is a prefix, so one
+    /// un-translatable statement takes every statement after it - the dialog included - with it.
+    /// </para>
+    /// </remarks>
+    private static bool TryAbsorbDialogSeed(
+        AssignmentExpressionSyntax assignment, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!assignment.OperatorToken.IsKind(SyntaxKind.EqualsToken)
+            || assignment.Left is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var member } left
+            || !target.TryResolveControlField(left.Expression, out var dialogField)
+            || !target.TryResolveComponentTypeName(dialogField, out var componentType)
+            || !VisualDialogs.TryGetValue(componentType, out var dialog)
+            || member != dialog.ResultMember
+            || !TryTranslateDialogSeed(assignment.Right, dialog.ResultMember, target, out var seed))
+        {
+            return false;
+        }
+
+        target.DialogSeeds[dialogField] = seed;
+        rewritten = new RewrittenStatement("");
+        return true;
+    }
+
+    /// <summary>The seed value, in the type the bundled dialog's parameter takes.</summary>
+    private static bool TryTranslateDialogSeed(
+        ExpressionSyntax expression, string resultMember, IRewriteTarget target, out string seed)
+    {
+        seed = "";
+
+        if (resultMember == "Color")
+        {
+            // The same evaluator the designer path uses, so `Color.Red`, `SystemColors.Control`
+            // and `Color.FromArgb(...)` all resolve - and agree with the AXAML by construction.
+            if (PropertyValueFormatters.AsBrush(ExpressionEvaluator.Evaluate(expression)) is not { } hex)
+            {
+                return false;
+            }
+
+            seed = $"Color.Parse(\"{hex}\")";
+            return true;
+        }
+
+        // `fontDialog1.Font = someControl.Font;` - a WinForms Font is one value, and the bundled
+        // FontChoice is the four Avalonia properties it becomes.
+        if (expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Font" } fontRead
+            && target.TryResolveControlField(fontRead.Expression, out var sourceField)
+            && target.SupportsStyleProperty(sourceField, AvaloniaStyleProperties.Font))
+        {
+            seed = $"new FontChoice({sourceField}.FontFamily, {sourceField}.FontSize, "
+                + $"{sourceField}.FontWeight, {sourceField}.FontStyle)";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The seed argument for a dialog call, spent once so a later call cannot reuse it.</summary>
+    private static string TakeSeedArgument(string dialogField, IRewriteTarget target) =>
+        target.DialogSeeds.Remove(dialogField, out var seed) ? $", {seed}" : "";
+
+    /// <summary>
     /// <c>if (colorDialog1.ShowDialog(this) == DialogResult.OK) { … colorDialog1.Color … }</c>,
     /// translated **inline** onto a bundled dialog - the same shape as the file dialogs, and for
     /// the same reason: the Avalonia replacement returns the choice instead of being an object you
@@ -1049,7 +1124,7 @@ public sealed class HandlerBodyRewriter
 
             var parts = new List<RewrittenStatement> { thenBranch };
             var text =
-                $"if (await {dialog.TemplateKey}.ShowAsync(this) is {{ }} {variableName})"
+                $"if (await {dialog.TemplateKey}.ShowAsync(this{TakeSeedArgument(dialogField, target)}) is {{ }} {variableName})"
                 + $"\n{{\n{Indent(thenBranch.Text)}\n}}";
 
             if (ifStatement.Else is { } elseClause)
@@ -1438,6 +1513,13 @@ public sealed class HandlerBodyRewriter
         AssignmentExpressionSyntax assignment, IRewriteTarget target, out RewrittenStatement rewritten)
     {
         rewritten = default;
+
+        // `colorDialog1.Color = Color.Red;` before the dialog is shown - absorbed rather than
+        // emitted, and spent as an argument when the ShowAsync call is written.
+        if (TryAbsorbDialogSeed(assignment, target, out rewritten))
+        {
+            return true;
+        }
 
         // `this.notesRichTextBox.Font = fontDialog1.Font;` - one WinForms value, four Avalonia
         // properties.
@@ -3310,6 +3392,14 @@ public sealed class HandlerBodyRewriter
         /// </summary>
         Dictionary<string, string> DialogSelections { get; }
 
+        /// <summary>
+        /// What a dialog was seeded with before it was shown, keyed by dialog field. WinForms
+        /// spells that as an assignment to the component (<c>colorDialog1.Color = ...;</c>)
+        /// *before* the ShowDialog; Avalonia's replacement takes it as an argument, so the
+        /// statement is absorbed here and spent when the call is emitted.
+        /// </summary>
+        Dictionary<string, string> DialogSeeds { get; }
+
         /// <summary>False in a ViewModel, which has no Window to close and no dialog owner.</summary>
         bool AllowsWindowApis { get; }
 
@@ -3469,6 +3559,8 @@ public sealed class HandlerBodyRewriter
         public RewriteRequirements Requirements { get; } = new();
 
         public Dictionary<string, string> DialogSelections { get; } = new(StringComparer.Ordinal);
+
+        public Dictionary<string, string> DialogSeeds { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
         /// The generated method keeps the original parameter name, so a translated member reads
@@ -3701,9 +3793,8 @@ public sealed class HandlerBodyRewriter
         }
 
         /// <summary>
-        /// Direct-mapped controls only. A fallback control gets no styling anywhere in this
-        /// converter - its bundled template need not expose the property at all - and that rule
-        /// has to hold for a handler body exactly as it does for the AXAML.
+        /// Whether this control's target can carry a style group - the same question, and now the
+        /// same answer, the emitter asks before writing the attribute.
         /// </summary>
         public bool SupportsStyleProperty(string fieldName, AvaloniaStyleProperties property)
         {
@@ -3718,9 +3809,9 @@ public sealed class HandlerBodyRewriter
             // known fact, the same argument that lets a fallback carry a bindable property.
             if (mapped.Status == MappingStatus.Fallback)
             {
-                var members = AvaloniaStylePropertySupport.MemberNamesOf(property);
-                return members.Count > 0
-                    && members.All(m => FallbackControlMemberSupport.Exposes(mapped.FallbackTemplateKey, m));
+                return AvaloniaStylePropertySupport
+                    .ForFallbackTemplate(mapped.FallbackTemplateKey)
+                    .HasFlag(property);
             }
 
             return mapped.Status == MappingStatus.Direct
@@ -3881,6 +3972,8 @@ public sealed class HandlerBodyRewriter
         public RewriteRequirements Requirements { get; } = new();
 
         public Dictionary<string, string> DialogSelections { get; } = new(StringComparer.Ordinal);
+
+        public Dictionary<string, string> DialogSeeds { get; } = new(StringComparer.Ordinal);
 
         public bool AllowsWindowApis => false;
 

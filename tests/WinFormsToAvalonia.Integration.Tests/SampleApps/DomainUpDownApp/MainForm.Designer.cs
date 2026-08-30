@@ -25,6 +25,10 @@ namespace DomainUpDownApp
             this.domainUpDown1.Size = new System.Drawing.Size(100, 23);
             this.domainUpDown1.TabIndex = 0;
             this.domainUpDown1.Wrap = true;
+            this.domainUpDown1.Items.AddRange(new object[] {
+            "Monday",
+            "Tuesday",
+            "Wednesday"});
             //
             // MainForm
             //

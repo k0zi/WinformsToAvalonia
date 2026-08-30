@@ -23,14 +23,43 @@ namespace WinFormsToAvalonia.Core.Mapping;
 /// </remarks>
 public static class FallbackControlMemberSupport
 {
-    private static IReadOnlySet<string> TextBoxMembers { get; } =
+    /// <summary>
+    /// What every template that derives from Avalonia's <c>Control</c> has, whatever else it adds.
+    /// </summary>
+    /// <remarks>
+    /// These are the members <see cref="BindablePropertyCatalog.UniversalProperties"/> and
+    /// <see cref="ControlMethodCatalog"/>'s universal methods translate to - the counterpart of
+    /// "every WinForms Control has Enabled, Visible, Focus() and Refresh()". Every entry below
+    /// unions this in, because a table that lists only a template's *own* members refuses
+    /// `richTextBox1.Visible = false;` for no reason anyone could defend: the template is a
+    /// StackPanel, a DockPanel, a Grid, a UserControl or a TextBox, and all five have them.
+    /// Verified against Avalonia's metadata by FallbackControlMemberSupportTests.
+    /// </remarks>
+    private static IReadOnlySet<string> ControlMembers { get; } =
         new HashSet<string>(StringComparer.Ordinal)
         {
-            "Text", "Clear", "SelectAll",
+            "IsVisible", "IsEnabled", "Focus", "InvalidateVisual",
+        };
 
-            // Inherited from TemplatedControl by way of TextBox, so a font really can be written
-            // to one of these - which is what lets a FontDialog result reach a RichTextBox.
+    /// <summary>
+    /// What every <c>TemplatedControl</c>- and <c>UserControl</c>-derived template carries: the
+    /// whole styling surface, so a designer's BackColor and Font reach it.
+    /// </summary>
+    private static IReadOnlySet<string> TemplatedStyleMembers { get; } =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Background", "Foreground", "Padding",
             "FontFamily", "FontSize", "FontWeight", "FontStyle",
+        };
+
+    /// <summary>A Panel declares Background and nothing else of the styling surface.</summary>
+    private static IReadOnlySet<string> PanelStyleMembers { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { "Background" };
+
+    private static IReadOnlySet<string> TextBoxMembers { get; } =
+        new HashSet<string>(ControlMembers.Concat(TemplatedStyleMembers), StringComparer.Ordinal)
+        {
+            "Text", "Clear", "SelectAll",
 
             // TextBox's own, which is what a WinForms WordWrap becomes.
             "TextWrapping", "AcceptsReturn", "IsReadOnly", "MaxLength", "SelectionStart",
@@ -42,15 +71,32 @@ public static class FallbackControlMemberSupport
             // Derives from Avalonia's TextBox, so these are inherited and real.
             ["RichTextBoxFallback"] = TextBoxMembers,
 
-            // A template's *own* properties. These were invisible for as long as this table
-            // existed, so every handler line touching one refused - not because there was nowhere
-            // to translate it, but because nobody had written the name down.
-            ["PropertyGridFallback"] = Only("SelectedObject"),
-            ["DomainUpDownFallback"] = new HashSet<string>(StringComparer.Ordinal) { "SelectedIndex", "Wrap" },
+            // A template's *own* properties, on top of what Control gives it. These were
+            // invisible for as long as this table existed, so every handler line touching one
+            // refused - not because there was nowhere to translate it, but because nobody had
+            // written the name down.
+            // UserControl-derived, so the whole styling surface as well.
+            ["PropertyGridFallback"] = Plus(TemplatedStyleMembers, "SelectedObject"),
+            ["PrintPreviewControlFallback"] = Plus(TemplatedStyleMembers),
+            ["WebBrowserFallback"] = Plus(TemplatedStyleMembers),
+
+            // Panel-derived (StackPanel / DockPanel / Grid): a Background and nothing else of the
+            // styling surface. Listing it is what stops a designer's BackColor being dropped on
+            // the technicality that a template key is not an Avalonia element name.
+            ["DomainUpDownFallback"] = Plus(PanelStyleMembers, "SelectedIndex", "Wrap"),
+            ["BindingNavigatorFallback"] = Plus(PanelStyleMembers),
+            ["StatusStripFallback"] = Plus(PanelStyleMembers),
+            ["ToolStripContainerFallback"] = Plus(PanelStyleMembers),
+            ["ToolStripContentPanelFallback"] = Plus(PanelStyleMembers),
+            ["ToolStripFallback"] = Plus(PanelStyleMembers),
+            ["ToolStripPanelFallback"] = Plus(PanelStyleMembers),
+
+            // ErrorProviderFallback is deliberately absent: it is an attached-property holder,
+            // not a Control, so none of the above exists on it.
         };
 
-    private static IReadOnlySet<string> Only(string memberName) =>
-        new HashSet<string>(StringComparer.Ordinal) { memberName };
+    private static IReadOnlySet<string> Plus(IReadOnlySet<string> styleMembers, params string[] ownMembers) =>
+        new HashSet<string>(ControlMembers.Concat(styleMembers).Concat(ownMembers), StringComparer.Ordinal);
 
     public static bool Exposes(string? fallbackTemplateKey, string avaloniaMemberName) =>
         fallbackTemplateKey is not null

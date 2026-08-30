@@ -27,20 +27,31 @@ public sealed record FontChoice(FontFamily Family, double Size, FontWeight Weigh
 /// </remarks>
 public static class FontDialogFallback
 {
-    public static async Task<FontChoice?> ShowAsync(Visual owner)
+    /// <param name="initial">
+    /// What the dialog opens on - the WinForms <c>fontDialog1.Font = ...;</c> before the call.
+    /// Omitted, it opens on the system default at 12pt.
+    /// </param>
+    public static async Task<FontChoice?> ShowAsync(Visual owner, FontChoice? initial = null)
     {
         var families = FontManager.Current.SystemFonts.OrderBy(f => f.Name).ToList();
 
         var familyBox = new ComboBox
         {
             ItemsSource = families,
-            SelectedItem = families.FirstOrDefault(f => f == FontManager.Current.DefaultFontFamily) ?? families.FirstOrDefault(),
+            SelectedItem = families.FirstOrDefault(f => f == (initial?.Family ?? FontManager.Current.DefaultFontFamily))
+                ?? families.FirstOrDefault(),
             MinWidth = 220,
         };
 
-        var sizeBox = new NumericUpDown { Value = 12, Minimum = 4, Maximum = 128, Increment = 1 };
-        var boldBox = new CheckBox { Content = "Bold" };
-        var italicBox = new CheckBox { Content = "Italic" };
+        var sizeBox = new NumericUpDown
+        {
+            Value = (decimal)(initial?.Size ?? 12),
+            Minimum = 4,
+            Maximum = 128,
+            Increment = 1,
+        };
+        var boldBox = new CheckBox { Content = "Bold", IsChecked = initial?.Weight == FontWeight.Bold };
+        var italicBox = new CheckBox { Content = "Italic", IsChecked = initial?.Style == FontStyle.Italic };
 
         var okButton = new Button { Content = "OK", IsDefault = true, MinWidth = 88 };
         var cancelButton = new Button { Content = "Cancel", IsCancel = true, MinWidth = 88 };

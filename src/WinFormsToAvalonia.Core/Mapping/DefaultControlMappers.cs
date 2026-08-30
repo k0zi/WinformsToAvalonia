@@ -10,9 +10,10 @@ namespace WinFormsToAvalonia.Core.Mapping;
 public static class DefaultControlMappers
 {
     private const string DataGridViewColumnOrCellGuidance =
-        "DataGridView column/cell definitions are added via .Columns.Add/.AddRange, not " +
-        "Controls.Add, so they aren't translated automatically; define the equivalent " +
-        "Avalonia DataGrid.Columns entries by hand in the generated View.";
+        "A DataGridView's *columns* are translated - .Columns.Add/.AddRange is parsed and each " +
+        "column type maps to its DataGrid counterpart. A separately-instantiated *cell* is not, " +
+        "and designer code does not produce one: a column's own constructor sets its cell " +
+        "template. If you reached this, define the equivalent DataGrid.Columns entry by hand.";
 
     public static IReadOnlyList<IControlMapper> All { get; } =
     [
@@ -320,10 +321,9 @@ public static class DefaultControlMappers
         new UnsupportedControlMapper("ToolStripDropDown", UnsupportedDisposition.Unreachable, "Base class for drop-down surfaces - rarely instantiated directly by designer code."),
 
         // DataGridView cell family: in practice these are essentially never separately
-        // instantiated in real Designer.cs - only Columns are (each column's CellTemplate is
-        // set internally by its own constructor) - so DataGridViewColumnOrCellGuidance's
-        // .Columns.Add framing still applies loosely, even though real designer code won't
-        // actually hit this path.
+        // instantiated in real Designer.cs - only Columns are, and those are fully translated
+        // now (each column's CellTemplate is set internally by its own constructor). Hence
+        // Unreachable, and hence guidance that says which half of the family works.
         new UnsupportedControlMapper("DataGridViewTextBoxCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
         new UnsupportedControlMapper("DataGridViewCheckBoxCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),
         new UnsupportedControlMapper("DataGridViewComboBoxCell", UnsupportedDisposition.Unreachable, DataGridViewColumnOrCellGuidance),

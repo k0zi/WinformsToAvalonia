@@ -98,7 +98,11 @@ public class HandlerMigrationConversionTests
 
             // A dialog WinForms has and Avalonia does not, inlined onto a bundled window whose
             // result *is* the colour - and the package that window needs must reach the csproj.
-            Assert.Contains("if (await ColorDialogFallback.ShowAsync(this) is { } colorDialog1Color)", codeBehind);
+            // The handler seeds the dialog first (`colorDialog1.Color = Color.Red;`), and that
+            // statement emits nothing of its own - it becomes this argument.
+            Assert.Contains(
+                "if (await ColorDialogFallback.ShowAsync(this, Color.Parse(\"#FFFF0000\")) is { } colorDialog1Color)",
+                codeBehind);
             Assert.Contains("nameTextBox.Background = new SolidColorBrush(colorDialog1Color);", codeBehind);
             Assert.Contains("Controls/ColorDialogFallback.cs", result.Vfs.RelativePaths);
 
@@ -122,8 +126,13 @@ public class HandlerMigrationConversionTests
                 codeBehind);
             Assert.Contains("nameTextBox.Background = new SolidColorBrush(colorDialog1Color);", codeBehind);
 
+            // 26 rather than 25 since the colour handler gained a seed line. Migrated stays at 22:
+            // an absorbed statement emits no code of its own - its value is in the ShowAsync call
+            // above - and the counter measures emitted statements. The ratio therefore understates
+            // this one handler slightly, which is better than counting a statement that produced
+            // no output.
             Assert.Equal(22, result.Report.MigratedStatementCount);
-            Assert.Equal(25, result.Report.HandlerStatementCount);
+            Assert.Equal(26, result.Report.HandlerStatementCount);
 
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
             Assert.True(

@@ -844,16 +844,39 @@ public class HandlerBodyRewriterTests
 
     /// <summary>
     /// A fallback control only exposes what its bundled template demonstrably has -
-    /// StatusStripFallback is a StackPanel, so a catalog property on it stays un-migrated.
+    /// StatusStripFallback is a StackPanel, which has no Text of any kind.
     /// </summary>
     [Fact]
     public void RewriteForView_PropertyOnAFallbackThatDoesNotExposeIt_IsNotMigrated()
     {
         var form = FormWith(("statusStrip1", "StatusStrip"));
 
-        var result = Rewriter.RewriteForView("this.statusStrip1.Visible = false;", form);
+        var result = Rewriter.RewriteForView("this.statusStrip1.Text = \"Ready\";", form);
 
         Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// ...but every bundled template except the ErrorProvider one derives from Avalonia's
+    /// Control, so the universal members are a known fact on all of them. Refusing
+    /// `statusStrip1.Visible = false;` - which this did until the table said so - was a gap in
+    /// the table, not a limit of the template.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_UniversalMemberOnAFallback_IsMigrated()
+    {
+        var form = FormWith(("statusStrip1", "StatusStrip"), ("propertyGrid1", "PropertyGrid"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.statusStrip1.Visible = false;
+            this.propertyGrid1.Focus();
+            """,
+            form);
+
+        Assert.Equal(
+            ["statusStrip1.IsVisible = false;", "propertyGrid1.Focus();"],
+            result.MigratedStatements);
     }
 
     /// <summary>
@@ -2347,14 +2370,103 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// A fallback control gets no styling anywhere in this converter - its bundled template need
-    /// not expose the property - and that has to hold for a handler body too.
+    /// A fallback control gets a style group exactly when its bundled template exposes every
+    /// member the group is made of - the templates ship in this repo, so that is a known fact.
+    /// RichTextBoxFallback derives from Avalonia's TextBox and therefore has a Background.
     /// </summary>
     [Fact]
-    public void RewriteForView_ColorOnAFallbackControl_IsNotMigrated()
+    public void RewriteForView_ColorOnAFallbackThatHasABackground_IsMigrated()
     {
         var result = Rewriter.RewriteForView(
             "this.notesRichTextBox.BackColor = Color.Red;", FormWith(("notesRichTextBox", "RichTextBox")));
+
+        Assert.Single(result.MigratedStatements);
+        Assert.StartsWith("notesRichTextBox.Background = ", result.MigratedStatements[0]);
+    }
+
+    /// <summary>
+    /// ...and a group the template does not have is still refused. ErrorProviderFallback is not
+    /// a Control at all - it is an attached-property holder - so nothing styles it.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ColorOnAFallbackWithNoStyleSurface_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "this.errorProvider1.BackColor = Color.Red;", FormWith(("errorProvider1", "ErrorProvider")));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A seed assigned before the dialog is shown. WinForms says it as an assignment to the
+    /// component; Avalonia's replacement takes it as an argument - so the statement emits nothing
+    /// of its own and the value turns up in the call. Before this, it was refused, and because
+    /// the body translation is a prefix that took the whole rest of the handler with it.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ColorDialogSeededBeforeShowing_IsFoldedIntoTheCall()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("plainPanel", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.colorDialog1.Color = Color.Red;
+            if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.plainPanel.BackColor = this.colorDialog1.Color;
+            }
+            """,
+            form,
+            Navigation());
+
+        var body = string.Join("\n", result.MigratedStatements);
+        Assert.Contains("ColorDialogFallback.ShowAsync(this, Color.Parse(", body);
+        Assert.Contains("plainPanel.Background = new SolidColorBrush(colorDialog1Color);", body);
+
+        // The whole handler came across - the seed line no longer truncates it.
+        Assert.Equal("", result.RemainingBody);
+    }
+
+    /// <summary>
+    /// A WinForms Font is one value; the bundled FontChoice is the four Avalonia properties it
+    /// becomes, read off whichever control the handler took it from.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_FontDialogSeededFromAControl_IsFoldedIntoTheCall()
+    {
+        var form = FormWith(
+            ("fontDialog1", "FontDialog"), ("notesRichTextBox", "RichTextBox"), ("headerLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            this.fontDialog1.Font = this.headerLabel.Font;
+            if (this.fontDialog1.ShowDialog(this) == DialogResult.OK)
+            {
+                this.notesRichTextBox.Font = this.fontDialog1.Font;
+            }
+            """,
+            form,
+            Navigation());
+
+        Assert.Contains(
+            "FontDialogFallback.ShowAsync(this, new FontChoice(headerLabel.FontFamily, headerLabel.FontSize, "
+            + "headerLabel.FontWeight, headerLabel.FontStyle))",
+            string.Join("\n", result.MigratedStatements));
+        Assert.Equal("", result.RemainingBody);
+    }
+
+    /// <summary>
+    /// A seed the translation cannot express still refuses, rather than being swallowed. The
+    /// rewriter has no way to report a dropped value, so absorbing one silently would be worse
+    /// than the truncation it causes.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogSeedItCannotTranslate_IsNotSwallowed()
+    {
+        var form = FormWith(("colorDialog1", "ColorDialog"), ("plainPanel", "Panel"));
+
+        var result = Rewriter.RewriteForView(
+            "this.colorDialog1.Color = SomeHelper.PickAColour();", form, Navigation());
 
         Assert.Empty(result.MigratedStatements);
     }

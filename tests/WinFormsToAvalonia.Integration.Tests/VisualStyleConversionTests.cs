@@ -49,6 +49,10 @@ public class VisualStyleConversionTests
             Assert.DoesNotContain("Foreground=", panelElement);
             Assert.DoesNotContain("FontFamily=", panelElement);
 
+            // RightToLeft is declared on Avalonia's Visual, so it needs no per-element table -
+            // but it also mirrors layout, so it is only emitted where nothing is positioned.
+            Assert.Contains("FlowDirection=\"RightToLeft\"", SingleElementContaining(axaml, "x:Name=\"headerLabel\""));
+
             // Avalonia's Image derives straight from Control: no styling surface at all. Its
             // picture, though, comes through - recovered from the resources.GetObject(...)
             // payload in the form's .resx and copied into Assets/.

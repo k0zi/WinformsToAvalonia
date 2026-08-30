@@ -111,10 +111,14 @@ contributors know what to expect and where to look before filing a duplicate iss
   nothing to keep it); `var r = dlg.ShowDialog(); if (r == …)` (dataflow across a statement
   boundary, which this rewriter deliberately does not do); a ViewModel target (no `Window` to
   parent to); and a branch only part of which translates.
-- **Not carried over:** a seed value assigned before the call (`colorDialog1.Color = this.BackColor;`).
-  Neither fallback's `ShowAsync` takes an initial value, so the dialog opens on its default - and
-  because the seed is the first statement, it stops the prefix before the dialog is even reached.
-  Widening that means widening both bundled templates *and* `FallbackControlMemberSupport`.
+- **A seed value assigned before the call is carried over**, when the translation can express it.
+  `colorDialog1.Color = Color.Red;` and `fontDialog1.Font = someLabel.Font;` emit nothing of their
+  own: WinForms says the seed as an assignment to the component, Avalonia's replacement takes it
+  as an argument, so the statement is absorbed and spent on the `ShowAsync` call. A seed the
+  evaluator cannot resolve to a literal colour - or a font read from something with no font
+  surface - still **refuses**, and because the body is translated as a prefix that costs the rest
+  of the handler too. Absorbing one silently would be worse: the rewriter has no way to report a
+  value it dropped.
 
 ## Tray-icon events
 
@@ -287,9 +291,13 @@ contributors know what to expect and where to look before filing a duplicate iss
   (`Mapping/AvaloniaItemsSupport`), like the styling pass and for the same reason: an item element
   the target does not accept is an AVLN error. Consequences:
   - only plain **literals**; an `Items.Add(someObject)` entry is not a literal and is skipped;
-  - a **fallback** control takes no item elements (`DomainUpDown` is the one that has them in
-    practice), and neither does any target not listed in that table - those entries are
-    **reported** rather than dropped silently, since a missing list is visible content;
+  - a target not listed in that table takes none, and those entries are **reported** rather than
+    dropped silently, since a missing list is visible content. A bundled template can be listed
+    too: `DomainUpDownFallback` holds its entries in a get-only `AvaloniaList<string>`, so they
+    are emitted as bare `<sys:String>` elements inside a `<...Items>` property element rather
+    than as item elements with a `Content` attribute. The `xmlns:sys` that needs is declared on
+    the document root, and only when some control on the form actually needs it - Avalonia's XAML
+    compiler rejects an attribute on a property element, which is where it would otherwise go;
   - it is static content, not a binding. `ItemsSource`/`SelectedItem` still need a hand-written
     `ObservableCollection` - only the *selection index/item* properties are in the bindable
     catalog.
@@ -310,10 +318,14 @@ contributors know what to expect and where to look before filing a duplicate iss
   a `Panel` (what every WinForms container maps to) has a Background but no Foreground and no
   font properties, and an `Image` (the `PictureBox` target) has none of them - emitting one
   anyway would be an AVLN2000 in the generated project. Consequences worth knowing:
-  - a **fallback control** gets no styling from the *designer* (a template does not necessarily
-    expose those properties - the same reasoning that stops fallback controls being event-wired),
-    and neither does a generated **UserControl** View element. A translated *handler* is the one
-    exception, and only for what `FallbackControlMemberSupport` says the template really has:
+  - a **fallback control** gets exactly the style groups its bundled template really has. These
+    templates ship in this repo, so that is a known fact rather than a guess:
+    `AvaloniaStylePropertySupport.ForFallbackTemplate` reads it out of
+    `FallbackControlMemberSupport` a member at a time, and a group is writable only when every
+    member it is made of is there - so a `StackPanel`-derived toolbar gets `Background` and
+    nothing else, while `RichTextBoxFallback` (a `TextBox`) gets the whole surface. The emitter
+    and a translated handler now ask that same method, so they cannot disagree. A generated
+    **UserControl** View element still gets none. The members a handler may touch:
     that is how a `FontDialog` result reaches a `RichTextBox`, which derives from Avalonia's
     `TextBox` and so inherits the four font properties for real;
   - a **new mapper target** gets no styling until its element name is added to that table;
@@ -323,8 +335,16 @@ contributors know what to expect and where to look before filing a duplicate iss
     `SystemColors.*` resolve through a hand-written ARGB table rather than the host desktop
     palette, so the output stays byte-identical across machines.
 
-  What is *not* converted: `BackgroundImage`, `FlatStyle`/`FlatAppearance`, `RightToLeft`, and
-  `Font` values whose family/size are not literals.
+  What is *not* converted: `BackgroundImage`, `FlatStyle`/`FlatAppearance`, and `Font` values
+  whose family/size are not literals.
+
+  `RightToLeft` **is** converted, to Avalonia's `FlowDirection` - but only on a control with no
+  positioned children, and that gate is the whole point. Avalonia mirrors an element's entire
+  subtree when its `FlowDirection` differs from its parent's, and this conversion positions
+  everything with absolute `Canvas.Left`; WinForms moves nothing for `RightToLeft` alone (that is
+  `RightToLeftLayout`, a separate property). So on a leaf the two mean the same thing and the
+  attribute is emitted; on a container it is reported instead. `Inherit` emits nothing, which is
+  exact - Avalonia registers `FlowDirection` as an inheriting property.
 
   `TextAlign` **is** converted, but only its horizontal component. On a `TextBox`/`MaskedTextBox`/
   `NumericUpDown` it is already just a horizontal alignment and maps exactly onto Avalonia's
@@ -469,7 +489,12 @@ rule itself; what follows is what the rule does *not* cover yet.
     outside. That is also why it cannot live in `ControlMethodCatalog`, which names members of the
     *target* control. Like `MessageBox.Show`, it pulls the template in from a **handler body**
     rather than from an element. The control it flags has to be one the AXAML really names, or the
-    generated View has no field to hand over;
+    generated View has no field to hand over. The template puts a red indicator in the window's
+    adorner layer with the message as its tooltip, and an empty message removes it - which is how
+    WinForms clears an error. Not Avalonia's `DataValidationErrors`: that takes an `Exception`
+    rather than a message, and only draws where the target's `ControlTheme` hosts a presenter for
+    it, which under the Simple theme this generator uses means text inputs and nothing else. What
+    is not carried: the blink, a custom `Icon`, and `SetIconAlignment`/`SetIconPadding`;
   - **`sender`, on a handler wired to exactly one control.** `var button = (Button)sender;`
     does not become a cast - it becomes *nothing*. In a single-control handler `sender` provably
     is that control, so the local is recorded as another name for its field and every later use
@@ -600,9 +625,8 @@ rule itself; what follows is what the rule does *not* cover yet.
   wraps Avalonia's real `ColorView`, which ships in `Avalonia.Controls.ColorPicker` - the first
   time a *bundled template* has needed a package, so `FallbackTemplateDefinition` now declares one
   and it goes through the same double-allowlist as a mapper's. What is not covered:
-  - the dialog opens on its **default** value. WinForms seeds `ColorDialog` from the component's
-    own `Color`, and carrying that across would mean reading a designer value nothing else in the
-    translation needs - the same reason the file pickers open with default options;
+  - the dialog opens on the seed the handler set, if there was one it could translate (see the
+    dialog section above); a *designer*-set `Color` is still not read, only a handler assignment;
   - `control.Font = fontDialog1.Font` is the *only* font assignment translated, and it becomes
     four writes (`FontFamily`/`FontSize`/`FontWeight`/`FontStyle`). Provable only because the
     value comes from a record this repo ships; an arbitrary WinForms `Font` expression would need

@@ -119,6 +119,41 @@ public static class AvaloniaStylePropertySupport
         ByElementName.Select(e => (e.Key, e.Value));
 
     /// <summary>
+    /// The style surface of a <b>bundled fallback template</b>, derived from what it exposes.
+    /// </summary>
+    /// <remarks>
+    /// A fallback's element name is its template key, so <see cref="For"/> - keyed on real
+    /// Avalonia element names - answers <see cref="AvaloniaStyleProperties.None"/> for it, and a
+    /// designer's BackColor on a converted ToolStrip was dropped on that technicality. The
+    /// templates ship in this repo, so what they have is a known fact:
+    /// <see cref="FallbackControlMemberSupport"/> records it member by member, and a group is
+    /// writable exactly when every member it is made of is there. That rule already governed
+    /// handler bodies; this is the same answer, in one place, for the emitter too.
+    /// </remarks>
+    public static AvaloniaStyleProperties ForFallbackTemplate(string? fallbackTemplateKey)
+    {
+        var supported = AvaloniaStyleProperties.None;
+
+        foreach (var group in new[]
+        {
+            AvaloniaStyleProperties.Background,
+            AvaloniaStyleProperties.Foreground,
+            AvaloniaStyleProperties.Font,
+            AvaloniaStyleProperties.Padding,
+            AvaloniaStyleProperties.TextDecorations,
+        })
+        {
+            var members = MemberNamesOf(group);
+            if (members.Count > 0 && members.All(m => FallbackControlMemberSupport.Exposes(fallbackTemplateKey, m)))
+            {
+                supported |= group;
+            }
+        }
+
+        return supported;
+    }
+
+    /// <summary>
     /// The Avalonia properties one style group is actually made of - what a *fallback* template
     /// has to expose for the group to be writable on it, since that table is keyed by member.
     /// </summary>

@@ -761,21 +761,54 @@ public class AxamlEmitterTests
     }
 
     /// <summary>
-    /// A fallback control does not accept item elements, and emitting them anyway would be an
-    /// AVLN error - so the entries are reported rather than dropped silently.
+    /// A target with no row in the items table does not accept item elements, and emitting them
+    /// anyway would be an AVLN error - so the entries are reported rather than dropped silently.
     /// </summary>
     [Fact]
     public void EmitView_ItemsOnATargetThatTakesNone_WarnsInsteadOfEmitting()
     {
         var formModel = new FormModel { ClassName = "MainForm" };
-        var upDown = new ControlModel { FieldName = "domainUpDown1", ClrTypeName = "DomainUpDown" };
-        upDown.LiteralItems.AddRange(["One", "Two"]);
-        formModel.RootControls.Add(upDown);
+        var tree = new ControlModel { FieldName = "treeView1", ClrTypeName = "TreeView" };
+        tree.LiteralItems.AddRange(["One", "Two"]);
+        formModel.RootControls.Add(tree);
 
         var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
 
         Assert.DoesNotContain("Content=\"One\"", result.Axaml);
-        Assert.Contains(result.Warnings, w => w.Contains("domainUpDown1", StringComparison.Ordinal) && w.Contains("item(s)", StringComparison.Ordinal));
+        Assert.Contains(result.Warnings, w => w.Contains("treeView1", StringComparison.Ordinal) && w.Contains("item(s)", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A bundled template can take items too, in the shape its own API dictates: DomainUpDown's
+    /// are bare strings in a get-only collection property, not item elements with a Content
+    /// attribute. The xmlns those need goes on the *root* - Avalonia's XAML compiler rejects an
+    /// attribute on a property element, which is where it would otherwise belong.
+    /// </summary>
+    [Fact]
+    public void EmitView_ItemsOnAFallbackWithACollectionProperty_EmitsThemAsBareStrings()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var upDown = new ControlModel { FieldName = "domainUpDown1", ClrTypeName = "DomainUpDown" };
+        upDown.LiteralItems.AddRange(["One", "Two"]);
+        formModel.RootControls.Add(upDown);
+        formModel.Controls["domainUpDown1"] = upDown;
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("xmlns:sys=\"using:System\"", result.Axaml);
+        Assert.Contains("<controls:DomainUpDownFallback.Items>", result.Axaml);
+        Assert.Contains("<sys:String>One</sys:String>", result.Axaml);
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("item(s)", StringComparison.Ordinal));
+    }
+
+    /// <summary>...and a form with no such items keeps exactly the root attributes it had.</summary>
+    [Fact]
+    public void EmitView_NoItemsNeedingAnXmlns_DoesNotDeclareOne()
+    {
+        var result = new AxamlEmitter(new ControlMappingRegistry())
+            .EmitView(BuildGroupBoxFormModel(), "Demo", "MainView", "MainViewModel");
+
+        Assert.DoesNotContain("xmlns:sys", result.Axaml);
     }
 
     /// <summary>
@@ -830,6 +863,95 @@ public class AxamlEmitterTests
             .EmitView(BuildGroupBoxFormModel(), "Demo", "MainView", "MainViewModel");
 
         Assert.Contains("Padding=\"0\"", result.Axaml);
+    }
+
+    /// <summary>
+    /// A control carrying both a ContextMenuStrip and designer styling. The emitted document has
+    /// to parse - which it did not, because a ContextMenu is a child *element* and every
+    /// attribute written after it landed outside the start tag.
+    /// </summary>
+    [Fact]
+    public void EmitView_ControlWithBothAContextMenuAndStyling_EmitsWellFormedXml()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+
+        var menu = new ControlModel { FieldName = "contextMenuStrip1", ClrTypeName = "ContextMenuStrip" };
+        var menuItem = new ControlModel { FieldName = "copyMenuItem", ClrTypeName = "ToolStripMenuItem" };
+        menuItem.Properties["Text"] = new PropertyValue.Literal("Copy");
+        menu.Children.Add(menuItem);
+        formModel.Controls["contextMenuStrip1"] = menu;
+
+        var panel = new ControlModel { FieldName = "panel1", ClrTypeName = "Panel" };
+        panel.Properties["Location"] = new PropertyValue.PointValue(12, 12);
+        panel.Properties["Size"] = new PropertyValue.SizeValue(200, 100);
+        panel.Properties["ContextMenuStrip"] = new PropertyValue.ControlReference("contextMenuStrip1");
+        panel.Properties["BackColor"] = new PropertyValue.ColorValue("Red", null, null, null, null);
+        panel.Properties["ToolTip"] = new PropertyValue.Literal("Right-click me");
+        formModel.RootControls.Add(panel);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        // The assertion that matters: it is a document at all.
+        var parsed = Record.Exception(() => System.Xml.Linq.XDocument.Parse(result.Axaml));
+        Assert.True(parsed is null, $"The emitted AXAML is not well-formed XML: {parsed?.Message}\n{result.Axaml}");
+
+        Assert.Contains("<Control.ContextMenu>", result.Axaml);
+        Assert.Contains("Background=", result.Axaml);
+    }
+
+    /// <summary>
+    /// A leaf's RightToLeft means exactly what Avalonia's FlowDirection means: right-aligned text,
+    /// nothing moved. So it is emitted.
+    /// </summary>
+    [Theory]
+    [InlineData("Yes", "RightToLeft")]
+    [InlineData("No", "LeftToRight")]
+    public void EmitView_RightToLeftOnALeaf_EmitsFlowDirection(string winFormsValue, string expected)
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var label = new ControlModel { FieldName = "label1", ClrTypeName = "Label" };
+        label.Properties["Location"] = new PropertyValue.PointValue(12, 12);
+        label.Properties["RightToLeft"] = new PropertyValue.EnumMembers([winFormsValue]);
+        formModel.RootControls.Add(label);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains($"FlowDirection=\"{expected}\"", result.Axaml);
+    }
+
+    /// <summary>
+    /// On a container it does not: Avalonia mirrors the whole subtree, and every child here is
+    /// positioned by absolute Canvas coordinates. WinForms moves nothing for RightToLeft alone.
+    /// </summary>
+    [Fact]
+    public void EmitView_RightToLeftOnAContainer_IsReportedRatherThanMirroringTheLayout()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var panel = new ControlModel { FieldName = "panel1", ClrTypeName = "Panel" };
+        panel.Properties["Location"] = new PropertyValue.PointValue(12, 12);
+        panel.Properties["RightToLeft"] = new PropertyValue.EnumMembers(["Yes"]);
+        panel.Children.Add(new ControlModel { FieldName = "inner", ClrTypeName = "Button" });
+        formModel.RootControls.Add(panel);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.DoesNotContain("FlowDirection=", result.Axaml);
+        Assert.Contains(result.Warnings, w => w.Contains("panel1", StringComparison.Ordinal) && w.Contains("FlowDirection", StringComparison.Ordinal));
+    }
+
+    /// <summary>Avalonia's FlowDirection inherits, so Inherit is exactly "emit nothing".</summary>
+    [Fact]
+    public void EmitView_RightToLeftInherit_EmitsNothing()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var label = new ControlModel { FieldName = "label1", ClrTypeName = "Label" };
+        label.Properties["RightToLeft"] = new PropertyValue.EnumMembers(["Inherit"]);
+        formModel.RootControls.Add(label);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.DoesNotContain("FlowDirection=", result.Axaml);
+        Assert.Empty(result.Warnings);
     }
 
     private static FormModel BuildGroupBoxFormModel()

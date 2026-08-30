@@ -56,6 +56,9 @@ public class GeneratedAppStartupTests
     // included gets no template and renders as *nothing* - which is exactly what the walk below
     // checks, and the only reason to trust the promotion.
     [InlineData("GroupBoxApp")]
+    // Literal items inside a bundled template's collection property, as <sys:String> elements.
+    // That form compiles and can still fail to *load* - the item type is resolved at run time.
+    [InlineData("DomainUpDownApp")]
     public Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName) =>
         AssertStarts(
             Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj"),

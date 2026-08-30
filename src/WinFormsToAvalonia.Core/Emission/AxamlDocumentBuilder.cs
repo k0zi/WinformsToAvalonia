@@ -28,6 +28,20 @@ public sealed class AxamlDocumentBuilder
         _indentLevel++;
     }
 
+    /// <summary>
+    /// An element whose value is its text content rather than an attribute -
+    /// <c>&lt;sys:String&gt;Monday&lt;/sys:String&gt;</c>, the only form a collection of bare strings
+    /// can take in XAML.
+    /// </summary>
+    public void TextElement(string name, string text)
+    {
+        FinishPendingOpenTag();
+        WriteIndent();
+        _text.Append('<').Append(name).Append('>')
+            .Append(Escape(text))
+            .Append("</").Append(name).Append(">\n");
+    }
+
     public void Attribute(string name, string value)
     {
         _text.Append(' ').Append(name).Append("=\"").Append(Escape(value)).Append('"');

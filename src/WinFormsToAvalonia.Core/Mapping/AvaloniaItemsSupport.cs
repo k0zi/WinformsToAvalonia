@@ -1,31 +1,63 @@
 namespace WinFormsToAvalonia.Core.Mapping;
 
+/// <param name="ItemElementName">The element each literal item becomes.</param>
+/// <param name="ItemContentAttributeName">
+/// The attribute the item's text goes in, or null when the element carries it as text content.
+/// </param>
+/// <param name="CollectionPropertyName">
+/// The property element the items are wrapped in (<c>Items</c> -> <c>&lt;X.Items&gt;</c>), or null
+/// when they are direct children of the control.
+/// </param>
+/// <param name="XmlnsPrefix">
+/// An xmlns the item element needs, declared on the wrapper rather than on the document root -
+/// it is needed by exactly one target, and hoisting it would rewrite every generated view's root
+/// attribute list (which the golden fixture pins) for a prefix almost no file uses.
+/// </param>
+public sealed record AvaloniaItemsTarget(
+    string ItemElementName,
+    string? ItemContentAttributeName = null,
+    string? CollectionPropertyName = null,
+    string? XmlnsPrefix = null,
+    string? XmlnsValue = null);
+
 /// <summary>
-/// Which Avalonia elements accept plain literal item children, and what each item is wrapped in.
+/// Which targets accept plain literal item children, and what shape each one wants them in.
 /// </summary>
 /// <remarks>
-/// The same shape - and the same reasoning - as <see cref="AvaloniaStylePropertySupport"/>:
-/// keyed on the *target* element name rather than the WinForms type, because that is what
-/// decides whether the emitted XAML is legal. Only the two selection controls whose Avalonia
-/// counterpart takes a matching item element are listed; a `ComboBoxItem` inside anything else
-/// would be an AVLN error in the generated project.
-///
-/// Unknown element names accept no items, so a fallback control (`DomainUpDownFallback`) or a
-/// future mapper target loses its designer-declared entries rather than risking a broken build -
-/// the loss is reported as a warning by AxamlEmitter.
+/// <para>
+/// Keyed on the *target* - an Avalonia element name, or a bundled template's key - because that
+/// is what decides whether the emitted XAML is legal. A `ComboBoxItem` inside anything else would
+/// be an AVLN error in the generated project.
+/// </para>
+/// <para>
+/// Unknown targets accept no items and the loss is reported as a warning by AxamlEmitter, so a
+/// new mapper target is safe by default and opts in by being listed.
+/// </para>
 /// </remarks>
 public static class AvaloniaItemsSupport
 {
-    private static readonly IReadOnlyDictionary<string, string> ItemElementByTarget =
-        new Dictionary<string, string>(StringComparer.Ordinal)
+    private static readonly IReadOnlyDictionary<string, AvaloniaItemsTarget> ItemsByTarget =
+        new Dictionary<string, AvaloniaItemsTarget>(StringComparer.Ordinal)
         {
-            ["ComboBox"] = "ComboBoxItem",
-            ["ListBox"] = "ListBoxItem",
+            // Avalonia's own selection controls: a real item element, carrying its caption.
+            ["ComboBox"] = new("ComboBoxItem", ItemContentAttributeName: "Content"),
+            ["ListBox"] = new("ListBoxItem", ItemContentAttributeName: "Content"),
+
+            // A bundled template, so keyed by template key rather than element name.
+            // DomainUpDownFallback.Items is an AvaloniaList<string>: a get-only collection
+            // property XAML can populate, holding bare strings rather than item elements.
+            ["DomainUpDownFallback"] = new(
+                "sys:String",
+                CollectionPropertyName: "Items",
+                XmlnsPrefix: "sys",
+                XmlnsValue: "using:System"),
         };
 
-    /// <summary>The element each literal item becomes, or null when the target takes none.</summary>
-    public static string? ItemElementFor(string? avaloniaElementName) =>
-        avaloniaElementName is not null && ItemElementByTarget.TryGetValue(avaloniaElementName, out var itemElement)
-            ? itemElement
-            : null;
+    /// <summary>How the target takes literal items, or null when it takes none.</summary>
+    public static AvaloniaItemsTarget? For(string? target) =>
+        target is not null && ItemsByTarget.TryGetValue(target, out var itemsTarget) ? itemsTarget : null;
+
+    /// <summary>Every claim, so WinFormsToAvalonia.Mapping.Tests can check each against Avalonia.</summary>
+    public static IEnumerable<(string Target, AvaloniaItemsTarget Items)> AllEntries =>
+        ItemsByTarget.Select(e => (e.Key, e.Value));
 }

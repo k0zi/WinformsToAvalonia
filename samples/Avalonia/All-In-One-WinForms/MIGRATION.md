@@ -26,10 +26,12 @@ one is the first the conversion could not prove equivalent.
 - [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 
-## Conversion notes (72)
+## Conversion notes (73)
 
 Everything the conversion decided not to guess at, and why.
 
+- 'toolStripContainer1.ContentPanel' holds 'contentPanelLabel', which is a nested container region this conversion cannot place - only a SplitContainer's Panel1/Panel2 are translated. Those controls are not emitted; add them to the generated 'toolStripContainer1' by hand.
+- 'toolStripContainer1.TopToolStripPanel' holds 'containerToolStrip', which is a nested container region this conversion cannot place - only a SplitContainer's Panel1/Panel2 are translated. Those controls are not emitted; add them to the generated 'toolStripContainer1' by hand.
 - 'helpProvider1' (HelpProvider) calls 'SetShowHelp(...)', which has no Avalonia equivalent - that setting is not carried over.
 - 'ToolStrip' has no built-in Avalonia equivalent; using the bundled fallback control 'ToolStripFallback'.
 - No runtime equivalent shipped - recommend an ObservableCollection<T> in the ViewModel instead.
@@ -99,7 +101,6 @@ Everything the conversion decided not to guess at, and why.
 - Component 'soundPlayer1' (SoundPlayer) is Windows-only. The generated View declares it and compiles everywhere, with the platform analyser suppressed for that file - but these calls throw on Linux and macOS.
 - 'pictureBox1' subscribes both 'MouseDown' and 'Click', which map to the same Avalonia event 'PointerPressed' - only 'pictureBox1_MouseDown' is subscribed; call 'pictureBox1_Click' from it by hand.
 - 'checkedListBox1' is a CheckedListBox, which becomes a multi-selection ListBox: Avalonia has no per-item checkbox list, so ticking is approximated by selection and CheckedItems/CheckedIndices have no equivalent. Bind an ItemTemplate containing a CheckBox if the check state has to be a value of its own.
-- field 'domainUpDown1' (DomainUpDown) has 3 designer-declared item(s), but 'controls:DomainUpDownFallback' does not take item elements - add them by hand, or bind ItemsSource.
 - Click handler 'okButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 - Click handler 'cancelButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 

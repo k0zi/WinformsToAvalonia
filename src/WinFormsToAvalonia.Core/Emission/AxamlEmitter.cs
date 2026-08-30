@@ -85,6 +85,16 @@ public sealed class AxamlEmitter
             builder.Attribute($"xmlns:{prefix}", xmlnsValue);
         }
 
+        // An xmlns some literal item element needs - `sys:String` for a collection of bare
+        // strings. It has to be declared here rather than on the property element that uses it:
+        // Avalonia's XAML compiler rejects an attribute on a property element outright
+        // ("Attributes aren't allowed on element properties"). Conditional, so a view with no
+        // such items keeps exactly the root attribute list it has always had.
+        foreach (var (prefix, xmlnsValue) in RequiredItemNamespaces(formModel))
+        {
+            builder.Attribute($"xmlns:{prefix}", xmlnsValue);
+        }
+
         builder.Attribute("xmlns:d", "http://schemas.microsoft.com/expression/blend/2008");
         builder.Attribute("xmlns:mc", "http://schemas.openxmlformats.org/markup-compatibility/2006");
         builder.Attribute("mc:Ignorable", "d");
@@ -108,7 +118,10 @@ public sealed class AxamlEmitter
         // never overrode it, and Avalonia's font properties inherit the same way - so one
         // attribute here restores the typeface for a whole form's worth of controls.
         EmitVisualStyleAttributes(
-            builder, formModel.FormProperties, rootElementName, NoBoundAttributes);
+            builder,
+            formModel.FormProperties,
+            AvaloniaStylePropertySupport.For(rootElementName),
+            NoBoundAttributes);
 
         // Form-level events (Load/FormClosing/...) subscribe on the root element itself - except
         // the ones only a Window declares, which a UserControl-rooted View has to hand to the
@@ -339,8 +352,6 @@ public sealed class AxamlEmitter
 
         EmitBindingsAndEvents(builder, control, mapped, boundProperties, state);
         EmitLayoutHintAttributes(builder, control);
-        EmitContextMenuIfPresent(builder, control, emitFallbackControls, state);
-
         // Universal, not gated by WinForms type: an extender provider's
         // `this.toolTip1.SetToolTip(this.control1, ...)` is resolved onto the *target* control's
         // own Properties by DesignerSyntaxWalker, regardless of which provider field made the
@@ -363,18 +374,36 @@ public sealed class AxamlEmitter
             }
         }
 
+        EmitFlowDirection(builder, control, mapped, emittedAttributeNames, state);
+
         // Also universal, and for the same reason: BackColor/ForeColor/Font/Padding exist on
         // every WinForms Control, so they belong here rather than in each mapper's property
         // list. Which of them actually reach the AXAML is decided by the *target* element
         // (AvaloniaStylePropertySupport), not by the WinForms type.
-        EmitVisualStyleAttributes(builder, control.Properties, elementName, emittedAttributeNames);
+        // A fallback's element name is its template key, which no Avalonia-element-keyed table
+        // can answer for - so ask the table that is keyed by template instead. Same rule as the
+        // handler-body side, and now literally the same method.
+        var supportedStyles = treatAsFallback
+            ? AvaloniaStylePropertySupport.ForFallbackTemplate(mapped.FallbackTemplateKey)
+            : AvaloniaStylePropertySupport.For(elementName);
+
+        EmitVisualStyleAttributes(builder, control.Properties, supportedStyles, emittedAttributeNames);
+
+        // Every attribute is written by now, and that ordering is load-bearing rather than
+        // tidy: AxamlDocumentBuilder.Attribute appends to the raw text, so the first child
+        // element closes the parent's start tag and any attribute written afterwards lands
+        // *outside* it - a document that does not parse. A ContextMenu is a child element, so
+        // it has to come after the attribute passes above, not before them.
+        EmitContextMenuIfPresent(builder, control, emitFallbackControls, state);
 
         foreach (var nested in mapped.NestedElements)
         {
             EmitElementSpec(builder, nested);
         }
 
-        EmitLiteralItems(builder, control, elementName, state);
+        // A fallback's element name is prefixed with its xmlns; the table is keyed on the bare
+        // template key, exactly as FallbackControlMemberSupport is.
+        EmitLiteralItems(builder, control, elementName, mapped.FallbackTemplateKey ?? elementName, state);
         EmitIconIfPresent(builder, control, elementName, state);
 
         if (control.ClrTypeName == "SplitContainer")
@@ -716,15 +745,89 @@ public sealed class AxamlEmitter
     /// When a control has entries the target cannot take, they are reported rather than dropped
     /// silently - that list is usually visible content the user would notice missing.
     /// </remarks>
+    /// <summary>
+    /// A WinForms <c>RightToLeft</c> as Avalonia's <c>FlowDirection</c> - but only where it means
+    /// the same thing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The property is declared on <c>Visual</c>, so unlike Background/Foreground/Font it needs no
+    /// per-element table: every element this converter emits has it, except the DataGrid column
+    /// types, which are not Visuals at all - the same <c>SupportsName</c> test the extender
+    /// providers use.
+    /// </para>
+    /// <para>
+    /// <b>The gate is the point.</b> Avalonia's FlowDirection mirrors the whole subtree when it
+    /// differs from the parent's, and this converter lays everything out with absolute
+    /// <c>Canvas.Left</c>. So on a container it would silently flip every child's position -
+    /// which WinForms only does for <c>RightToLeftLayout</c>, not for <c>RightToLeft</c> alone
+    /// (that right-aligns text and moves scrollbars, and moves nothing). Emitted on a leaf, where
+    /// the two agree; reported on a container, where they do not.
+    /// </para>
+    /// </remarks>
+    private static void EmitFlowDirection(
+        AxamlDocumentBuilder builder,
+        ControlModel control,
+        MappedControl mapped,
+        IReadOnlySet<string> emittedAttributeNames,
+        EmissionState state)
+    {
+        if (!mapped.SupportsName
+            || emittedAttributeNames.Contains("FlowDirection")
+            || !control.Properties.TryGetValue("RightToLeft", out var value)
+            || PropertyValueFormatters.AsFlowDirection(value) is not { } flowDirection)
+        {
+            return;
+        }
+
+        var hasPositionedChildren =
+            control.Children.Count > 0 || control.Panel1Children.Count > 0 || control.Panel2Children.Count > 0;
+
+        if (hasPositionedChildren)
+        {
+            if (flowDirection == "RightToLeft")
+            {
+                state.Warnings.Add(
+                    $"field '{control.FieldName}' ({control.ClrTypeName}) sets RightToLeft, but Avalonia's "
+                    + "FlowDirection also mirrors layout and this conversion positions children with absolute "
+                    + "Canvas coordinates - it is not emitted on a container. Set FlowDirection by hand if you "
+                    + "want the whole subtree mirrored.");
+            }
+
+            return;
+        }
+
+        builder.Attribute("FlowDirection", flowDirection);
+    }
+
+    /// <summary>
+    /// The xmlns declarations this form's literal item elements need, ordered and de-duplicated.
+    /// </summary>
+    /// <remarks>
+    /// A pre-scan rather than a fact discovered while emitting, because the root element's
+    /// attributes are written before any control is mapped - the same reason
+    /// <see cref="DistinctUserControlNamespaces"/> exists.
+    /// </remarks>
+    private IEnumerable<(string Prefix, string Value)> RequiredItemNamespaces(FormModel formModel) =>
+        formModel.Controls.Values
+            .Where(c => c.LiteralItems.Count > 0)
+            .Select(c => _registry.Map(c))
+            .Select(m => AvaloniaItemsSupport.For(m.FallbackTemplateKey ?? m.AvaloniaElementName))
+            .OfType<AvaloniaItemsTarget>()
+            .Where(t => t.XmlnsPrefix is not null && t.XmlnsValue is not null)
+            .Select(t => (t.XmlnsPrefix!, t.XmlnsValue!))
+            .Distinct()
+            .OrderBy(x => x.Item1, StringComparer.Ordinal);
+
     private static void EmitLiteralItems(
-        AxamlDocumentBuilder builder, ControlModel control, string elementName, EmissionState state)
+        AxamlDocumentBuilder builder, ControlModel control, string elementName, string itemsTarget, EmissionState state)
     {
         if (control.LiteralItems.Count == 0)
         {
             return;
         }
 
-        if (AvaloniaItemsSupport.ItemElementFor(elementName) is not { } itemElementName)
+        if (AvaloniaItemsSupport.For(itemsTarget) is not { } items)
         {
             state.Warnings.Add(
                 $"field '{control.FieldName}' ({control.ClrTypeName}) has {control.LiteralItems.Count} designer-declared " +
@@ -732,10 +835,27 @@ public sealed class AxamlEmitter
             return;
         }
 
+        // A named collection property gets a wrapper element; direct children do not.
+        if (items.CollectionPropertyName is { } collectionProperty)
+        {
+            builder.OpenElement($"{elementName}.{collectionProperty}");
+        }
+
         foreach (var item in control.LiteralItems)
         {
-            builder.OpenElement(itemElementName);
-            builder.Attribute("Content", item);
+            if (items.ItemContentAttributeName is { } contentAttribute)
+            {
+                builder.OpenElement(items.ItemElementName);
+                builder.Attribute(contentAttribute, item);
+                builder.CloseElement();
+                continue;
+            }
+
+            builder.TextElement(items.ItemElementName, item);
+        }
+
+        if (items.CollectionPropertyName is not null)
+        {
             builder.CloseElement();
         }
     }
@@ -751,10 +871,9 @@ public sealed class AxamlEmitter
     private static void EmitVisualStyleAttributes(
         AxamlDocumentBuilder builder,
         IReadOnlyDictionary<string, PropertyValue> properties,
-        string? avaloniaElementName,
+        AvaloniaStyleProperties supported,
         IReadOnlySet<string> boundAttributeNames)
     {
-        var supported = AvaloniaStylePropertySupport.For(avaloniaElementName);
         if (supported == AvaloniaStyleProperties.None)
         {
             return;

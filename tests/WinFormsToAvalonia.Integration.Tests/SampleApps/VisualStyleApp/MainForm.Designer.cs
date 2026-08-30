@@ -34,6 +34,9 @@ namespace VisualStyleApp
             // headerLabel - a TextBlock: the full styling surface, including bold italic.
             //
             this.headerLabel.Font = new System.Drawing.Font("Segoe UI", 14F, System.Drawing.FontStyle.Bold | System.Drawing.FontStyle.Italic);
+            // A leaf: RightToLeft means right-aligned text and nothing moved, which is exactly
+            // what Avalonia's FlowDirection means here.
+            this.headerLabel.RightToLeft = System.Windows.Forms.RightToLeft.Yes;
             this.headerLabel.ForeColor = System.Drawing.Color.FromArgb(30, 144, 255);
             this.headerLabel.Location = new System.Drawing.Point(12, 9);
             this.headerLabel.Name = "headerLabel";

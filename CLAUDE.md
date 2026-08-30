@@ -282,6 +282,22 @@ not by building.
   `<WasmExtraFilesToDeploy Include="wwwroot\**" />` the bundle exists with no `index.html`.
   `WebHeadConversionBuildTests` therefore asserts on the bundle's *contents*, never on the exit
   code alone.
+- **A statement may be *absorbed* only when its value is provably carried elsewhere.**
+  `colorDialog1.Color = Color.Red;` before a `ShowDialog` emits nothing of its own - the value
+  becomes an argument to the `ShowAsync` that replaces the dialog (`TryAbsorbDialogSeed`). That is
+  the only assignment allowed to vanish, and it may only absorb a value it can actually translate:
+  the rewriter has no warning channel, so absorbing one it cannot would be a silent loss. Refusing
+  is the honest fallback even though the prefix rule makes it cost the rest of the handler.
+- **Attributes must all be written before the first child element.** `AxamlDocumentBuilder.Attribute`
+  appends to raw text, so the first `OpenElement` closes the parent's start tag and any attribute
+  written afterwards lands *outside* it - a document that does not parse. `EmitContextMenuIfPresent`
+  emits a child element and therefore runs after every attribute pass, not before.
+- **A fallback control's styling and item surface come from its template, not from an element name.**
+  A fallback's emitted element name is its template key, which no Avalonia-element-keyed table can
+  answer for. `AvaloniaStylePropertySupport.ForFallbackTemplate` derives the style groups from
+  `FallbackControlMemberSupport` a member at a time (a group is writable only when every member it
+  is made of is listed), and `AvaloniaItemsSupport` is keyed on the template key too. Both the
+  emitter and `HandlerBodyRewriter` ask the same method, so they cannot disagree.
 - **A mapper and the universal passes can want the same attribute name.** `AxamlEmitter` writes
   the mapper's attributes, then the extender-provider and visual-style passes; all three now skip
   names already emitted (`emittedAttributeNames`). A duplicate XML attribute does not merge, it

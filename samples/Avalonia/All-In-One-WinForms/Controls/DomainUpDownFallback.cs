@@ -10,10 +10,10 @@ namespace All_In_One_WinForms.Controls;
 /// Composed directly (no separate XAML template, same convention as every other bundled
 /// fallback control) from a read-only TextBox display plus two step buttons docked to the
 /// right, matching WinForms DomainUpDown's editable-look/spin-button shape closely enough to
-/// be a drop-in functional replacement. <see cref="Items"/> isn't populated automatically -
-/// WinForms' `this.domainUpDown1.Items.Add(...)` calls aren't parsed yet (same limitation as
-/// ToolStripItem/DataGridView column trees, see docs/known-limitations.md) - populate it by
-/// hand or bind it from the ViewModel.
+/// be a drop-in functional replacement. <see cref="Items"/> isn't populated automatically:
+/// WinForms' `this.domainUpDown1.Items.Add(...)` calls *are* parsed - they become the control's
+/// literal items - but the emitter has no item form for a bundled template, so they are reported
+/// and dropped (see docs/known-limitations.md). Populate it by hand or bind it from the ViewModel.
 /// </summary>
 public class DomainUpDownFallback : DockPanel
 {

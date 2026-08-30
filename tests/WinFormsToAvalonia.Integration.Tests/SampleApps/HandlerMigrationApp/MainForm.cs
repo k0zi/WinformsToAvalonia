@@ -60,6 +60,11 @@ namespace HandlerMigrationApp
         // whose result is the colour rather than an object to ask afterwards.
         private void pickColorButton_Click(object sender, EventArgs e)
         {
+            // A seed: WinForms opens the dialog on the component's own Color. Avalonia's
+            // replacement takes it as an argument, so this statement is absorbed into the call
+            // below rather than emitted - and, crucially, no longer truncates the handler.
+            this.colorDialog1.Color = Color.Red;
+
             if (this.colorDialog1.ShowDialog(this) == DialogResult.OK)
             {
                 this.nameTextBox.BackColor = this.colorDialog1.Color;

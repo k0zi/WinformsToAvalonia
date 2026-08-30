@@ -91,7 +91,7 @@ public class FallbackControlConversionTests
     }
 
     [Fact]
-    public async Task ConvertedDomainUpDownApp_CopiesRewrittenFallbackControlAndBuildsSuccessfully()
+    public async Task ConvertedDomainUpDownApp_CopiesRewrittenFallbackControlAndCarriesItsItemsAndBuilds()
     {
         var sourceProject = Path.Combine(AppContext.BaseDirectory, "SampleApps", "DomainUpDownApp", "DomainUpDownApp.csproj");
         var outputDir = Path.Combine(Path.GetTempPath(), "w2a-domainupdown-" + Guid.NewGuid());
@@ -107,6 +107,14 @@ public class FallbackControlConversionTests
             vfs.TryGetText("Views/MainView.axaml", out var axaml);
             Assert.Contains("<controls:DomainUpDownFallback", axaml);
             Assert.Contains("Wrap=\"True\"", axaml);
+
+            // The template's Items is a get-only AvaloniaList<string>, so its entries are bare
+            // strings inside a property element rather than item elements with a Content
+            // attribute. The xmlns they need is declared on the root: Avalonia's XAML compiler
+            // rejects an attribute on a property element, which is where it would otherwise go.
+            Assert.Contains("xmlns:sys=\"using:System\"", axaml);
+            Assert.Contains("<controls:DomainUpDownFallback.Items>", axaml);
+            Assert.Contains("<sys:String>Monday</sys:String>", axaml);
 
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 
@@ -133,7 +141,8 @@ public class FallbackControlConversionTests
             var pipeline = new ConversionPipeline();
             var options = new ConversionOptions(SourceProjectPath: sourceProject, OutputDirectory: outputDir);
 
-            var vfs = pipeline.Run(options).Vfs;
+            var result = pipeline.Run(options);
+            var vfs = result.Vfs;
 
             // ToolStripContainerFallback.cs references ToolStripPanelFallback/
             // ToolStripContentPanelFallback as types, even though only ToolStripContainer
@@ -145,6 +154,15 @@ public class FallbackControlConversionTests
 
             vfs.TryGetText("Views/MainView.axaml", out var axaml);
             Assert.Contains("<controls:ToolStripContainerFallback", axaml);
+
+            // A control added to one of the container's nested regions cannot be placed - the
+            // regions are not slots this converter models. It used to disappear from the AXAML
+            // *and* from the report, which made it the one wholly silent loss in the converter.
+            Assert.DoesNotContain("contentLabel", axaml);
+            Assert.Contains(
+                result.Report.Warnings,
+                w => w.Contains("contentLabel", StringComparison.Ordinal)
+                    && w.Contains("ContentPanel", StringComparison.Ordinal));
 
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 

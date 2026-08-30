@@ -126,7 +126,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 | `ToolStrip` | ✅ Fallback | `ToolStripFallback` | | Now a `StackPanel` hosting its real `ToolStripButton`/`Label`/`ComboBox`/`TextBox`/`ProgressBar` item children. |
 | `StatusStrip` | ✅ Fallback | `StatusStripFallback` | | Now a `StackPanel` hosting its real `ToolStripStatusLabel` item children. |
 | `ContextMenuStrip` | ❌ Unsupported | | 🟡 Elsewhere | The component itself has no element — but `this.someControl.ContextMenuStrip = this.contextMenuStrip1` assignments ARE now translated automatically into a nested `<Control.ContextMenu>` on the target control. See [Implementation plan](#contextmenustrip). |
-| `ToolStripContainer` | ✅ Fallback | `ToolStripContainerFallback` | | Builds the 5-region docked layout; nested content not auto-migrated (3-level member-access chain not parsed). |
+| `ToolStripContainer` | ✅ Fallback | `ToolStripContainerFallback` | | Builds the 5-region docked layout; nested content is not placed, but every control added to a region is now **reported by name**. |
 | `ToolStripPanel` | ✅ Fallback | `ToolStripPanelFallback` | | |
 | `ToolStripContentPanel` | ✅ Fallback | `ToolStripContentPanelFallback` | | |
 

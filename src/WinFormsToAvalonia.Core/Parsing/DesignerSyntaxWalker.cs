@@ -71,7 +71,7 @@ public sealed class DesignerSyntaxWalker
                     HandleAssignment(formModel, assignment, hostedAliases);
                     break;
                 case InvocationExpressionSyntax invocation:
-                    HandleInvocation(formModel, invocation, edges);
+                    HandleInvocation(formModel, invocation, edges, warnings);
                     HandleExtenderProviderInvocation(formModel, invocation, warnings);
                     HandleApplyResourcesInvocation(formModel, invocation, resx, className, warnings);
                     break;
@@ -284,7 +284,8 @@ public sealed class DesignerSyntaxWalker
         return false;
     }
 
-    private static void HandleInvocation(FormModel formModel, InvocationExpressionSyntax invocation, List<ParentChildEdge> edges)
+    private static void HandleInvocation(
+        FormModel formModel, InvocationExpressionSyntax invocation, List<ParentChildEdge> edges, List<string> warnings)
     {
         if (invocation.Expression is not MemberAccessExpressionSyntax
             {
@@ -328,6 +329,13 @@ public sealed class DesignerSyntaxWalker
         }
         else
         {
+            // The same `this.container.Region.Controls.Add(...)` shape, but a region this
+            // converter has no slot for - a ToolStripContainer's ContentPanel and its four
+            // ToolStripPanels are the ones that occur in practice. Nothing here can place the
+            // child, but saying nothing is worse: it used to vanish from the AXAML *and* from
+            // the report, because a Direct-mapped child parked in FormModel.Components is not
+            // something the pipeline warns about either.
+            WarnAboutUnplacedRegionChildren(invocation, controlsAccess, warnings);
             return;
         }
 
@@ -363,6 +371,50 @@ public sealed class DesignerSyntaxWalker
                 owner.LiteralItems.Add(literalItem);
             }
         }
+    }
+
+    /// <summary>
+    /// Reports children added to a named sub-region this converter cannot place.
+    /// </summary>
+    /// <remarks>
+    /// Only for the two-level receiver shape (`this.container.Region.Controls.Add(x)`); anything
+    /// else that reaches the same branch is not a container region at all and stays silent, as it
+    /// always has. Named per child, because the whole point is that the user can find them.
+    /// </remarks>
+    private static void WarnAboutUnplacedRegionChildren(
+        InvocationExpressionSyntax invocation,
+        MemberAccessExpressionSyntax controlsAccess,
+        List<string> warnings)
+    {
+        if (controlsAccess.Expression is not MemberAccessExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var containerField },
+                Name.Identifier.ValueText: var regionName,
+            }
+            || invocation.ArgumentList.Arguments.Count == 0)
+        {
+            return;
+        }
+
+        var childExpressions = invocation.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "AddRange" }
+            ? GetArrayElements(invocation.ArgumentList.Arguments[0].Expression)
+            : [invocation.ArgumentList.Arguments[0].Expression];
+
+        var childNames = childExpressions
+            .Select(e => TryGetControlFieldReference(e, out var field) ? field : null)
+            .OfType<string>()
+            .ToList();
+
+        if (childNames.Count == 0)
+        {
+            return;
+        }
+
+        warnings.Add(
+            $"'{containerField}.{regionName}' holds {string.Join(", ", childNames.Select(n => $"'{n}'"))}, "
+            + "which is a nested container region this conversion cannot place - only a SplitContainer's "
+            + "Panel1/Panel2 are translated. Those controls are not emitted; add them to the generated "
+            + $"'{containerField}' by hand.");
     }
 
     /// <summary>

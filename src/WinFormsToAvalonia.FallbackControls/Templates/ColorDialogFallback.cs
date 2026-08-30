@@ -17,20 +17,18 @@ namespace __TARGET_NAMESPACE__;
 /// translation collapses those two steps into this one call's return value.
 /// </para>
 /// <para>
-/// The dialog opens on its default colour. WinForms' <c>ColorDialog</c> seeds itself from the
-/// component's <c>Color</c> property, and carrying that across would mean reading a designer value
-/// no other part of this translation needs - the same reason the file-dialog translation opens its
-/// picker with default options rather than parsing WinForms' filter strings.
+/// The <c>initial</c> argument is the colour the dialog opens on, which is what WinForms'
+/// <c>colorDialog1.Color = ...;</c> before the call meant. Omitted, it opens on white.
 /// </para>
 /// </remarks>
 public static class ColorDialogFallback
 {
     /// <summary>The chosen colour, or null when the dialog was cancelled or closed.</summary>
-    public static async Task<Color?> ShowAsync(Visual owner)
+    public static async Task<Color?> ShowAsync(Visual owner, Color? initial = null)
     {
         var picker = new ColorView
         {
-            Color = Colors.White,
+            Color = initial ?? Colors.White,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 

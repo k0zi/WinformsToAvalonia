@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
 using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
@@ -286,5 +287,31 @@ public class CatalogsAgainstAvaloniaTests
         }
 
         return data;
+    }
+
+    /// <summary>
+    /// <c>FlowDirection</c> is the one styling-ish property the emitter writes with no per-element
+    /// table behind it, on the grounds that it is declared on <c>Visual</c> - i.e. on everything.
+    /// That grounds is a claim about Avalonia, so it gets checked like every other claim.
+    /// </summary>
+    [Fact]
+    public void FlowDirection_IsDeclaredOnVisualAndSpellsBothDirections()
+    {
+        var visual = AvaloniaMetadata.FindElement("Visual");
+        Assert.True(visual is not null, "Avalonia has no Visual type - something is very wrong.");
+
+        Assert.True(
+            AvaloniaMetadata.FindProperty(visual!, "FlowDirection") is not null,
+            "FlowDirection is not on Visual, so emitting it on every element is not safe after all.");
+
+        var flowDirection = AvaloniaMetadata.FindElement("FlowDirection");
+        Assert.True(flowDirection is { IsEnum: true }, "Avalonia.Media.FlowDirection is not an enum.");
+
+        var members = flowDirection!.GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Select(f => f.Name)
+            .ToList();
+
+        Assert.Contains("LeftToRight", members);
+        Assert.Contains("RightToLeft", members);
     }
 }

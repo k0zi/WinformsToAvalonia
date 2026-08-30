@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:All_In_One_WinForms.ViewModels" xmlns:controls="using:All_In_One_WinForms.Controls" xmlns:w2a="clr-namespace:All_In_One_WinForms.Controls.Generated" xmlns:uc0="using:All_In_One_WinForms.Views.Controls" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="All_In_One_WinForms.Views.MainView" x:DataType="vm:MainViewModel" Width="1024" Height="720" Title="All-In-One WinForms control gallery" Opened="MainForm_Load" Closing="MainForm_FormClosing">
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:All_In_One_WinForms.ViewModels" xmlns:controls="using:All_In_One_WinForms.Controls" xmlns:w2a="clr-namespace:All_In_One_WinForms.Controls.Generated" xmlns:uc0="using:All_In_One_WinForms.Views.Controls" xmlns:sys="using:System" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="All_In_One_WinForms.Views.MainView" x:DataType="vm:MainViewModel" Width="1024" Height="720" Title="All-In-One WinForms control gallery" Opened="MainForm_Load" Closing="MainForm_FormClosing">
     <Window.Styles>
         <Style Selector="Canvas &gt; :is(Control)">
             <Setter Property="MinWidth" Value="0" />
@@ -53,7 +53,13 @@
                         <ComboBoxItem Content="Medium" />
                         <ComboBoxItem Content="Large" />
                     </ComboBox>
-                    <controls:DomainUpDownFallback x:Name="domainUpDown1" Canvas.Left="396" Canvas.Top="41" Width="180" Height="23" />
+                    <controls:DomainUpDownFallback x:Name="domainUpDown1" Canvas.Left="396" Canvas.Top="41" Width="180" Height="23">
+                        <controls:DomainUpDownFallback.Items>
+                            <sys:String>Monday</sys:String>
+                            <sys:String>Tuesday</sys:String>
+                            <sys:String>Wednesday</sys:String>
+                        </controls:DomainUpDownFallback.Items>
+                    </controls:DomainUpDownFallback>
                     <NumericUpDown x:Name="amountUpDown" Canvas.Left="396" Canvas.Top="70" Width="180" Height="23" Value="{Binding AmountUpDownValue, Mode=TwoWay}" />
                     <Button x:Name="refreshButton" Canvas.Left="396" Canvas.Top="99" Width="180" Height="28" Content="Reload tree" Click="refreshButton_Click" />
                     <DataGrid x:Name="itemsListView" Canvas.Left="12" Canvas.Top="142" Width="372" Height="150">
