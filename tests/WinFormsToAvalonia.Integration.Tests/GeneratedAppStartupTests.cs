@@ -67,6 +67,41 @@ public class GeneratedAppStartupTests
                     }
         """;
 
+
+    /// <summary>
+    /// Injected only for the printing fixture, because it names the generated document type.
+    /// </summary>
+    /// <remarks>
+    /// Proves the half that has no other witness: <c>RenderFirstPage</c> creates a
+    /// <c>RenderTargetBitmap</c>, opens a drawing context and raises <c>PrintPage</c> on it. If the
+    /// page size were wrong, the context unavailable, or the handler never subscribed, the app
+    /// would still start and still build - and no page would ever be drawn.
+    /// </remarks>
+    private const string PrintReportSource = """
+                    private static void ReportPrintDocuments(Window? window)
+                    {
+                        if (window is null)
+                        {
+                            return;
+                        }
+
+                        foreach (var field in window.GetType().GetFields(
+                                     BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public))
+                        {
+                            if (field.GetValue(window) is not __ROOT__.Controls.PrintDocumentFallback document)
+                            {
+                                continue;
+                            }
+
+                            var drawn = 0;
+                            document.PrintPage += (_, _) => drawn++;
+
+                            using var page = document.RenderFirstPage();
+                            Console.WriteLine($"w2a-print:{document.DocumentName}:{drawn}:{page.PixelSize.Width}x{page.PixelSize.Height}");
+                        }
+                    }
+        """;
+
     /// <summary>Must match the Avalonia version AvaloniaProjectScaffolder writes into the csproj.</summary>
     private const string HeadlessPackageVersion = "12.1.1";
 
@@ -135,6 +170,7 @@ public class GeneratedAppStartupTests
             "All-In-One-WinForms",
             clickButtons: false,
             reportPaint: false,
+            reportPrint: false,
             // Row counts only: both grids live on TabItems that are never selected, so nothing
             // under them is ever laid out and no cell is realized. The counts are what matters
             // here anyway - they prove MainForm_Load really ran and really populated both
@@ -158,6 +194,7 @@ public class GeneratedAppStartupTests
             "DataGridViewColumnsApp",
             clickButtons: true,
             reportPaint: false,
+            reportPrint: false,
             "w2a-grid:detailsListView:1:notes.txt");
 
     /// <summary>
@@ -175,6 +212,7 @@ public class GeneratedAppStartupTests
             "BindingNavigatorApp",
             clickButtons: true,
             reportPaint: false,
+            reportPrint: false,
             "w2a-grid:tracksGrid:3:First selected=2");
 
     /// <summary>
@@ -192,6 +230,7 @@ public class GeneratedAppStartupTests
             "CodeBehindMigrationApp",
             clickButtons: false,
             reportPaint: true,
+            reportPrint: false,
             "w2a-paint:canvasPanel:1");
 
     /// <summary>
@@ -210,6 +249,7 @@ public class GeneratedAppStartupTests
             "CheckedListApp",
             clickButtons: true,
             reportPaint: false,
+            reportPrint: false,
             "w2a-check:Logging:False",
             "w2a-check:Telemetry:True");
 
@@ -228,10 +268,29 @@ public class GeneratedAppStartupTests
             "ToolStripContainerApp",
             clickButtons: false,
             reportPaint: false,
+            reportPrint: false,
             "w2a-region:toolStripContainer1:contentLabel,dockedStrip");
 
+    /// <summary>
+    /// A converted PrintDocument: the page is really drawn.
+    /// </summary>
+    /// <remarks>
+    /// The document is not in the visual tree and nothing on screen shows it, so this is the only
+    /// way to see whether it works. Two counts: the handler ran once, and the page came out the
+    /// size the document says it is.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedPrintingApp_ReallyDrawsItsPage() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "PrintingApp", "PrintingApp.csproj"),
+            "PrintingApp",
+            clickButtons: false,
+            reportPaint: false,
+            reportPrint: true,
+            "w2a-print:Sample report:1:816x1056");
+
     private static async Task AssertStarts(
-        string sourceProject, string name, bool clickButtons, bool reportPaint = false,
+        string sourceProject, string name, bool clickButtons, bool reportPaint = false, bool reportPrint = false,
         params string[] expectedGrids)
     {
         Assert.True(File.Exists(sourceProject), $"Source project not found: {sourceProject}");
@@ -240,7 +299,7 @@ public class GeneratedAppStartupTests
         try
         {
             new ConversionPipeline().Run(new ConversionOptions(sourceProject, outputDir));
-            InjectHeadlessHarness(outputDir, clickButtons, reportPaint);
+            InjectHeadlessHarness(outputDir, clickButtons, reportPaint, reportPrint);
 
             var run = await DotnetRunner.RunAsync("run", outputDir);
 
@@ -274,13 +333,14 @@ public class GeneratedAppStartupTests
     /// the package that provides it. Both are test-side edits: nothing here changes what the
     /// converter emits.
     /// </summary>
-    private static void InjectHeadlessHarness(string outputDir, bool clickButtons, bool reportPaint)
+    private static void InjectHeadlessHarness(string outputDir, bool clickButtons, bool reportPaint, bool reportPrint)
     {
         var programPath = Path.Combine(outputDir, "Program.cs");
         var rootNamespace = Regex.Match(File.ReadAllText(programPath), @"namespace\s+([\w.]+)\s*;").Groups[1].Value;
         Assert.False(rootNamespace.Length == 0, "Could not read the generated root namespace from Program.cs.");
 
         var paintReport = reportPaint ? PaintReportSource.Replace("__ROOT__", rootNamespace, StringComparison.Ordinal) : "";
+        var printReport = reportPrint ? PrintReportSource.Replace("__ROOT__", rootNamespace, StringComparison.Ordinal) : "";
 
         File.WriteAllText(programPath, $$"""
             using System.Reflection;
@@ -312,8 +372,8 @@ public class GeneratedAppStartupTests
                         // UseHeadlessDrawing short-circuits drawing entirely, which is fine for
                         // everything else here and useless for proving a Render override runs -
                         // so the paint fixture asks for the real Skia backend instead.
-                        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = {{(reportPaint ? "false" : "true")}} })
-                        {{(reportPaint ? ".UseSkia()" : "")}}
+                        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = {{(reportPaint || reportPrint ? "false" : "true")}} })
+                        {{(reportPaint || reportPrint ? ".UseSkia()" : "")}}
                         .SetupWithLifetime(lifetime);
 
                     // ...and one frame through the visual tree the AXAML just produced.
@@ -327,6 +387,7 @@ public class GeneratedAppStartupTests
                     ReportCheckBoxes(lifetime.MainWindow);
                     ReportContainerRegions(lifetime.MainWindow);
                     {{(reportPaint ? "ReportPaintSurfaces(lifetime.MainWindow);" : "")}}
+                    {{(reportPrint ? "ReportPrintDocuments(lifetime.MainWindow);" : "")}}
 
                     Console.WriteLine("{{SuccessMarker}}");
                     return 0;
@@ -485,6 +546,8 @@ public class GeneratedAppStartupTests
 
                 {{paintReport}}
 
+                {{printReport}}
+
                 /// <summary>
                 /// Every realized CheckBox and whether it is ticked.
                 /// </summary>
@@ -601,7 +664,7 @@ public class GeneratedAppStartupTests
                 csproj,
                 "  </ItemGroup>",
                 $"""    <PackageReference Include="Avalonia.Headless" Version="{HeadlessPackageVersion}" />{Environment.NewLine}"""
-                + (reportPaint
+                + (reportPaint || reportPrint
                     ? $"""    <PackageReference Include="Avalonia.Skia" Version="{HeadlessPackageVersion}" />{Environment.NewLine}"""
                     : "")
                 + "  </ItemGroup>"));

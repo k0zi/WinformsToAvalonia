@@ -37,6 +37,7 @@ public partial class MainView : Window
     private readonly FileSystemWatcher fileSystemWatcher1 = new();
     private readonly Process process1 = new();
     private readonly SerialPort serialPort1 = new();
+    private readonly PrintDocumentFallback printDocument1 = new();
     private EventLog? _eventLog1;
     private PerformanceCounter? _performanceCounter1;
     private ServiceController? _serviceController1;
@@ -66,6 +67,9 @@ public partial class MainView : Window
 
         serialPort1.BaudRate = 115200;
         serialPort1.PortName = "COM1";
+
+        printDocument1.DocumentName = "All-In-One sample";
+        printDocument1.PrintPage += printDocument1_PrintPage;
 
         clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         clockTimer.Tick += clockTimer_Tick;
@@ -370,44 +374,32 @@ public partial class MainView : Window
         }
     }
 
-    private void printButton_Click(object? sender, RoutedEventArgs e)
+    private async void printButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'printButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        if (this.printDialog1.ShowDialog(this) == DialogResult.OK)
-        {
-            this.printDocument1.Print();
-        }
-        */
-        MigrationTodo.NotMigrated(nameof(printButton_Click), "printButton_Click");
+        await printDocument1.PrintAsync(this);
     }
 
-    private void pageSetupButton_Click(object? sender, RoutedEventArgs e)
+    private async void pageSetupButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'pageSetupButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.pageSetupDialog1.ShowDialog(this);
-        */
-        MigrationTodo.NotMigrated(nameof(pageSetupButton_Click), "pageSetupButton_Click");
+        await PageSetupDialogFallback.ShowAsync(this, printDocument1);
     }
 
-    private void printPreviewButton_Click(object? sender, RoutedEventArgs e)
+    private async void printPreviewButton_Click(object? sender, RoutedEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'printPreviewButton_Click' - TODO(Winforms2Avalonia): migrate it into this method.
-        this.printPreviewDialog1.ShowDialog(this);
-        */
-        MigrationTodo.NotMigrated(nameof(printPreviewButton_Click), "printPreviewButton_Click");
+        await PrintPreviewDialogFallback.ShowAsync(this, printDocument1);
     }
 
-    private void printDocument1_PrintPage(object? sender, EventArgs e)
+    private void printDocument1_PrintPage(object? sender, PrintPageSurfaceEventArgs e)
     {
-        /* ORIGINAL WINFORMS BODY of 'printDocument1_PrintPage' - TODO(Winforms2Avalonia): migrate it into this method.
-        e.Graphics!.DrawString(
-            this.notesRichTextBox.Text,
-            this.notesRichTextBox.Font,
-            Brushes.Black,
-            e.MarginBounds);
+        e.Context.DrawText(
+            new FormattedText(
+                (notesRichTextBox.Text ?? string.Empty), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface(notesRichTextBox.FontFamily, notesRichTextBox.FontStyle, notesRichTextBox.FontWeight), notesRichTextBox.FontSize, new SolidColorBrush(Color.Parse("#FF000000")))
+            {
+                MaxTextWidth = e.MarginBounds.Width,
+                MaxTextHeight = e.MarginBounds.Height,
+            },
+            new Point(e.MarginBounds.X, e.MarginBounds.Y));
         e.HasMorePages = false;
-        */
-        MigrationTodo.NotMigrated(nameof(printDocument1_PrintPage), "printDocument1_PrintPage");
     }
 
     private void startWorkerButton_Click(object? sender, RoutedEventArgs e)

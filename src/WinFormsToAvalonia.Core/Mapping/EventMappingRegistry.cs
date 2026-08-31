@@ -78,10 +78,23 @@ public sealed class EventMappingRegistry
         new("Paint", "Paint", "PaintSurfaceEventArgs", SubscribeInCode: true,
             FallbackTemplateKey: PaintSurfaceMapper.TemplateKey);
 
+    /// <summary>
+    /// A <c>PrintDocument</c>'s page-drawing event, on the bundled document this run emits for it.
+    /// </summary>
+    /// <remarks>
+    /// The same shape as the paint surface's <c>Paint</c>, and for the same reason: the handler is
+    /// drawing code, which translates - it only ever lacked a surface to run on. Subscribed from
+    /// the constructor, since the document is a field rather than an element.
+    /// </remarks>
+    private static readonly EventMapping PrintDocumentPrintPage =
+        new("PrintPage", "PrintPage", "PrintPageSurfaceEventArgs", SubscribeInCode: true,
+            FallbackTemplateKey: "PrintDocumentFallback");
+
     private static readonly Dictionary<(string ControlType, string EventName), EventMapping> ControlTypeOverrides = new()
     {
         [("Panel", "Paint")] = PaintSurfacePaint,
         [("PictureBox", "Paint")] = PaintSurfacePaint,
+        [("PrintDocument", "PrintPage")] = PrintDocumentPrintPage,
 
         // A NotifyIcon has no element - it becomes App.axaml's TrayIcon - so every one of its
         // events resolves here or nowhere. Without these rows they fell through to the generic

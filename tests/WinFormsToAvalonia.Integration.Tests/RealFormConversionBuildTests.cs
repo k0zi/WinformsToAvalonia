@@ -21,6 +21,7 @@ public class RealFormConversionBuildTests
     [InlineData("HandlerMigrationApp", "HandlerMigrationApp.csproj", "Views/MainView.axaml")]
     [InlineData("BindingNavigatorApp", "BindingNavigatorApp.csproj", "Views/MainView.axaml")]
     [InlineData("CheckedListApp", "CheckedListApp.csproj", "Views/MainView.axaml")]
+    [InlineData("PrintingApp", "PrintingApp.csproj", "Views/MainView.axaml")]
     [InlineData("FormNavigationApp", "FormNavigationApp.csproj", "Views/MainView.axaml")]
     [InlineData("ItemsAndCanExecuteApp", "ItemsAndCanExecuteApp.csproj", "Views/MainView.axaml")]
     public async Task ConvertedFixtureProject_BuildsSuccessfullyWithDotnetBuild(string appFolder, string csprojName, string expectedViewPath)

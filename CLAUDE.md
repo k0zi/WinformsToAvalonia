@@ -307,6 +307,14 @@ not by building.
   a ListView row's cell count must equal the designer's column count. A carried-over model type is
   lifted `public`, not `internal` — the ViewModel's `ObservableCollection<T>` is a public property,
   and CS0053 is a build error in the **generated** project and nowhere else.
+- **The print family is converted, and still cannot print.** Avalonia has no `Print*` type at all;
+  what unlocked this was the `Graphics` → `DrawingContext` translation, because a `PrintPage`
+  handler is drawing code. `PrintDocumentFallback` renders a real page, so a preview, a page setup
+  and an export all became expressible - `PrintDialog` alone has no counterpart and is instead
+  matched *whole* in its one shape (`if (ShowDialog() == OK) { doc.Print(); }` → `PrintAsync`),
+  which is where its picker went. Every one of the four guidance strings still says the printer is
+  missing. `UnsupportedDisposition.NoAvaloniaApi` now has **no** user in the registry, and
+  `ControlsDocumentationTests` pins that exact set rather than requiring every member to be used.
 - **A container's named sub-regions are a synthetic `"field.Region"` parent id.** Real WinForms
   field names cannot contain `.`, so `DesignerSyntaxWalker` encodes
   `this.c.ContentPanel.Controls.Add(x)` that way and `ControlGraphBuilder` splits it apart -

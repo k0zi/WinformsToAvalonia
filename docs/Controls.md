@@ -26,8 +26,8 @@ Avalonia has nothing to map to; permanently manual. This column is not free-form
 `UnsupportedDisposition`, a required constructor argument on `UnsupportedControlMapper`, and
 `ControlsDocumentationTests` checks every cell against it.
 
-**Summary**: 47 Direct, 12 Fallback (59 mapped) · 21 converted without an element ·
-12 not converted (8 unreachable from designer code, 4 no Avalonia API) ·
+**Summary**: 47 Direct, 12 Fallback (59 mapped) · 25 converted without an element ·
+8 not converted (8 unreachable from designer code, 0 no Avalonia API) ·
 10 base classes (not applicable) · `Form` and `UserControl` are both conversion roots (a Form
 becomes a `Window`, a UserControl an Avalonia `UserControl`), never looked up in this table.
 
@@ -171,10 +171,10 @@ The *dialog* it belongs to, `PrintPreviewDialog`, is listed once, under Common D
 | `FolderBrowserDialog` | ❌ Unsupported | | 🟡 Elsewhere | Same as above, calling `OpenFolderPickerAsync`. |
 | `ColorDialog` | ❌ Unsupported | | 🟡 Elsewhere | No built-in Avalonia colour picker *dialog*, but there is a real `ColorView` — so a handler's `ShowDialog` is translated inline onto the bundled `ColorDialogFallback`, in both the `== DialogResult.OK` and the guard-clause shape. Needs the `Avalonia.Controls.ColorPicker` package. A seed value assigned before the call is not carried over. |
 | `FontDialog` | ❌ Unsupported | | 🟡 Elsewhere | No Avalonia equivalent, so the bundled `FontDialogFallback` provides one, listing `FontManager.Current.SystemFonts`. Family/size/bold/italic only. |
-| `PrintDialog` | ❌ Unsupported | | ❌ No API | No Avalonia printing API — not a dialog, not a printer list. Pick a printing library; the `ShowDialog() == DialogResult.OK` handler is left whole. |
-| `PageSetupDialog` | ❌ Unsupported | | ❌ No API | Pure data entry, but the `PageSettings` it produces has nothing on the Avalonia side to consume them. |
-| `PrintPreviewDialog` | ❌ Unsupported | | ❌ No API | Nothing to preview from. The *control*, `PrintPreviewControl`, does get a placeholder fallback; a dialog over a `PrintDocument` has no honest stand-in. |
-| `PrintDocument` | ❌ Unsupported | | ❌ No API | `PrintPage` drew with `System.Drawing.Graphics`. The handler is emitted with its body preserved but nothing subscribes it — the event has no Avalonia counterpart. |
+| `PrintDialog` | ❌ Unsupported | | 🟡 Elsewhere | Still no printer to choose, but its one shape has an answer: `if (ShowDialog() == OK) { doc.Print(); }` becomes `await doc.PrintAsync(this)` — the dialog moves into that call's destination picker. |
+| `PageSetupDialog` | ❌ Unsupported | | 🟡 Elsewhere | `PageSetupDialogFallback`: paper size, orientation and margins, written onto the document — which is what the page is laid out with. |
+| `PrintPreviewDialog` | ❌ Unsupported | | 🟡 Elsewhere | `PrintPreviewDialogFallback`: a window showing the page the document draws. Possible only once the document could be produced. |
+| `PrintDocument` | ❌ Unsupported | | 🟡 Elsewhere | A `PrintDocumentFallback` field with its `PrintPage` wired: the handler's `e.Graphics` calls translate, so the page is really drawn. `Print()` renders it and exports it. See [Implementation plan](#printing). |
 
 ### Data Binding Components
 
@@ -558,6 +558,35 @@ Three things are deliberately not wired, and each is reported by name: `AddNewIt
 semantics), a role button that already has its **own** `Click` handler (the developer's code wins),
 and a navigator whose designer recorded no roles at all — the bindings are still emitted, since the
 count and the selection are worth having, but no button is guessed at from its name or caption.
+
+### Printing
+
+**Done, for everything except the printer.**
+Avalonia has no printing API — measured against its reference assemblies there is not one
+`Print*` type, and that has not changed. What changed is that a `PrintPage` handler is *drawing
+code*, and drawing code translates. Once `e.Graphics` calls became `DrawingContext` calls, a page
+could be rendered — and a rendered page is all a preview, a page setup and an export ever needed.
+
+- **`PrintDocument`** → a `PrintDocumentFallback` field, with its `DocumentName` and its
+  `PrintPage` handler wired from the constructor. The handler gets a `PrintPageSurfaceEventArgs`
+  whose `Context`/`MarginBounds`/`PageBounds`/`HasMorePages` stand in for the WinForms members of
+  the same name, so the body really draws. `Print()` becomes
+  `await printDocument1.PrintAsync(this)`: render the page, then write it to a file the user picks.
+- **`PrintDialog`** → still no printer to choose. Its one real shape,
+  `if (printDialog1.ShowDialog(this) == DialogResult.OK) { printDocument1.Print(); }`, is
+  translated **whole** into that same `PrintAsync` call — the dialog does not vanish, it moves into
+  the destination picker. A branch doing anything other than one `Print()` is left alone.
+- **`PrintPreviewDialog`** → `PrintPreviewDialogFallback`, a window showing the rendered page.
+- **`PageSetupDialog`** → `PageSetupDialogFallback`: paper size, orientation and margins, written
+  onto the document — which is what the page is laid out with, so the dialog changes the output.
+
+Each dialog finds its document through the designer's `Document` property, so nothing is inferred
+from a handler.
+
+**What is still missing is the printer.** Sending the page to one needs a library, and which one is
+your choice. Only the first page is rendered: WinForms looped while `HasMorePages` stayed true, and
+deciding how several pages become one file is a decision about your document, not about the
+conversion — so the flag is handed to the handler and can be read back, but not looped on.
 
 ### CheckedListBox
 

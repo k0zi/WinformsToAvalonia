@@ -169,21 +169,37 @@ public class ControlsDocumentationTests
     }
 
     /// <summary>
-    /// Every kind of "no Avalonia element" is actually in use.
+    /// Which kinds of "no Avalonia element" the registry actually assigns.
     /// </summary>
     /// <remarks>
-    /// A disposition nobody ever assigns is a distinction that reads as meaningful and is not -
-    /// the same failure the single undifferentiated status had, one level down.
+    /// <para>
+    /// This used to require *every* disposition to be in use, on the grounds that one nobody
+    /// assigns is a distinction that reads as meaningful and is not. That stopped being true of
+    /// <see cref="UnsupportedDisposition.NoAvaloniaApi"/> when the print family moved: no entry
+    /// carries it any more, and the registry is the better for it.
+    /// </para>
+    /// <para>
+    /// So the assertion is the exact set instead, which still has teeth in both directions - a
+    /// disposition that quietly falls out of use fails here, and so does a control newly declared
+    /// to have no Avalonia answer at all. If <c>NoAvaloniaApi</c> ever comes back, that is a real
+    /// claim about the framework and it should be made deliberately, not by editing a test.
+    /// </para>
     /// </remarks>
     [Fact]
-    public void EveryDisposition_IsUsedByAtLeastOneEntry()
+    public void TheRegistryAssignsExactlyTheseDispositions()
     {
         var used = new ControlMappingRegistry().Mappers.Values
             .OfType<UnsupportedControlMapper>()
             .Select(m => m.Disposition)
             .ToHashSet();
 
-        Assert.Equal(Enum.GetValues<UnsupportedDisposition>().ToHashSet(), used);
+        Assert.Equal(
+            new HashSet<UnsupportedDisposition>
+            {
+                UnsupportedDisposition.FeatureElsewhere,
+                UnsupportedDisposition.Unreachable,
+            },
+            used);
     }
 
     public static TheoryData<string, string, string, string> DocumentedRows()

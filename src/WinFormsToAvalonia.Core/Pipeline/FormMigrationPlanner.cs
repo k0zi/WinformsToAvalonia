@@ -166,6 +166,12 @@ public sealed class FormMigrationPlanner
             warnings);
         var componentFields = components.Select(c => c.FieldName).ToHashSet(StringComparer.Ordinal);
 
+        // Emitted as fields the same way, but *not* added to componentFields: those are plain .NET
+        // objects a body may say anything about, and this one is a template of ours whose surface
+        // is exactly what it declares. Its calls go through their own matchers instead.
+        var printDocuments = PlanPrintDocuments(formModel, codeBehind);
+        components = [.. components, .. printDocuments];
+
         // Helpers first: a handler body may call one, and whether that call translates depends on
         // whether the helper itself did.
         // Fields before helpers: the classic `SetBusy` / `isBusy` pair only translates if the
@@ -533,6 +539,50 @@ public sealed class FormMigrationPlanner
         MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } member => member.Name.Identifier.ValueText,
         _ => null,
     };
+
+    /// <summary>
+    /// <c>PrintDocument</c> components, as fields of the bundled <c>PrintDocumentFallback</c>.
+    /// </summary>
+    /// <remarks>
+    /// Reuses <see cref="ComponentFieldPlan"/> because the emitted shape is identical - a private
+    /// readonly field, designer literals in the constructor, events subscribed there. What differs
+    /// is that the target type is not the WinForms one, which is exactly why <c>Timer</c> keeps its
+    /// own plan too rather than living in <c>ComponentFieldCatalog</c>.
+    /// </remarks>
+    private static List<ComponentFieldPlan> PlanPrintDocuments(FormModel formModel, CodeBehindModel codeBehind) =>
+    [
+        .. formModel.Controls.Values
+            .Where(c => c.ClrTypeName == "PrintDocument")
+            .OrderBy(c => c.FieldName, StringComparer.Ordinal)
+            .Select(document => new ComponentFieldPlan(
+                document.FieldName,
+                "PrintDocumentFallback",
+                // The generated Controls namespace already reaches the View through the fallback
+                // key this run records for the PrintPage mapping - see RequiredFallbackKeys.
+                Namespace: "",
+                NuGetPackage: null,
+                WindowsOnly: false,
+                Initializers: DocumentInitializers(document),
+                Subscriptions:
+                [
+                    .. document.Events
+                        .Where(e => e.EventName == "PrintPage"
+                            && codeBehind.FindHandler(e.HandlerMethodName) is not null)
+                        .Select(e => (e.EventName, e.HandlerMethodName)),
+                ])),
+    ];
+
+    /// <summary>
+    /// The designer literals a bundled print document can reproduce - which is <c>DocumentName</c>
+    /// and nothing else. WinForms' other settings live on a <c>PrinterSettings</c>/<c>PageSettings</c>
+    /// pair that does not come across. Emitted without the field name, which
+    /// <c>ViewCodeBehindEmitter</c> prefixes, exactly as every other component initializer is.
+    /// </summary>
+    private static IReadOnlyList<string> DocumentInitializers(ControlModel document) =>
+        document.Properties.TryGetValue("DocumentName", out var value)
+        && PropertyValueFormatters.AsText(value) is { } name
+            ? [$"DocumentName = \"{name}\""]
+            : [];
 
     /// <summary>
     /// CheckedListBoxes, whose per-item tick becomes a bound CheckBox.

@@ -489,6 +489,7 @@ public sealed class ViewCodeBehindEmitter
     /// </summary>
     private static IEnumerable<string> ComponentNamespaces(FormMigrationPlan plan) =>
         plan.Components
+            .Where(c => c.Namespace.Length > 0)
             .SelectMany(c => new[] { c.Namespace }.Concat(
                 c.Subscriptions
                     .Select(s => ComponentFieldCatalog.TryGetEvent(c.ClrTypeName, s.EventName, out var e) ? e.ArgsNamespace : null)

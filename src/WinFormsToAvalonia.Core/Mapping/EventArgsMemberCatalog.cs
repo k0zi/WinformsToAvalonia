@@ -74,6 +74,13 @@ public static class EventArgsMemberCatalog
             [("PaintSurfaceEventArgs", "Graphics")] = new("{0}.Context"),
             [("PaintSurfaceEventArgs", "ClipRectangle")] = new("{0}.ClipRectangle"),
 
+            // The bundled print document's args. Same shape as the paint surface's, plus the two
+            // rectangles a PrintPage handler lays its content out in and the pagination flag.
+            [("PrintPageSurfaceEventArgs", "Graphics")] = new("{0}.Context"),
+            [("PrintPageSurfaceEventArgs", "MarginBounds")] = new("{0}.MarginBounds"),
+            [("PrintPageSurfaceEventArgs", "PageBounds")] = new("{0}.PageBounds"),
+            [("PrintPageSurfaceEventArgs", "HasMorePages")] = new("{0}.HasMorePages"),
+
             // Avalonia spells these exactly as WinForms did.
             [("WindowClosingEventArgs", "Cancel")] = new("{0}.Cancel"),
             [("ScrollEventArgs", "NewValue")] = new("{0}.NewValue"),

@@ -231,13 +231,8 @@ contributors know what to expect and where to look before filing a duplicate iss
   `ColorDialog` and `FontDialog` have no Avalonia built-in equivalent either, but they are
   wrappable: both are translated **inline** onto a bundled dialog this repo ships
   (`ColorDialogFallback`, built around Avalonia's real `ColorView`; `FontDialogFallback`, listing
-  `FontManager.Current.SystemFonts`). The print family stays guidance-only, and permanently:
-  measured against Avalonia's reference assemblies there is not one `Print*` type in the
-  framework - no dialog, no document, no printer list - so there is nothing to wrap and nothing
-  to build one from. `PrintPreviewControl` gets a page-shaped placeholder fallback so the
-  converted layout survives; the three dialogs and `PrintDocument` get guidance naming what each
-  one did and where that work now belongs. Each says something different, rather than repeating
-  one sentence four times in `MIGRATION.md`.
+  `FontManager.Current.SystemFonts`). The print family has its own section below - it stopped
+  being guidance-only once a page could be drawn.
 - **Non-visual components that are really plain .NET types survive unchanged.**
   `BackgroundWorker`, `FileSystemWatcher`, `Process`, `SerialPort`, `EventLog`,
   `PerformanceCounter`, `ServiceController` and `SoundPlayer` are the same classes in an Avalonia
@@ -994,6 +989,29 @@ rule itself; what follows is what the rule does *not* cover yet.
   evaluate to the same `KnownColor` the designer path already understood, and come out as explicit
   ARGB. That is deliberate: Avalonia's `Brushes` has no system colours at all, so translating a
   name to a name would emit `Brushes.Control`, which does not exist there.
+
+## Printing
+
+- **There is still no printing API, and there never was one to wrap.** Measured against Avalonia's
+  reference assemblies there is not one `Print*` type in the framework - no dialog, no document, no
+  printer list. Everything below is the half that *is* expressible; sending a page to a printer
+  needs a library, and which one is your choice.
+- **What changed is that a `PrintPage` handler is drawing code.** Once `e.Graphics` calls
+  translated into `DrawingContext` calls, a `PrintDocument` could render a real page - and a
+  rendered page is all a preview, a page setup and an export ever needed. That is the whole reason
+  this family moved from "no Avalonia API" to "converted elsewhere"; the framework did not change.
+- **`PrintDialog` has no printer to offer, so it is not translated as a dialog at all.** Its one
+  real shape - `if (printDialog1.ShowDialog(this) == DialogResult.OK) { printDocument1.Print(); }` -
+  is matched **whole** and becomes `await printDocument1.PrintAsync(this)`, whose destination
+  picker is where the dialog went. A branch doing anything other than a single `Print()` refuses,
+  and the prefix rule then leaves the handler alone.
+- **Only the first page is rendered.** WinForms looped while `HasMorePages` stayed true. Deciding
+  how several pages become one exported file is a decision about your document, not about the
+  conversion - so the flag is handed to the handler and can be read back, but nothing loops on it.
+- **Nothing carries over from `PrinterSettings`/`PageSettings`.** Those are WinForms objects that
+  do not survive; the bundled document's page size and margins start at US Letter with one-inch
+  margins, in device-independent pixels at 96 dpi, and `PageSetupDialogFallback` is what changes
+  them.
 
 ## Container regions
 

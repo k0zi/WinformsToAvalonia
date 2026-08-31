@@ -56,6 +56,11 @@ public static class FallbackControlCatalog
             ["BindingNavigatorFallback"] = new("BindingNavigatorFallback", "BindingNavigatorFallback.cs", "BindingNavigatorFallback.cs"),
             ["WebBrowserFallback"] = new("WebBrowserFallback", "WebBrowserFallback.cs", "WebBrowserFallback.cs"),
             ["PaintSurfaceFallback"] = new("PaintSurfaceFallback", "PaintSurfaceFallback.cs", "PaintSurfaceFallback.cs"),
+            ["PrintDocumentFallback"] = new("PrintDocumentFallback", "PrintDocumentFallback.cs", "PrintDocumentFallback.cs"),
+            ["PrintPreviewDialogFallback"] = new("PrintPreviewDialogFallback", "PrintPreviewDialogFallback.cs", "PrintPreviewDialogFallback.cs",
+                DependsOnKeys: ["PrintDocumentFallback"]),
+            ["PageSetupDialogFallback"] = new("PageSetupDialogFallback", "PageSetupDialogFallback.cs", "PageSetupDialogFallback.cs",
+                DependsOnKeys: ["PrintDocumentFallback"]),
             ["PrintPreviewControlFallback"] = new("PrintPreviewControlFallback", "PrintPreviewControlFallback.cs", "PrintPreviewControlFallback.cs"),
             ["ToolStripContainerFallback"] = new(
                 "ToolStripContainerFallback", "ToolStripContainerFallback.cs", "ToolStripContainerFallback.cs",

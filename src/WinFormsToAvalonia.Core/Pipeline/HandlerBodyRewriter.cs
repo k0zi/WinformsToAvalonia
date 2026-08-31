@@ -765,7 +765,10 @@ public sealed class HandlerBodyRewriter
                 return true;
 
             case IfStatementSyntax ifStatement:
-                return TryRewriteIf(ifStatement, target, out rewritten);
+                // The print-dialog shape is matched whole: there is no printer to choose, so the
+                // dialog moves into the destination picker the call it guarded now performs.
+                return TryRewritePrintDialogIf(ifStatement, target, out rewritten)
+                    || TryRewriteIf(ifStatement, target, out rewritten);
 
             case BlockSyntax block:
                 return TryRewriteBlock(block, target, out rewritten);
@@ -1916,7 +1919,8 @@ public sealed class HandlerBodyRewriter
     {
         rewritten = default;
 
-        if (receiver is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Graphics" } graphics
+        if (receiver is null
+            || StripSuppression(receiver) is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Graphics" } graphics
             || !target.TryResolveEventArgsMember(graphics.Expression, "Graphics", out var context)
             || !GraphicsMemberCatalog.TryGet(methodName, out var call)
             || invocation.ArgumentList.Arguments.Count != call.ArgumentCount
@@ -1974,8 +1978,12 @@ public sealed class HandlerBodyRewriter
     {
         rewritten = default;
 
+        // `e.Graphics!.DrawString(...)` - the null-forgiving operator asserts something about the
+        // WinForms expression, and the translated one is a different expression whose nullability
+        // this converter decides itself.
         if (methodName != "DrawString"
-            || receiver is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Graphics" } graphics
+            || receiver is null
+            || StripSuppression(receiver) is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Graphics" } graphics
             || !target.TryResolveEventArgsMember(graphics.Expression, "Graphics", out var context)
             || invocation.ArgumentList.Arguments.Count < 4)
         {
@@ -2086,10 +2094,13 @@ public sealed class HandlerBodyRewriter
         origin = "";
         size = default;
 
-        // `e.ClipRectangle` - already an Avalonia Rect on the paint surface's args, so its members
-        // are read straight off it rather than reconstructed.
-        if (expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ClipRectangle" } clip
-            && target.TryResolveEventArgsMember(clip.Expression, "ClipRectangle", out var rect))
+        // `e.ClipRectangle` / `e.MarginBounds` / `e.PageBounds` - already Avalonia Rects on the
+        // bundled surfaces' args, so their members are read straight off them rather than
+        // reconstructed. Named individually because being a Rect is what makes this safe, and
+        // nothing else in the args catalog says so.
+        if (expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var rectMember } clip
+            && rectMember is "ClipRectangle" or "MarginBounds" or "PageBounds"
+            && target.TryResolveEventArgsMember(clip.Expression, rectMember, out var rect))
         {
             origin = $"{rect}.X, {rect}.Y";
             size = ($"{rect}.Width", $"{rect}.Height");
@@ -2494,6 +2505,12 @@ public sealed class HandlerBodyRewriter
 
         // `listView1.Items.Add(new ListViewItem("x"));` - only where the ListView became a
         // ListBox, which is the only shape with a faithful answer.
+        // `printDocument1.Print();` / a print dialog's ShowDialog - see TryRewritePrintCall.
+        if (TryRewritePrintCall(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
+        }
+
         // `checkedListBox1.SetItemChecked(0, true);` - the per-item tick.
         if (TryRewriteCheckedListItem(receiver, methodName, invocation, target, out var checkedItem))
         {
@@ -3087,6 +3104,126 @@ public sealed class HandlerBodyRewriter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The three WinForms print calls that have a bundled counterpart, and what each becomes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// None of these is printing, and the templates say so. Avalonia has no printing API at all;
+    /// what it has is a way to draw a page, so a <c>PrintDocument</c> becomes a page that is really
+    /// drawn - by the handler the original wrote - and then previewed, laid out, or written to a
+    /// file the user picks. Sending it to a printer is what is left for a library.
+    /// </para>
+    /// <para>
+    /// A dialog resolves its document from the designer's <c>Document</c> property, so nothing is
+    /// inferred from the handler.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewritePrintCall(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (receiver is null
+            || !target.AllowsWindowApis
+            || !target.TryResolveControlField(receiver, out var fieldName)
+            || !target.TryResolveControlTypeName(fieldName, out var typeName)
+            || !target.TryResolvePrintDocument(fieldName, out var documentField))
+        {
+            return false;
+        }
+
+        // `printDocument1.Print();` - render the page and write it where the user says.
+        if (typeName == "PrintDocument" && methodName == "Print" && invocation.ArgumentList.Arguments.Count == 0)
+        {
+            rewritten = new RewrittenStatement(
+                $"await {documentField}.PrintAsync(this);",
+                RequiredFallbackKeys: ["PrintDocumentFallback"],
+                RequiresAsync: true);
+            return true;
+        }
+
+        if (methodName != "ShowDialog" || invocation.ArgumentList.Arguments.Count > 1)
+        {
+            return false;
+        }
+
+        // `printPreviewDialog1.ShowDialog(this);` / `pageSetupDialog1.ShowDialog(this);`
+        var templateKey = typeName switch
+        {
+            "PrintPreviewDialog" => "PrintPreviewDialogFallback",
+            "PageSetupDialog" => "PageSetupDialogFallback",
+            _ => null,
+        };
+
+        if (templateKey is null)
+        {
+            return false;
+        }
+
+        rewritten = new RewrittenStatement(
+            $"await {templateKey}.ShowAsync(this, {documentField});",
+            RequiredFallbackKeys: [templateKey, "PrintDocumentFallback"],
+            RequiresAsync: true);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>if (printDialog1.ShowDialog(this) == DialogResult.OK) { printDocument1.Print(); }</c> -
+    /// the one shape a <c>PrintDialog</c> has, translated whole.
+    /// </summary>
+    /// <remarks>
+    /// A whole-statement rewrite rather than two independent ones, because there is no
+    /// statement-level answer: a PrintDialog chose a printer, and there is no printer to choose.
+    /// What replaces it is the destination picker inside <c>PrintAsync</c> - so the dialog does not
+    /// vanish, it moves into the call the branch was guarding. Matched narrowly: the branch has to
+    /// be exactly one <c>Print()</c> on a document, or this refuses and the prefix rule leaves the
+    /// whole handler alone.
+    /// </remarks>
+    private static bool TryRewritePrintDialogIf(
+        IfStatementSyntax ifStatement, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (ifStatement.Else is not null
+            || !target.AllowsWindowApis
+            || ifStatement.Condition is not BinaryExpressionSyntax comparison
+            || !TryMatchShowDialogOkComparison(comparison, SyntaxKind.EqualsExpression, out var call)
+            || !target.TryResolveControlField(call.Expression, out var dialogField)
+            || !target.TryResolveControlTypeName(dialogField, out var dialogType)
+            || dialogType != "PrintDialog")
+        {
+            return false;
+        }
+
+        var body = ifStatement.Statement is BlockSyntax { Statements: [{ } only] } ? only : ifStatement.Statement;
+
+        if (body is not ExpressionStatementSyntax
+            {
+                Expression: InvocationExpressionSyntax
+                {
+                    Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Print" } print,
+                    ArgumentList.Arguments.Count: 0,
+                },
+            }
+            || !target.TryResolveControlField(print.Expression, out var documentField)
+            || !target.TryResolveControlTypeName(documentField, out var documentType)
+            || documentType != "PrintDocument")
+        {
+            return false;
+        }
+
+        rewritten = new RewrittenStatement(
+            $"await {documentField}.PrintAsync(this);",
+            RequiredFallbackKeys: ["PrintDocumentFallback"],
+            RequiresAsync: true);
+        return true;
     }
 
     /// <summary>
@@ -4272,6 +4409,16 @@ public sealed class HandlerBodyRewriter
         }
 
         /// <summary>
+        /// The bundled print document a field is, or the one a print dialog was pointed at
+        /// through its designer <c>Document</c> property.
+        /// </summary>
+        bool TryResolvePrintDocument(string fieldName, out string documentFieldName)
+        {
+            documentFieldName = "";
+            return false;
+        }
+
+        /// <summary>
         /// The ViewModel collection a CheckedListBox's rows live in, each carrying a caption and
         /// a tick.
         /// </summary>
@@ -4314,6 +4461,35 @@ public sealed class HandlerBodyRewriter
         IReadOnlyList<ListViewRowsPlan> listViewRows,
         IReadOnlyList<CheckedListPlan> checkedLists) : IRewriteTarget
     {
+        public bool TryResolvePrintDocument(string fieldName, out string documentFieldName)
+        {
+            documentFieldName = "";
+
+            if (!formModel.Controls.TryGetValue(fieldName, out var field))
+            {
+                return false;
+            }
+
+            if (field.ClrTypeName == "PrintDocument")
+            {
+                documentFieldName = fieldName;
+                return true;
+            }
+
+            // `this.printPreviewDialog1.Document = this.printDocument1;` - the designer records
+            // which document a dialog shows, so nothing has to be inferred from a handler.
+            if (field.Properties.TryGetValue("Document", out var value)
+                && value is PropertyValue.ControlReference(var documentField)
+                && formModel.Controls.TryGetValue(documentField, out var document)
+                && document.ClrTypeName == "PrintDocument")
+            {
+                documentFieldName = documentField;
+                return true;
+            }
+
+            return false;
+        }
+
         public bool TryResolveCheckedList(string controlField, out CheckedListPlan plan)
         {
             plan = checkedLists.FirstOrDefault(c =>

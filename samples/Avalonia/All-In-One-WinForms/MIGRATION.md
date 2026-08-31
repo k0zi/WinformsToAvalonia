@@ -2,7 +2,7 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**98 of 106 handler statements (92%)** came across as real Avalonia code.
+**103 of 106 handler statements (97%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
@@ -13,26 +13,18 @@ right Avalonia signature, and its event is subscribed - the AXAML carries the at
 the constructor the subscription. What is left is the body: the statement named beside each
 one is the first the conversion could not prove equivalent.
 
-## Methods to migrate (6)
+## Methods to migrate (2)
 
 ### `Views/MainView.axaml.cs`
 
 - [ ] `MainForm_FormClosing` — `this.notifyIcon1.Visible = false;`
-- [ ] `pageSetupButton_Click` — `this.pageSetupDialog1.ShowDialog(this);`
-- [ ] `printButton_Click` — `if (this.printDialog1.ShowDialog(this) == DialogResult.OK)`
-- [ ] `printDocument1_PrintPage` — `e.Graphics!.DrawString(`
-- [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 
-## Needs your attention (48)
+## Needs your attention (43)
 
 Everything the conversion decided not to guess at, and why.
 
 - 'helpProvider1' (HelpProvider) calls 'SetShowHelp(...)', which has no Avalonia equivalent - that setting is not carried over.
-- No Avalonia printing API at all - not a dialog, not a document, not a printer list. This dialog only picked a printer and its settings for a PrintDocument, so there is nothing here to wrap and nothing to seed; a cross-platform printing library is the answer, and which one is your call. The `if (printDialog1.ShowDialog() == DialogResult.OK)` shape is therefore left whole for you rather than half-translated.
-- No Avalonia printing API at all. This one is pure data entry - paper size, orientation, margins - so a replacement window would be easy to build and useless: the PageSettings it produces has nothing on the Avalonia side to consume them. It belongs to whichever printing library you adopt.
-- No Avalonia printing API at all, so there is nothing to render a preview from. The *control* form of this, PrintPreviewControl, does get the bundled PrintPreviewControlFallback - a page-shaped placeholder that keeps the converted layout intact - but a dialog previewing a PrintDocument has no honest stand-in, because the document itself cannot be produced on this side.
-- No Avalonia printing API at all, and PrintPage is where the output was actually drawn - with System.Drawing.Graphics, which Avalonia's DrawingContext resembles but does not match call for call. A PrintPage handler is emitted with its body preserved, but nothing subscribes it: the event has no Avalonia counterpart to map to. That body belongs to whichever printing library you adopt.
 - NotifyIcon 'notifyIcon1': couldn't resolve a literal icon file path from Designer.cs (it is usually a resx resource) - App.axaml's TrayIcon is emitted commented out, since referencing an icon file the conversion cannot produce would throw at startup. Copy the real icon into Assets/ and uncomment the block.
 - 'ErrorProvider' has no built-in Avalonia equivalent; using the bundled fallback control 'ErrorProviderFallback'.
 - Click handler 'newMenuItem_Click' stays in code-behind: it uses 'titleTextBox.Clear', which has no bindable Avalonia equivalent.
@@ -53,7 +45,6 @@ Everything the conversion decided not to guess at, and why.
 - Click handler 'printButton_Click' stays in code-behind: it drives the Form itself (DialogResult).
 - Click handler 'pageSetupButton_Click' stays in code-behind: 'pageSetupDialog1' (PageSetupDialog) has no direct Avalonia element to bind against.
 - Click handler 'printPreviewButton_Click' stays in code-behind: 'printPreviewDialog1' (PrintPreviewDialog) has no direct Avalonia element to bind against.
-- 'printDocument1' subscribes 'PrintPage', which has no Avalonia equivalent - 'printDocument1_PrintPage' is emitted but never subscribed. No Avalonia equivalent is registered for the WinForms 'PrintPage' event.
 - Click handler 'startWorkerButton_Click' stays in code-behind: it drives the Form itself (isBusy).
 - Click handler 'watchButton_Click' stays in code-behind: 'fileSystemWatcher1' (FileSystemWatcher) has no direct Avalonia element to bind against.
 - Click handler 'launchProcessButton_Click' stays in code-behind: 'process1' (Process) has no direct Avalonia element to bind against.
@@ -77,7 +68,7 @@ Everything the conversion decided not to guess at, and why.
 - Click handler 'okButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 - Click handler 'cancelButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 
-## Converted differently (21)
+## Converted differently (25)
 
 No action needed - these have no Avalonia element, so here is where each one went.
 
@@ -88,6 +79,10 @@ No action needed - these have no Avalonia element, so here is where each one wen
 - No control mapping - use TopLevel.StorageProvider.OpenFolderPickerAsync from code instead.
 - No built-in Avalonia colour picker *dialog*, but there is a real ColorView - so the bundled ColorDialogFallback wraps it, and a handler's ShowDialog IS translated inline onto it: both the `if (dlg.ShowDialog() == DialogResult.OK)` shape and the `if (dlg.ShowDialog() != DialogResult.OK) return;` guard clause. Reading dlg.Color inside them becomes the picked value. Needs the Avalonia.Controls.ColorPicker package. A seed assigned before the call (colorDialog1.Color = ...) is carried over too, as the colour the dialog opens on.
 - No Avalonia font picker at all, so the bundled FontDialogFallback provides one over FontManager.Current.SystemFonts - family, size, bold and italic only. A handler's ShowDialog IS translated inline onto it, in the same two shapes as ColorDialog, and `ctrl.Font = dlg.Font` expands to the four Avalonia properties, and a seed assigned before the call (fontDialog1.Font = someControl.Font) opens the dialog on it.
+- There is still no printer to choose - Avalonia has no printing API at all. But the shape this dialog appears in does have an answer: `if (printDialog1.ShowDialog(this) == DialogResult.OK) { printDocument1.Print(); }` is translated whole into `await printDocument1.PrintAsync(this)`, which renders the page the PrintPage handler draws and writes it to a file the user picks. The dialog does not vanish - it moves into that destination picker. A branch doing anything other than one Print() call is left alone.
+- Paper size, orientation and margins, on the bundled PageSetupDialogFallback - and they now have somewhere to go: they are what the bundled PrintDocumentFallback lays its page out with, so the dialog changes what the export looks like. It was guidance-only for as long as nothing consumed a page setup, which was true while there was no page. The document is resolved from the designer's Document property.
+- A window showing the page, on the bundled PrintPreviewDialogFallback. This became possible only once the document could be produced: a preview needs no printing API, it needs a rendered page, and the PrintPage handler really draws one now. The document is resolved from the designer's Document property, so nothing is inferred from the handler.
+- Emitted as a field of the bundled PrintDocumentFallback, with its DocumentName and its PrintPage handler wired. That handler is drawing code, and drawing code translates: e.Graphics calls become real DrawingContext calls, so the page is genuinely drawn. Print() renders it and writes it to a file the user picks. What is still missing is the printer - Avalonia has no printing API at all, so sending that page to one is what a library is for. Only the first page is rendered; HasMorePages is handed to the handler but not looped on.
 - Not a control, but this run emits it as a real field on the generated View - same .NET type, designer values applied, designer-wired events subscribed - so handler bodies keep working as they were. It predates async/await, so Task.Run with IProgress<T> is usually the better end state - but that is a design improvement, not a migration step: the converted code runs as it is.
 - Not a control, but this run emits it as a real field on the generated View - same .NET type, designer values applied, designer-wired events subscribed - so handler bodies keep working as they were. Moving it into a service later is a design improvement, not a migration step.
 - Not a control, but this run emits it as a real field on the generated View - same .NET type, designer values applied, designer-wired events subscribed - so handler bodies keep working as they were. Moving it into a service later is a design improvement, not a migration step.
