@@ -317,23 +317,25 @@ public sealed class DesignerSyntaxWalker
         else if (controlsAccess.Expression is MemberAccessExpressionSyntax
             {
                 Expression: MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var containerField },
-                Name.Identifier.ValueText: ("Panel1" or "Panel2") and var panelName,
-            })
+                Name.Identifier.ValueText: var regionName,
+            }
+            && (regionName is "Panel1" or "Panel2" || ToolStripContainerRegionCatalog.IsRegion(regionName)))
         {
-            // `this.splitContainer1.Panel1.Controls.Add(...)` - a child of one of
-            // SplitContainer's two named sub-regions, not a real ControlModel of its own.
-            // Encoded as a synthetic "field.PanelN" parent id - real WinForms field names
-            // can never contain '.', so this can't collide with a real field or the FormOwner
-            // sentinel. ControlGraphBuilder is what splits it back apart.
-            parent = $"{containerField}.{panelName}";
+            // `this.splitContainer1.Panel1.Controls.Add(...)` /
+            // `this.toolStripContainer1.ContentPanel.Controls.Add(...)` - a child of one of a
+            // container's named sub-regions, not a real ControlModel of its own. Encoded as a
+            // synthetic "field.Region" parent id - real WinForms field names can never contain
+            // '.', so this can't collide with a real field or the FormOwner sentinel.
+            // ControlGraphBuilder is what splits it back apart.
+            parent = $"{containerField}.{regionName}";
         }
         else
         {
             // The same `this.container.Region.Controls.Add(...)` shape, but a region this
-            // converter has no slot for - a ToolStripContainer's ContentPanel and its four
-            // ToolStripPanels are the ones that occur in practice. Nothing here can place the
-            // child, but saying nothing is worse: it used to vanish from the AXAML *and* from
-            // the report, because a Direct-mapped child parked in FormModel.Components is not
+            // converter has no slot for. SplitContainer's two halves and ToolStripContainer's
+            // five regions are handled above; anything else has nowhere to go. Saying nothing
+            // is worse than warning: such a child used to vanish from the AXAML *and* from the
+            // report, because a Direct-mapped child parked in FormModel.Components is not
             // something the pipeline warns about either.
             WarnAboutUnplacedRegionChildren(invocation, controlsAccess, warnings);
             return;
@@ -412,9 +414,9 @@ public sealed class DesignerSyntaxWalker
 
         warnings.Add(
             $"'{containerField}.{regionName}' holds {string.Join(", ", childNames.Select(n => $"'{n}'"))}, "
-            + "which is a nested container region this conversion cannot place - only a SplitContainer's "
-            + "Panel1/Panel2 are translated. Those controls are not emitted; add them to the generated "
-            + $"'{containerField}' by hand.");
+            + "which is a nested container region this conversion has no slot for - a SplitContainer's "
+            + "Panel1/Panel2 and a ToolStripContainer's five regions are the ones it places. Those "
+            + $"controls are not emitted; add them to the generated '{containerField}' by hand.");
     }
 
     /// <summary>

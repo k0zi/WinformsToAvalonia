@@ -133,6 +133,7 @@ public sealed class ConversionPipeline
         // is being *planned*. Only the file writing waits (see below) - hoisting that too would
         // reorder MIGRATION.md's warnings for every project that carries no model type at all.
         var modelTypes = CarryOverModelTypes(pairings, projectName);
+        var synthesizedModelTypes = new Dictionary<string, string>(StringComparer.Ordinal);
 
         var promotedPropertiesByArtifact = parsedArtifacts.ToDictionary(
             a => a.Pairing.ClassName,
@@ -207,6 +208,14 @@ public sealed class ConversionPipeline
                 modelTypes.Context);
             allWarnings.AddRange(migrationPlan.Warnings);
 
+            // Synthesized rather than lifted, so it comes from the plan rather than from the
+            // pre-pass that carried the Form's own nested types over.
+            foreach (var checkedList in migrationPlan.CheckedLists)
+            {
+                synthesizedModelTypes[$"Models/{checkedList.ElementTypeName}.cs"] =
+                    CheckedListItemEmitter.EmitItemType(checkedList);
+            }
+
             // Unlike every other fallback key, these come from a translated *handler body*
             // (MessageBoxFallback) rather than from an element in the AXAML, so they have to be
             // unioned in here - AxamlEmissionResult never sees them.
@@ -277,6 +286,11 @@ public sealed class ConversionPipeline
         allWarnings.AddRange(modelTypes.Warnings);
 
         foreach (var (relativePath, text) in modelTypes.Files)
+        {
+            vfs.AddText(relativePath, text);
+        }
+
+        foreach (var (relativePath, text) in synthesizedModelTypes.OrderBy(e => e.Key, StringComparer.Ordinal))
         {
             vfs.AddText(relativePath, text);
         }
@@ -642,7 +656,7 @@ public sealed class ConversionPipeline
             }
         }
 
-        return new CarriedModelTypes(new ModelTypeContext(byTypeName), carried, warnings);
+        return new CarriedModelTypes(new ModelTypeContext(byTypeName, $"{projectName}.Models"), carried, warnings);
     }
 
     /// <summary>

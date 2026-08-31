@@ -105,7 +105,8 @@ public sealed class HandlerBodyRewriter
         IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null,
         IReadOnlySet<string>? trayIconFields = null,
         IReadOnlyList<DataSourceBindingPlan>? dataSourceBindings = null,
-        IReadOnlyList<ListViewRowsPlan>? listViewRows = null) =>
+        IReadOnlyList<ListViewRowsPlan>? listViewRows = null,
+        IReadOnlyList<CheckedListPlan>? checkedLists = null) =>
         Rewrite(
             body,
             new ViewTarget(
@@ -120,7 +121,8 @@ public sealed class HandlerBodyRewriter
                 viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal),
                 trayIconFields ?? new HashSet<string>(StringComparer.Ordinal),
                 dataSourceBindings ?? [],
-                listViewRows ?? []));
+                listViewRows ?? [],
+                checkedLists ?? []));
 
     /// <summary>
     /// Rewrites the body of a code-behind <em>helper</em> method, against the same View the
@@ -144,7 +146,8 @@ public sealed class HandlerBodyRewriter
         IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>>? viewProperties = null,
         IReadOnlySet<string>? trayIconFields = null,
         IReadOnlyList<DataSourceBindingPlan>? dataSourceBindings = null,
-        IReadOnlyList<ListViewRowsPlan>? listViewRows = null)
+        IReadOnlyList<ListViewRowsPlan>? listViewRows = null,
+        IReadOnlyList<CheckedListPlan>? checkedLists = null)
     {
         var target = new ViewTarget(
             formModel, _controlMappings, navigation, HandlerSignature.None,
@@ -152,7 +155,8 @@ public sealed class HandlerBodyRewriter
             viewProperties ?? new Dictionary<string, IReadOnlyList<ViewPropertyInfo>>(StringComparer.Ordinal),
             trayIconFields ?? new HashSet<string>(StringComparer.Ordinal),
             dataSourceBindings ?? [],
-            listViewRows ?? []);
+            listViewRows ?? [],
+            checkedLists ?? []);
 
         foreach (var parameterName in signature.ParameterNames)
         {
@@ -1941,6 +1945,322 @@ public sealed class HandlerBodyRewriter
     }
 
     /// <summary>
+    /// <c>e.Graphics.DrawString(text, font, brush, x, y);</c> - the one drawing call whose
+    /// arguments are not in the catalog's shape, and the only one that needs a font.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Its own matcher rather than a <see cref="GraphicsMemberCatalog"/> row for two reasons: the
+    /// brush is the third argument rather than the first, and a WinForms <c>Font</c> is one object
+    /// where Avalonia wants two values - a <c>Typeface</c> and an em size.
+    /// </para>
+    /// <para>
+    /// Arity cannot tell the overloads apart - <c>(x, y)</c> and <c>(point, format)</c> are both
+    /// five arguments - so the dispatch is on the *shape* of the fourth: a point or rectangle
+    /// construction, <c>e.ClipRectangle</c>, or otherwise the two-coordinate form.
+    /// </para>
+    /// <para>
+    /// Emitted with <c>CultureInfo.CurrentCulture</c> and <c>FlowDirection.LeftToRight</c>, which
+    /// is what WinForms' <c>DrawString</c> did without being asked - it had no parameter for
+    /// either.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteDrawString(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (methodName != "DrawString"
+            || receiver is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Graphics" } graphics
+            || !target.TryResolveEventArgsMember(graphics.Expression, "Graphics", out var context)
+            || invocation.ArgumentList.Arguments.Count < 4)
+        {
+            return false;
+        }
+
+        var arguments = invocation.ArgumentList.Arguments;
+
+        // Everything after the brush is the placement, and optionally a StringFormat.
+        if (!TryRewriteExpression(arguments[0].Expression, target, out var text)
+            || !TryResolveTypeface(arguments[1].Expression, target, out var typeface, out var emSize)
+            || !TryRewriteColorExpression(arguments[2].Expression, target, out var brush)
+            || !TryResolveTextLayout([.. arguments.Skip(3)], target, out var origin, out var bounded, out var format)
+            || !TryResolveStringFormat(format, bounded, out var settings))
+        {
+            return false;
+        }
+
+        var initializer = settings.Count == 0
+            ? ""
+            : "\n    {\n" + string.Join("", settings.Select(setting => $"        {setting},\n")) + "    }";
+
+        rewritten = new RewrittenStatement(
+            $"{context}.DrawText(" + "\n"
+            + "    new FormattedText(" + "\n"
+            + $"        {text}, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, {typeface}, {emSize}, {brush})"
+            + initializer + "," + "\n"
+            + $"    new Point({origin}));",
+            RequiredUsings: ["System.Globalization", "Avalonia", "Avalonia.Media"]);
+        return true;
+    }
+
+    /// <summary>
+    /// Where the text goes: the arguments after the brush, as an origin plus - when WinForms gave
+    /// a layout rectangle - the box to lay it out in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// WinForms has three placements and Avalonia's <c>DrawText</c> has one, an origin. A point is
+    /// that origin directly. A rectangle is the origin plus a size, and the size is not decoration:
+    /// it is what made the text wrap, and it becomes <c>MaxTextWidth</c>/<c>MaxTextHeight</c> on
+    /// the FormattedText, which is the same instruction.
+    /// </para>
+    /// <para>
+    /// A point or rectangle has to be *constructed* in the call, or be <c>e.ClipRectangle</c>: a
+    /// local of type <c>PointF</c> could not survive the conversion at all, since
+    /// <c>System.Drawing</c> is not there to declare it.
+    /// </para>
+    /// </remarks>
+    private static bool TryResolveTextLayout(
+        IReadOnlyList<ArgumentSyntax> arguments,
+        IRewriteTarget target,
+        out string origin,
+        out (string Width, string Height)? bounded,
+        out ExpressionSyntax? format)
+    {
+        origin = "";
+        bounded = null;
+        format = null;
+
+        if (arguments.Count is 0 or > 3)
+        {
+            return false;
+        }
+
+        var first = arguments[0].Expression;
+
+        // `new RectangleF(x, y, w, h)` / `new Rectangle(...)`, or the surface's own clip.
+        if (TryResolveLayoutRectangle(first, target, out var rectangleOrigin, out var size))
+        {
+            origin = rectangleOrigin;
+            bounded = size;
+            format = arguments.Count > 1 ? arguments[1].Expression : null;
+            return arguments.Count <= 2;
+        }
+
+        // `new PointF(x, y)` / `new Point(x, y)`.
+        if (first is ObjectCreationExpressionSyntax { ArgumentList.Arguments: [{ } px, { } py] } point
+            && RoslynTypeNameHelper.GetSimpleTypeName(point.Type) is "PointF" or "Point"
+            && TryRewriteExpression(px.Expression, target, out var pointX)
+            && TryRewriteExpression(py.Expression, target, out var pointY))
+        {
+            origin = $"{pointX}, {pointY}";
+            format = arguments.Count > 1 ? arguments[1].Expression : null;
+            return arguments.Count <= 2;
+        }
+
+        // Otherwise the two-coordinate form, which needs both of them.
+        if (arguments.Count < 2
+            || !TryRewriteExpression(first, target, out var x)
+            || !TryRewriteExpression(arguments[1].Expression, target, out var y))
+        {
+            return false;
+        }
+
+        origin = $"{x}, {y}";
+        format = arguments.Count > 2 ? arguments[2].Expression : null;
+        return true;
+    }
+
+    /// <summary>A WinForms layout rectangle, as an Avalonia origin and size.</summary>
+    private static bool TryResolveLayoutRectangle(
+        ExpressionSyntax expression,
+        IRewriteTarget target,
+        out string origin,
+        out (string Width, string Height) size)
+    {
+        origin = "";
+        size = default;
+
+        // `e.ClipRectangle` - already an Avalonia Rect on the paint surface's args, so its members
+        // are read straight off it rather than reconstructed.
+        if (expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ClipRectangle" } clip
+            && target.TryResolveEventArgsMember(clip.Expression, "ClipRectangle", out var rect))
+        {
+            origin = $"{rect}.X, {rect}.Y";
+            size = ($"{rect}.Width", $"{rect}.Height");
+            return true;
+        }
+
+        if (expression is not ObjectCreationExpressionSyntax
+                { ArgumentList.Arguments: [{ } rx, { } ry, { } rw, { } rh] } rectangle
+            || RoslynTypeNameHelper.GetSimpleTypeName(rectangle.Type) is not ("RectangleF" or "Rectangle")
+            || !TryRewriteExpression(rx.Expression, target, out var x)
+            || !TryRewriteExpression(ry.Expression, target, out var y)
+            || !TryRewriteExpression(rw.Expression, target, out var width)
+            || !TryRewriteExpression(rh.Expression, target, out var height))
+        {
+            return false;
+        }
+
+        origin = $"{x}, {y}";
+        size = (width, height);
+        return true;
+    }
+
+    /// <summary>
+    /// The FormattedText initializer settings a call's layout - and its <c>StringFormat</c>, if it
+    /// has one - add up to.
+    /// </summary>
+    /// <remarks>
+    /// A StringFormat is only accepted alongside a layout rectangle, and that is the substance of
+    /// the rule rather than a simplification: alignment and trimming both describe how text
+    /// behaves *inside a box*, and Avalonia applies neither without a <c>MaxTextWidth</c>. On the
+    /// point and two-coordinate overloads there is no box, so an alignment would be emitted and
+    /// silently do nothing - see <see cref="TextFormatCatalog"/> for the rest.
+    /// </remarks>
+    private static bool TryResolveStringFormat(
+        ExpressionSyntax? format,
+        (string Width, string Height)? bounded,
+        out List<string> settings)
+    {
+        settings = [];
+
+        if (bounded is { } box)
+        {
+            settings.Add($"MaxTextWidth = {box.Width}");
+            settings.Add($"MaxTextHeight = {box.Height}");
+        }
+
+        if (format is null)
+        {
+            return true;
+        }
+
+        if (bounded is null
+            || format is not ObjectCreationExpressionSyntax
+                { ArgumentList: null or { Arguments.Count: 0 } } created
+            || RoslynTypeNameHelper.GetSimpleTypeName(created.Type) != "StringFormat")
+        {
+            return false;
+        }
+
+        foreach (var member in created.Initializer?.Expressions ?? default)
+        {
+            if (member is not AssignmentExpressionSyntax
+                {
+                    Left: IdentifierNameSyntax { Identifier.ValueText: var settingName },
+                    Right: MemberAccessExpressionSyntax { Name.Identifier.ValueText: var valueName },
+                })
+            {
+                return false;
+            }
+
+            switch (settingName)
+            {
+                case "Alignment" when TextFormatCatalog.TryGetAlignment(valueName, out var alignment):
+                    settings.Add($"TextAlignment = TextAlignment.{alignment}");
+                    break;
+
+                case "Trimming" when TextFormatCatalog.TryGetTrimming(valueName, out var trimming):
+                    settings.Add($"Trimming = TextTrimming.{trimming}");
+                    break;
+
+                default:
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// A WinForms <c>Font</c> as the two values Avalonia wants: a <c>Typeface</c> and an em size.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three shapes, and nothing else. A <c>new Font(...)</c> literal goes through the same
+    /// evaluator and formatters the designer path uses, so the point-to-pixel conversion is the
+    /// one already written down rather than a second copy of it. A control's <c>Font</c> - or the
+    /// Form's own - is read back off the four Avalonia properties this converter split it into
+    /// everywhere else, and only where that element really carries them.
+    /// </para>
+    /// <para>
+    /// <c>Underline</c> and <c>Strikeout</c> refuse. They are not slant or weight in Avalonia but
+    /// a <c>TextDecorations</c> collection set on the FormattedText afterwards, and a Typeface
+    /// cannot express them - so emitting one would silently drop the decoration.
+    /// </para>
+    /// </remarks>
+    private static bool TryResolveTypeface(
+        ExpressionSyntax expression, IRewriteTarget target, out string typeface, out string emSize)
+    {
+        typeface = "";
+        emSize = "";
+
+        // `new Font("Arial", 12f, FontStyle.Bold)`.
+        if (expression is ObjectCreationExpressionSyntax
+            && ExpressionEvaluator.Evaluate(expression) is PropertyValue.FontValue font)
+        {
+            if (PropertyValueFormatters.AsFontFamily(font) is not { } family
+                || PropertyValueFormatters.AsFontSize(font) is not { } size
+                || PropertyValueFormatters.AsTextDecorations(font) is not null)
+            {
+                return false;
+            }
+
+            var style = PropertyValueFormatters.AsFontStyle(font) is { } slant ? $"FontStyle.{slant}" : null;
+            var weight = PropertyValueFormatters.AsFontWeight(font) is { } bold ? $"FontWeight.{bold}" : null;
+
+            typeface = (style, weight) switch
+            {
+                (null, null) => $"new Typeface(\"{family}\")",
+                ({ } s, null) => $"new Typeface(\"{family}\", {s})",
+                (null, { } w) => $"new Typeface(\"{family}\", FontStyle.Normal, {w})",
+                ({ } s, { } w) => $"new Typeface(\"{family}\", {s}, {w})",
+            };
+
+            emSize = size;
+            return true;
+        }
+
+        if (expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Font" } access
+            && expression is not IdentifierNameSyntax { Identifier.ValueText: "Font" })
+        {
+            return false;
+        }
+
+        // `someControl.Font` - only where that element carries all four font properties.
+        if (expression is MemberAccessExpressionSyntax owner
+            && target.TryResolveControlField(owner.Expression, out var fieldName))
+        {
+            if (!target.SupportsStyleProperty(fieldName, AvaloniaStyleProperties.Font))
+            {
+                return false;
+            }
+
+            typeface = $"new Typeface({fieldName}.FontFamily, {fieldName}.FontStyle, {fieldName}.FontWeight)";
+            emSize = $"{fieldName}.FontSize";
+            return true;
+        }
+
+        // `this.Font` / the bare `Font` designer code usually writes - the View's own, which is a
+        // Window or a UserControl and therefore a TemplatedControl, where all four live.
+        if (!target.AllowsWindowApis
+            || (expression is MemberAccessExpressionSyntax { Expression: not ThisExpressionSyntax }))
+        {
+            return false;
+        }
+
+        typeface = "new Typeface(FontFamily, FontStyle, FontWeight)";
+        emSize = "FontSize";
+        return true;
+    }
+
+    /// <summary>
     /// The pen or brush a drawing call leads with. WinForms has a <c>Pens</c> and a
     /// <c>Brushes</c> palette; Avalonia has neither, so both resolve to an explicit colour and a
     /// pen is built around the brush.
@@ -2174,6 +2494,19 @@ public sealed class HandlerBodyRewriter
 
         // `listView1.Items.Add(new ListViewItem("x"));` - only where the ListView became a
         // ListBox, which is the only shape with a faithful answer.
+        // `checkedListBox1.SetItemChecked(0, true);` - the per-item tick.
+        if (TryRewriteCheckedListItem(receiver, methodName, invocation, target, out var checkedItem))
+        {
+            rewritten = new RewrittenStatement($"{checkedItem};");
+            return true;
+        }
+
+        // `e.Graphics.DrawString(...)` - its own shape, see TryRewriteDrawString.
+        if (TryRewriteDrawString(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
+        }
+
         // `e.Graphics.DrawEllipse(...)` inside a Paint handler.
         if (TryRewriteGraphicsCall(receiver, methodName, invocation, target, out rewritten))
         {
@@ -2757,6 +3090,60 @@ public sealed class HandlerBodyRewriter
     }
 
     /// <summary>
+    /// <c>checkedListBox1.SetItemChecked(0, true)</c> and <c>GetItemChecked(0)</c> - the per-item
+    /// tick, onto the row object that now carries it.
+    /// </summary>
+    /// <remarks>
+    /// One shape, both directions, and both are exact: the WinForms call named an index and a
+    /// bool, and so does the translation. <c>CheckedItems</c>/<c>CheckedIndices</c> deliberately
+    /// do not go through here - they are WinForms collection types, and handing back a LINQ query
+    /// that merely looks like one would let <c>.Add</c> or <c>.Count</c> compile against something
+    /// that is not the same object.
+    /// </remarks>
+    private static bool TryRewriteCheckedListItem(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out string text)
+    {
+        text = "";
+
+        if (methodName is not ("SetItemChecked" or "GetItemChecked")
+            || receiver is null
+            || !target.TryResolveControlField(receiver, out var fieldName)
+            || !target.TryResolveCheckedList(fieldName, out var plan))
+        {
+            return false;
+        }
+
+        var arguments = invocation.ArgumentList.Arguments;
+        var expected = methodName == "SetItemChecked" ? 2 : 1;
+
+        if (arguments.Count != expected
+            || !TryRewriteExpression(arguments[0].Expression, target, out var index))
+        {
+            return false;
+        }
+
+        var row = $"{ViewModelFieldName}.{plan.ViewModelPropertyName}[{index}].IsChecked";
+
+        if (methodName == "GetItemChecked")
+        {
+            text = row;
+            return true;
+        }
+
+        if (!TryRewriteExpression(arguments[1].Expression, target, out var value))
+        {
+            return false;
+        }
+
+        text = $"{row} = {value}";
+        return true;
+    }
+
+    /// <summary>
     /// The DataGrid half: rows go into the ViewModel collection, one <c>string[]</c> per row.
     /// </summary>
     private static bool TryRewriteListViewRowCall(
@@ -3241,6 +3628,13 @@ public sealed class HandlerBodyRewriter
         text = "";
 
         if (TryRewriteDragDataQuery(invocation, target, out text))
+        {
+            return true;
+        }
+
+        // `if (checkedListBox1.GetItemChecked(0))` - the tick as a value.
+        if (TrySplitInvocation(invocation, out var checkedReceiver, out var checkedMethod)
+            && TryRewriteCheckedListItem(checkedReceiver, checkedMethod, invocation, target, out text))
         {
             return true;
         }
@@ -3878,6 +4272,16 @@ public sealed class HandlerBodyRewriter
         }
 
         /// <summary>
+        /// The ViewModel collection a CheckedListBox's rows live in, each carrying a caption and
+        /// a tick.
+        /// </summary>
+        bool TryResolveCheckedList(string controlField, out CheckedListPlan plan)
+        {
+            plan = null!;
+            return false;
+        }
+
+        /// <summary>
         /// The ViewModel collection a Details-mode ListView's rows live in, and how many columns
         /// a row must have.
         /// </summary>
@@ -3907,8 +4311,17 @@ public sealed class HandlerBodyRewriter
         IReadOnlyDictionary<string, IReadOnlyList<ViewPropertyInfo>> viewProperties,
         IReadOnlySet<string> trayIconFields,
         IReadOnlyList<DataSourceBindingPlan> dataSourceBindings,
-        IReadOnlyList<ListViewRowsPlan> listViewRows) : IRewriteTarget
+        IReadOnlyList<ListViewRowsPlan> listViewRows,
+        IReadOnlyList<CheckedListPlan> checkedLists) : IRewriteTarget
     {
+        public bool TryResolveCheckedList(string controlField, out CheckedListPlan plan)
+        {
+            plan = checkedLists.FirstOrDefault(c =>
+                string.Equals(c.ControlFieldName, controlField, StringComparison.Ordinal))!;
+
+            return plan is not null;
+        }
+
         public bool TryResolveDataSourceCollections(
             string bindingSourceField, out IReadOnlyList<DataSourceBindingPlan> plans)
         {

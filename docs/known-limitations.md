@@ -956,19 +956,58 @@ rule itself; what follows is what the rule does *not* cover yet.
   derives from `Control` and hosts no children. A Panel with children keeps them and reports that
   its Paint was not wired; a PictureBox that also carries an Image keeps the picture, since
   WinForms drew the handler's output over it and there is no honest way to do both here.
-- **Only the geometric calls translate.** `DrawLine`, `DrawRectangle`, `FillRectangle`,
-  `DrawEllipse` and `FillEllipse`, in their four-coordinate form. WinForms overloads each of those
-  over `Rectangle`, `RectangleF`, point arrays and float/int coordinates; a different arity refuses
+- **The geometric calls and every `DrawString` placement translate.** `DrawLine`,
+  `DrawRectangle`, `FillRectangle`, `DrawEllipse` and `FillEllipse` in their four-coordinate form,
+  plus `DrawString` at `(x, y)`, at a `PointF`/`Point`, and inside a `RectangleF`/`Rectangle` - or
+  the surface's own `e.ClipRectangle`, which is already an Avalonia `Rect`. WinForms overloads the
+  geometric calls over `Rectangle`, `RectangleF` and point arrays too; a different arity refuses
   rather than being guessed at, and the prefix rule leaves the rest of the handler to a human.
-  `DrawString` is the notable absence: Avalonia's `DrawText` takes a `FormattedText` needing a
-  `Typeface` and an em size where WinForms passed one `Font` object - usually `this.Font` or a
-  control's - and splitting one argument into two this converter cannot read is the kind of guess
-  it does not make.
+- **Arity cannot tell the `DrawString` overloads apart** - `(x, y)` and `(point, format)` are both
+  five arguments - so the dispatch is on the *shape* of the fourth. A point or rectangle has to be
+  **constructed in the call**, or be `e.ClipRectangle`: a local of type `PointF` could not survive
+  the conversion at all, since `System.Drawing` is not there to declare it.
+- **A layout rectangle is an origin plus a box, and the box is not decoration.** It is what made
+  the text wrap, so it becomes `MaxTextWidth`/`MaxTextHeight` on the `FormattedText` - the same
+  instruction, in the two properties Avalonia spells it with.
+- **A `StringFormat` is only accepted alongside a layout rectangle**, and that is the substance of
+  the rule rather than a simplification: alignment and trimming both describe how text behaves
+  *inside a box*, and Avalonia applies neither without a `MaxTextWidth`. On the point and
+  two-coordinate overloads the setting would be emitted and silently do nothing. `Alignment` and
+  `Trimming` translate (see `TextFormatCatalog`); `LineAlignment` does not - vertical placement is
+  something a `FormattedText` does not do at all, since `MaxTextHeight` clips rather than centres -
+  nor do `FormatFlags`, the ellipsis-free `Character`/`Word` trimming modes (Avalonia has none),
+  or the opaque `Generic*` statics.
+- **A WinForms `Font` is one object where Avalonia wants two values.** `DrawString` needs a
+  `Typeface` and an em size, and there are three shapes it can get them from: a `new Font(...)`
+  literal, which goes through the same evaluator and formatters the designer path uses - so the
+  point-to-pixel conversion is the one already written down, and 12pt comes out as 16px, not 12; a
+  control's `Font`, read back off the four Avalonia properties this converter splits a Font into
+  everywhere else, and only where that element really carries them; and the Form's own `Font`,
+  which is the View's - a `Window` or a `UserControl`, both `TemplatedControl`s, which is where
+  those four actually live. A `Control` has none of them, so the paint surface's own font is
+  refused rather than invented.
+- **`Underline` and `Strikeout` refuse.** In Avalonia they are not slant or weight but a
+  `TextDecorations` collection set on the `FormattedText` afterwards, which a `Typeface` cannot
+  express - so a font carrying either is refused rather than emitted without the decoration.
 - **Both colour palettes resolve through the colour pipeline, not a palette table.**
   `Pens.SteelBlue`, `Brushes.SteelBlue`, `SystemBrushes.Control` and `SystemPens.Control` all
   evaluate to the same `KnownColor` the designer path already understood, and come out as explicit
   ARGB. That is deliberate: Avalonia's `Brushes` has no system colours at all, so translating a
   name to a name would emit `Brushes.Control`, which does not exist there.
+
+## Container regions
+
+- **A `SplitContainer`'s two halves and a `ToolStripContainer`'s five regions are placed; any
+  other nested region is reported.** `this.container.Region.Controls.Add(x)` is a three-level
+  member access, encoded by the designer walker as a synthetic `"field.Region"` parent id and split
+  apart again by `ControlGraphBuilder`. A region name it does not recognise still warns, naming
+  each child - such a control used to vanish from the AXAML *and* from the report.
+- **The two containers are emitted differently, because they are different shapes.** A
+  SplitContainer becomes a `Grid` with a `GridSplitter` between two `Canvas` regions. A
+  ToolStripContainer keeps its own five regions, each emitted as a XAML property element holding
+  the bundled panel it is - which is why those properties on `ToolStripContainerFallback` are
+  settable, and why each setter rebuilds the child list: a `DockPanel` lays its children out in
+  order, and the content panel has to stay last to get the space the strips did not take.
 
 ## Multiple projects
 
@@ -1072,9 +1111,25 @@ Two more mappings gained precision rather than a new control:
   `CalendarDatePicker`. `Format=Custom` keeps the date picker and reports that `CustomFormat` has
   no counterpart. A handler binding `Value` on a `Format=Time` picker is refused rather than
   emitted, because the catalog's answer (`SelectedDate`) does not exist on a `TimePicker`.
-- **`CheckedListBox`** becomes a `ListBox` with `SelectionMode="Multiple"` **and a warning**.
-  Avalonia has no per-item checkbox list, so ticking is approximated by selection and
-  `CheckedItems`/`CheckedIndices`/`GetItemChecked` have no equivalent. This used to be silent.
+- **`CheckedListBox`** becomes a `ListBox` whose `ItemTemplate` holds a real `CheckBox`. Avalonia
+  has no checkbox list, but it has a template - so the tick gets a row object of its own, generated
+  into `Models/<Field>Item.cs` as `{ Text, IsChecked }`. The shape is not invented: a
+  CheckedListBox item *is* a caption and a tick, which is the control's own contract. (Contrast a
+  Details-mode ListView, where deriving names from column headers would have invented domain
+  vocabulary, so the row is a `string[]`.)
+  - The row type is an `ObservableObject`, and that is load-bearing rather than idiom. The binding
+    writes the tick back when the user clicks it either way - but a handler calling
+    `SetItemChecked` writes it from the other side, and without a change notification the box on
+    screen would keep showing the old state.
+  - `SelectionMode="Multiple"` is **gone**, and its going is the point. It stood in for "several
+    items are ticked at once", which was defensible only while the tick had nowhere else to live.
+    WinForms tracked checked and selected separately, and so does this now.
+  - The designer's `Items` entries become the collection's initial contents rather than literal
+    item elements: a templated ListBox binds its rows, it does not host them.
+  - `SetItemChecked`/`GetItemChecked` translate, in both directions, onto the row. `CheckedItems`
+    and `CheckedIndices` do not - they are WinForms collection types, and handing back a LINQ query
+    that merely looks like one would let `.Add` or `.Count` compile against something that is not
+    the same object. Read the generated collection instead.
 
 ## Data binding: `BindingSource`
 

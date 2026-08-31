@@ -307,6 +307,23 @@ not by building.
   a ListView row's cell count must equal the designer's column count. A carried-over model type is
   lifted `public`, not `internal` — the ViewModel's `ObservableCollection<T>` is a public property,
   and CS0053 is a build error in the **generated** project and nowhere else.
+- **A container's named sub-regions are a synthetic `"field.Region"` parent id.** Real WinForms
+  field names cannot contain `.`, so `DesignerSyntaxWalker` encodes
+  `this.c.ContentPanel.Controls.Add(x)` that way and `ControlGraphBuilder` splits it apart -
+  the path a `SplitContainer`'s `Panel1`/`Panel2` already used, now shared by
+  `ToolStripContainerRegionCatalog`'s five. The two are emitted differently on purpose: a
+  SplitContainer becomes a Grid with a splitter, a ToolStripContainer keeps its regions as XAML
+  property elements. That is why `ToolStripContainerFallback`'s region properties are **settable**
+  (a get-only one cannot receive the panel) and why each setter rebuilds the child list rather than
+  swapping in place - a DockPanel lays children out in order, and the content panel must stay last.
+- **A synthesized row type is only honest when the shape is the control's own contract.** A
+  `CheckedListBox` row *is* a caption and a tick, so `CheckedListPlan` generates
+  `Models/<Field>Item.cs` as `{ Text, IsChecked }` and the ListBox gets an `ItemTemplate` with a
+  real `CheckBox`. A Details-mode ListView row is not: naming its properties would mean inventing
+  domain vocabulary out of column headers, so `ListViewRowsPlan` uses a `string[]` instead. The
+  generated row derives from `ObservableObject` because a handler calling `SetItemChecked` writes
+  the tick from the *other* side of the binding - without a notification the box never moves, which
+  compiles, runs, and silently does nothing.
 - **A WinForms `Paint` handler needs a *subclass*, which is why it changes the target element.**
   Avalonia draws by overriding `Render(DrawingContext)`. `PaintSurfaceFallback` is that subclass
   and raises the override back as an event; `PaintSurfaceMapper` retargets a `Panel`/`PictureBox`

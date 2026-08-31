@@ -827,9 +827,38 @@ public class AxamlEmitterTests
         var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
 
         Assert.Contains("<ListBox x:Name=\"optionsList\"", result.Axaml);
-        Assert.Contains("SelectionMode=\"Multiple\"", result.Axaml);
         Assert.Contains(result.Warnings, w => w.Contains("optionsList", StringComparison.Ordinal));
         Assert.Contains("TODO(Winforms2Avalonia)", result.Axaml);
+    }
+
+    /// <summary>
+    /// A ToolStripContainer keeps its five regions, each a XAML property element holding the
+    /// bundled panel it is - so a control the designer put in one ends up there.
+    /// </summary>
+    /// <remarks>
+    /// Only non-empty regions are emitted, so a container the designer left alone produces exactly
+    /// the AXAML it always did.
+    /// </remarks>
+    [Fact]
+    public void EmitView_ToolStripContainerWithRegionChildren_PutsEachOneInItsRegion()
+    {
+        var formModel = new FormModel { ClassName = "MainForm" };
+        var container = new ControlModel { FieldName = "container1", ClrTypeName = "ToolStripContainer" };
+        var label = new ControlModel { FieldName = "contentLabel", ClrTypeName = "Label" };
+        container.RegionChildren["ContentPanel"] = [label];
+        formModel.RootControls.Add(container);
+
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("<controls:ToolStripContainerFallback.ContentPanel>", result.Axaml);
+        Assert.Contains("<controls:ToolStripContentPanelFallback>", result.Axaml);
+        Assert.Contains("<TextBlock x:Name=\"contentLabel\"", result.Axaml);
+
+        // The region's panel is a template of its own, so it has to reach the generated project.
+        Assert.Contains("ToolStripContentPanelFallback", result.UsedFallbackKeys);
+
+        // Nothing is emitted for the four regions the designer never touched.
+        Assert.DoesNotContain("TopToolStripPanel", result.Axaml);
     }
 
     /// <summary>

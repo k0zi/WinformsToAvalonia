@@ -413,10 +413,21 @@ public sealed class AxamlEmitter
             EmitElementSpec(builder, nested);
         }
 
-        // A fallback's element name is prefixed with its xmlns; the table is keyed on the bare
-        // template key, exactly as FallbackControlMemberSupport is.
-        EmitLiteralItems(builder, control, elementName, mapped.FallbackTemplateKey ?? elementName, state);
+        // A child element, so it belongs with the ContextMenu after every attribute pass - and it
+        // replaces the literal items rather than joining them: a templated ListBox binds its rows.
+        if (EmitCheckedListTemplate(builder, control, elementName, state))
+        {
+            // handled
+        }
+        else
+        {
+            // A fallback's element name is prefixed with its xmlns; the table is keyed on the bare
+            // template key, exactly as FallbackControlMemberSupport is.
+            EmitLiteralItems(builder, control, elementName, mapped.FallbackTemplateKey ?? elementName, state);
+        }
         EmitIconIfPresent(builder, control, elementName, state);
+
+        EmitContainerRegions(builder, control, elementName, emitFallbackControls, state);
 
         if (control.ClrTypeName == "SplitContainer")
         {
@@ -533,6 +544,12 @@ public sealed class AxamlEmitter
             builder.Attribute("ItemsSource", $"{{Binding {rows.ViewModelPropertyName}}}");
         }
 
+        foreach (var checkedList in state.Plan.CheckedLists.Where(
+                     c => string.Equals(c.ControlFieldName, control.FieldName, StringComparison.Ordinal)))
+        {
+            builder.Attribute("ItemsSource", $"{{Binding {checkedList.ViewModelPropertyName}}}");
+        }
+
         // The navigator's Position comes through the bound-property loop above, like any other
         // two-way binding. These two do not: Count is a read-only path into the collection itself,
         // and SelectedIndex belongs to a *different* element than the property was planned on -
@@ -606,6 +623,53 @@ public sealed class AxamlEmitter
             foreach (var item in menuControl.Children)
             {
                 EmitControl(builder, item, emitFallbackControls, state, isItemOfParent: true);
+            }
+
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+    }
+
+    /// <summary>
+    /// A container's named sub-regions, as XAML property elements holding the bundled panel each
+    /// one is - a ToolStripContainer's <c>ContentPanel</c> and its four strips.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Property-element syntax rather than plain children, because these are not children: a
+    /// ToolStripContainer has none of its own, and which region a control went into is the whole
+    /// of what the designer recorded. The template's region properties are settable for exactly
+    /// this reason - a get-only one could not receive the panel.
+    /// </para>
+    /// <para>
+    /// A child element, so it belongs after every attribute pass; and only regions that actually
+    /// hold something are emitted, so a container the designer left empty produces the same AXAML
+    /// it always did.
+    /// </para>
+    /// </remarks>
+    private void EmitContainerRegions(
+        AxamlDocumentBuilder builder, ControlModel control, string elementName, bool emitFallbackControls, EmissionState state)
+    {
+        if (control.RegionChildren.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var (regionName, templateKey) in ToolStripContainerRegionCatalog.All)
+        {
+            if (!control.RegionChildren.TryGetValue(regionName, out var children) || children.Count == 0)
+            {
+                continue;
+            }
+
+            state.UsedFallbackKeys.Add(templateKey);
+
+            builder.OpenElement($"{elementName}.{regionName}");
+            builder.OpenElement($"controls:{templateKey}");
+
+            foreach (var child in children)
+            {
+                EmitControl(builder, child, emitFallbackControls, state, isItemOfParent: false);
             }
 
             builder.CloseElement();
@@ -900,6 +964,35 @@ public sealed class AxamlEmitter
             .Select(t => (t.XmlnsPrefix!, t.XmlnsValue!))
             .Distinct()
             .OrderBy(x => x.Item1, StringComparer.Ordinal);
+
+    /// <summary>
+    /// The <c>ItemTemplate</c> that gives a converted <c>CheckedListBox</c> its tick boxes.
+    /// </summary>
+    /// <remarks>
+    /// The one place this converter emits a <c>DataTemplate</c>. It is not a layout decision it
+    /// invented: a CheckedListBox row *is* a caption and a tick, and Avalonia has no control that
+    /// says so - only a template. <c>Mode=TwoWay</c> on the tick because clicking it is the whole
+    /// point, and the row type raises change notifications so a handler writing it moves the box.
+    /// </remarks>
+    private static bool EmitCheckedListTemplate(
+        AxamlDocumentBuilder builder, ControlModel control, string elementName, EmissionState state)
+    {
+        if (state.Plan.CheckedLists.FirstOrDefault(c =>
+                string.Equals(c.ControlFieldName, control.FieldName, StringComparison.Ordinal)) is null)
+        {
+            return false;
+        }
+
+        builder.OpenElement($"{elementName}.ItemTemplate");
+        builder.OpenElement("DataTemplate");
+        builder.OpenElement("CheckBox");
+        builder.Attribute("IsChecked", "{Binding IsChecked, Mode=TwoWay}");
+        builder.Attribute("Content", "{Binding Text}");
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+        return true;
+    }
 
     private static void EmitLiteralItems(
         AxamlDocumentBuilder builder, ControlModel control, string elementName, string itemsTarget, EmissionState state)

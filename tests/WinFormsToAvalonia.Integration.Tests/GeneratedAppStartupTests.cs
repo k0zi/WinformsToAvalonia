@@ -194,6 +194,42 @@ public class GeneratedAppStartupTests
             reportPaint: true,
             "w2a-paint:canvasPanel:1");
 
+    /// <summary>
+    /// A converted CheckedListBox: the tick renders, and a handler can move it.
+    /// </summary>
+    /// <remarks>
+    /// The button is clicked, so <c>SetItemChecked(1, true)</c> really runs. Both halves matter:
+    /// "Logging" proves the ItemTemplate realized a CheckBox at all, and "Telemetry" being True
+    /// proves the row raised a change notification the binding heard - a plain POCO would render
+    /// identically and never move.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedCheckedListApp_RendersAndMovesItsTicks() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "CheckedListApp", "CheckedListApp.csproj"),
+            "CheckedListApp",
+            clickButtons: true,
+            reportPaint: false,
+            "w2a-check:Logging:False",
+            "w2a-check:Telemetry:True");
+
+    /// <summary>
+    /// A converted ToolStripContainer: both nested regions really hold their controls.
+    /// </summary>
+    /// <remarks>
+    /// The regions are filled through XAML property-element syntax onto settable properties, and
+    /// the setter rebuilds the container's children. Both happen at load time - so building says
+    /// nothing here, and an app whose controls silently vanished would still start.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedToolStripContainerApp_PutsItsControlsInTheRightRegions() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "ToolStripContainerApp", "ToolStripContainerApp.csproj"),
+            "ToolStripContainerApp",
+            clickButtons: false,
+            reportPaint: false,
+            "w2a-region:toolStripContainer1:contentLabel,dockedStrip");
+
     private static async Task AssertStarts(
         string sourceProject, string name, bool clickButtons, bool reportPaint = false,
         params string[] expectedGrids)
@@ -288,6 +324,8 @@ public class GeneratedAppStartupTests
                     ExecutePromotedCommands(lifetime.MainWindow?.DataContext);
                     {{(clickButtons ? "ClickEveryButton(lifetime.MainWindow);" : "")}}
                     ReportGrids(lifetime.MainWindow);
+                    ReportCheckBoxes(lifetime.MainWindow);
+                    ReportContainerRegions(lifetime.MainWindow);
                     {{(reportPaint ? "ReportPaintSurfaces(lifetime.MainWindow);" : "")}}
 
                     Console.WriteLine("{{SuccessMarker}}");
@@ -446,6 +484,66 @@ public class GeneratedAppStartupTests
                 }
 
                 {{paintReport}}
+
+                /// <summary>
+                /// Every realized CheckBox and whether it is ticked.
+                /// </summary>
+                /// <remarks>
+                /// The proof for a converted CheckedListBox: its tick lives in an ItemTemplate
+                /// now, so the box only exists once the ListBox has realized a container for the
+                /// row - and it only *moves* when a handler writes the row and the row raises a
+                /// change notification. Neither of those is visible from the generated text.
+                /// Through the visual tree, because a templated item is not a logical child.
+                /// </remarks>
+                private static void ReportCheckBoxes(Window? window)
+                {
+                    if (window is null)
+                    {
+                        return;
+                    }
+
+                    window.UpdateLayout();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    foreach (var box in window.GetVisualDescendants().OfType<CheckBox>())
+                    {
+                        Console.WriteLine($"w2a-check:{box.Content}:{box.IsChecked}");
+                    }
+                }
+
+                /// <summary>
+                /// What actually ended up inside a converted ToolStripContainer.
+                /// </summary>
+                /// <remarks>
+                /// The regions are filled through XAML property-element syntax onto settable
+                /// properties, and the setter rebuilds the container's children. Both of those
+                /// happen at *load* time, not compile time: a loader that rejected the syntax, or
+                /// a rebuild that dropped a panel, would produce an app that starts with the
+                /// controls simply absent. Reflected rather than typed, because the container is
+                /// a generated type that only some apps have.
+                /// </remarks>
+                private static void ReportContainerRegions(Window? window)
+                {
+                    if (window is null)
+                    {
+                        return;
+                    }
+
+                    foreach (var container in window.GetVisualDescendants()
+                                 .OfType<Control>()
+                                 .Where(c => c.GetType().Name == "ToolStripContainerFallback"))
+                    {
+                        var named = string.Join(
+                            ",",
+                            container.GetVisualDescendants()
+                                .OfType<Control>()
+                                .Select(c => c.Name)
+                                .Where(n => !string.IsNullOrEmpty(n))
+                                .OrderBy(n => n, StringComparer.Ordinal));
+
+                        Console.WriteLine($"w2a-region:{container.Name}:{named}");
+                    }
+                }
 
                 private static IEnumerable<Control> Descendants(Control root)
                 {

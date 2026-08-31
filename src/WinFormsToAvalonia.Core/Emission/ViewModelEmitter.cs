@@ -32,13 +32,14 @@ public sealed class ViewModelEmitter
         var properties = plan.BoundProperties;
         var collections = plan.DataSourceBindings;
         var listViewRows = plan.ListViewRows;
+        var checkedLists = plan.CheckedLists;
         var commands = plan.ViewModelCommands;
 
         var sb = new StringBuilder();
         void Line(string text = "") => sb.Append(text).Append('\n');
 
         Line("using System;");
-        if (collections.Count > 0 || listViewRows.Count > 0)
+        if (collections.Count > 0 || listViewRows.Count > 0 || checkedLists.Count > 0)
         {
             Line("using System.Collections.ObjectModel;");
         }
@@ -47,6 +48,7 @@ public sealed class ViewModelEmitter
         // generated project, and those are supposed to be zero.
         foreach (var modelNamespace in collections
                      .Select(c => c.ElementTypeNamespace)
+                     .Concat(checkedLists.Select(c => c.ElementTypeNamespace))
                      .OfType<string>()
                      .Distinct(StringComparer.Ordinal)
                      .OrderBy(n => n, StringComparer.Ordinal))
@@ -104,6 +106,35 @@ public sealed class ViewModelEmitter
             Line($"    /// <summary>Bound to {rows.ControlFieldName}.ItemsSource in the view. One entry per row,");
             Line($"    /// holding its {rows.ColumnFieldNames.Count} cell(s) in column order.</summary>");
             Line($"    public ObservableCollection<string[]> {rows.ViewModelPropertyName} {{ get; }} = [];");
+        }
+
+        // The designer's Items entries, as the collection's initial contents: a templated ListBox
+        // binds its rows, it does not host them as elements.
+        foreach (var checkedList in checkedLists)
+        {
+            if (!isFirstMember)
+            {
+                Line();
+            }
+
+            isFirstMember = false;
+            Line($"    /// <summary>Bound to {checkedList.ControlFieldName}.ItemsSource in the view. Each row is a");
+            Line("    /// caption and a tick, which is what a WinForms CheckedListBox item was.</summary>");
+
+            if (checkedList.Items.Count == 0)
+            {
+                Line($"    public ObservableCollection<{checkedList.ElementTypeName}> {checkedList.ViewModelPropertyName} {{ get; }} = [];");
+                continue;
+            }
+
+            Line($"    public ObservableCollection<{checkedList.ElementTypeName}> {checkedList.ViewModelPropertyName} {{ get; }} =");
+            Line("    [");
+            foreach (var item in checkedList.Items)
+            {
+                Line($"        new() {{ Text = \"{item}\" }},");
+            }
+
+            Line("    ];");
         }
 
         foreach (var property in properties)

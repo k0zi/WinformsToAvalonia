@@ -256,6 +256,30 @@ public sealed record ListViewRowsPlan(
     IReadOnlyList<string> ColumnFieldNames);
 
 /// <summary>
+/// A <c>CheckedListBox</c>, and the ViewModel collection whose items carry its tick boxes.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Avalonia has no checkbox list, but it has an <c>ItemTemplate</c> - so the control stays a
+/// <c>ListBox</c> and each row becomes a real <c>CheckBox</c> bound to a row object. The row type
+/// is synthesized because the shape is not invented: a CheckedListBox item <em>is</em> a caption
+/// and a tick, which is the control's own contract. (Contrast <see cref="ListViewRowsPlan"/>,
+/// where deriving names from column headers would have invented domain vocabulary, so the row is
+/// a <c>string[]</c> instead.)
+/// </para>
+/// <para>
+/// The designer's <c>Items</c> entries become the collection's initial contents rather than
+/// literal item elements - a templated ListBox binds its rows, it does not host them.
+/// </para>
+/// </remarks>
+public sealed record CheckedListPlan(
+    string ControlFieldName,
+    string ViewModelPropertyName,
+    string ElementTypeName,
+    string ElementTypeNamespace,
+    IReadOnlyList<string> Items);
+
+/// <summary>
 /// One of a <c>BindingNavigator</c>'s buttons, and the navigation it performed.
 /// </summary>
 /// <param name="MethodName">
@@ -321,13 +345,19 @@ public sealed record FormMigrationPlan(
     /// <summary>
     /// BindingNavigators wired to a BindingSource a control is bound to.
     /// </summary>
-    IReadOnlyList<BindingNavigatorPlan>? BindingNavigators = null)
+    IReadOnlyList<BindingNavigatorPlan>? BindingNavigators = null,
+    /// <summary>
+    /// CheckedListBoxes, whose per-item tick becomes a bound CheckBox in an ItemTemplate.
+    /// </summary>
+    IReadOnlyList<CheckedListPlan>? CheckedLists = null)
 {
     public IReadOnlyList<DataSourceBindingPlan> DataSourceBindings { get; } = DataSourceBindings ?? [];
 
     public IReadOnlyList<ListViewRowsPlan> ListViewRows { get; } = ListViewRows ?? [];
 
     public IReadOnlyList<BindingNavigatorPlan> BindingNavigators { get; } = BindingNavigators ?? [];
+
+    public IReadOnlyList<CheckedListPlan> CheckedLists { get; } = CheckedLists ?? [];
 
     /// <summary>
     /// Whether the generated View needs a typed field for its ViewModel rather than constructing
@@ -340,7 +370,8 @@ public sealed record FormMigrationPlan(
     /// false for every Form that has neither collection, so the other generated Views stay byte
     /// for byte what they were.
     /// </remarks>
-    public bool RequiresViewModelField => DataSourceBindings.Count > 0 || ListViewRows.Count > 0;
+    public bool RequiresViewModelField =>
+        DataSourceBindings.Count > 0 || ListViewRows.Count > 0 || CheckedLists.Count > 0;
 
     public static FormMigrationPlan Empty { get; } = new([], [], [], [], [], [], [], [], [], [], [], [], []);
 

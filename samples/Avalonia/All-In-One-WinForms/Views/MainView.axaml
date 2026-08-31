@@ -42,11 +42,13 @@
                         <ListBoxItem Content="Beta" />
                         <ListBoxItem Content="Gamma" />
                     </ListBox>
-                    <!-- TODO(Winforms2Avalonia): 'checkedListBox1' is a CheckedListBox, which becomes a multi-selection ListBox: Avalonia has no per-item checkbox list, so ticking is approximated by selection and CheckedItems/CheckedIndices have no equivalent. Bind an ItemTemplate containing a CheckBox if the check state has to be a value of its own. -->
-                    <ListBox x:Name="checkedListBox1" Canvas.Left="204" Canvas.Top="12" Width="180" Height="124" SelectionMode="Multiple">
-                        <ListBoxItem Content="Logging" />
-                        <ListBoxItem Content="Telemetry" />
-                        <ListBoxItem Content="Auto-update" />
+                    <!-- TODO(Winforms2Avalonia): 'checkedListBox1' is a CheckedListBox: Avalonia has no such control, so it becomes a ListBox whose ItemTemplate holds a CheckBox, bound to a generated row type in Models/. SetItemChecked/GetItemChecked translate onto it. CheckedItems and CheckedIndices do not - they are WinForms collections with no counterpart - so read the collection instead. -->
+                    <ListBox x:Name="checkedListBox1" Canvas.Left="204" Canvas.Top="12" Width="180" Height="124" ItemsSource="{Binding CheckedListBox1Items}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Content="{Binding Text}" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
                     </ListBox>
                     <ComboBox x:Name="itemsComboBox" Canvas.Left="396" Canvas.Top="12" Width="180" Height="23" SelectedIndex="{Binding ItemsComboBoxSelectedIndex, Mode=TwoWay}">
                         <ComboBoxItem Content="Small" />
@@ -111,7 +113,20 @@
                     </TabControl>
                     <controls:ToolStripPanelFallback x:Name="toolStripPanel1" Canvas.Left="724" Canvas.Top="144" Width="224" Height="86" />
                     <controls:ToolStripContentPanelFallback x:Name="toolStripContentPanel1" Canvas.Left="724" Canvas.Top="238" Width="224" Height="86" />
-                    <controls:ToolStripContainerFallback x:Name="toolStripContainer1" Canvas.Left="12" Canvas.Top="336" Width="936" Height="220" />
+                    <controls:ToolStripContainerFallback x:Name="toolStripContainer1" Canvas.Left="12" Canvas.Top="336" Width="936" Height="220">
+                        <controls:ToolStripContainerFallback.TopToolStripPanel>
+                            <controls:ToolStripPanelFallback>
+                                <controls:ToolStripFallback x:Name="containerToolStrip" Canvas.Left="0" Canvas.Top="0" Width="936" Height="25">
+                                    <Button x:Name="containerToolStripButton" Content="Docked tool" />
+                                </controls:ToolStripFallback>
+                            </controls:ToolStripPanelFallback>
+                        </controls:ToolStripContainerFallback.TopToolStripPanel>
+                        <controls:ToolStripContainerFallback.ContentPanel>
+                            <controls:ToolStripContentPanelFallback>
+                                <TextBlock x:Name="contentPanelLabel" Canvas.Left="8" Canvas.Top="8" Width="400" Height="20" Text="ToolStripContainer.ContentPanel" />
+                            </controls:ToolStripContentPanelFallback>
+                        </controls:ToolStripContainerFallback.ContentPanel>
+                    </controls:ToolStripContainerFallback>
                 </Canvas>
             </TabItem>
             <TabItem x:Name="dataTabPage" Header="Data">

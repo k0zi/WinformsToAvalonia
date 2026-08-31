@@ -57,6 +57,13 @@ public class CodeBehindMigrationTests
                 "e.Context.DrawRectangle(null, new Pen(new SolidColorBrush(Color.Parse(\"#FF000000\"))), "
                 + "new Rect(0, 0, 10, 10));",
                 codeBehind);
+            Assert.Contains("CultureInfo.CurrentCulture, FlowDirection.LeftToRight,", codeBehind);
+            Assert.Contains("new Typeface(FontFamily, FontStyle, FontWeight), FontSize,", codeBehind);
+
+            // A layout rectangle is an origin plus a box, and the box is what made the text wrap.
+            Assert.Contains("MaxTextWidth = 60,", codeBehind);
+            Assert.Contains("MaxTextHeight = 30,", codeBehind);
+            Assert.Contains("TextAlignment = TextAlignment.Center,", codeBehind);
             Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(canvasPanel_Paint)", codeBehind);
 
             // Still never an AXAML attribute: it is a CLR event on a template, so the constructor

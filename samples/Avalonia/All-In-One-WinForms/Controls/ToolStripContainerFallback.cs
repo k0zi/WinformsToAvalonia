@@ -8,45 +8,85 @@ namespace All_In_One_WinForms.Controls;
 /// ToolStripPanelFallback strips around a central ToolStripContentPanelFallback - and exposes
 /// each region as a public property, mirroring the WinForms API shape so code-behind written
 /// against `toolStripContainer1.ContentPanel`/`.TopToolStripPanel`/etc. has a direct
-/// equivalent to migrate to. Nested content (originally added via e.g.
-/// `this.toolStripContainer1.ContentPanel.Controls.Add(x)`) is not migrated automatically -
-/// that three-level member-access chain isn't parsed yet (see docs/known-limitations.md); add
-/// children to the exposed regions by hand.
+/// equivalent to migrate to.
 /// </summary>
+/// <remarks>
+/// The five regions are settable, which is the only reason the conversion can fill them: XAML
+/// property-element syntax (<c>&lt;ToolStripContainerFallback.ContentPanel&gt;</c>) assigns a
+/// panel, and a get-only property could not receive one. Each setter rebuilds the child list
+/// rather than swapping in place, because a DockPanel lays its children out in order and the
+/// content panel has to stay last - that is what gives it the space the strips did not take
+/// (<c>LastChildFill</c>). Rebuilding is a handful of children and cannot get the order wrong.
+/// </remarks>
 public class ToolStripContainerFallback : DockPanel
 {
-    public ToolStripPanelFallback TopToolStripPanel { get; }
+    private ToolStripPanelFallback _topToolStripPanel = new();
+    private ToolStripPanelFallback _bottomToolStripPanel = new();
+    private ToolStripPanelFallback _leftToolStripPanel = new() { Orientation = Avalonia.Layout.Orientation.Vertical };
+    private ToolStripPanelFallback _rightToolStripPanel = new() { Orientation = Avalonia.Layout.Orientation.Vertical };
+    private ToolStripContentPanelFallback _contentPanel = new();
 
-    public ToolStripPanelFallback BottomToolStripPanel { get; }
+    public ToolStripContainerFallback() => Rebuild();
 
-    public ToolStripPanelFallback LeftToolStripPanel { get; }
-
-    public ToolStripPanelFallback RightToolStripPanel { get; }
-
-    public ToolStripContentPanelFallback ContentPanel { get; }
-
-    public ToolStripContainerFallback()
+    public ToolStripPanelFallback TopToolStripPanel
     {
-        TopToolStripPanel = new ToolStripPanelFallback();
-        DockPanel.SetDock(TopToolStripPanel, Dock.Top);
+        get => _topToolStripPanel;
+        set => Replace(ref _topToolStripPanel, value);
+    }
 
-        BottomToolStripPanel = new ToolStripPanelFallback();
-        DockPanel.SetDock(BottomToolStripPanel, Dock.Bottom);
+    public ToolStripPanelFallback BottomToolStripPanel
+    {
+        get => _bottomToolStripPanel;
+        set => Replace(ref _bottomToolStripPanel, value);
+    }
 
-        LeftToolStripPanel = new ToolStripPanelFallback { Orientation = Avalonia.Layout.Orientation.Vertical };
-        DockPanel.SetDock(LeftToolStripPanel, Dock.Left);
+    public ToolStripPanelFallback LeftToolStripPanel
+    {
+        get => _leftToolStripPanel;
+        set => Replace(ref _leftToolStripPanel, value);
+    }
 
-        RightToolStripPanel = new ToolStripPanelFallback { Orientation = Avalonia.Layout.Orientation.Vertical };
-        DockPanel.SetDock(RightToolStripPanel, Dock.Right);
+    public ToolStripPanelFallback RightToolStripPanel
+    {
+        get => _rightToolStripPanel;
+        set => Replace(ref _rightToolStripPanel, value);
+    }
 
-        ContentPanel = new ToolStripContentPanelFallback();
+    public ToolStripContentPanelFallback ContentPanel
+    {
+        get => _contentPanel;
+        set => Replace(ref _contentPanel, value);
+    }
 
-        // Order matters for DockPanel: docked children first, the undocked last child fills
-        // the remaining space (LastChildFill defaults to true).
-        Children.Add(TopToolStripPanel);
-        Children.Add(BottomToolStripPanel);
-        Children.Add(LeftToolStripPanel);
-        Children.Add(RightToolStripPanel);
-        Children.Add(ContentPanel);
+    private void Replace<T>(ref T slot, T panel)
+        where T : Control
+    {
+        if (panel is null || ReferenceEquals(slot, panel))
+        {
+            return;
+        }
+
+        slot = panel;
+        Rebuild();
+    }
+
+    /// <summary>
+    /// Docks every region and puts the content panel last, which is where a DockPanel gives the
+    /// remaining space.
+    /// </summary>
+    private void Rebuild()
+    {
+        Children.Clear();
+
+        DockPanel.SetDock(_topToolStripPanel, Dock.Top);
+        DockPanel.SetDock(_bottomToolStripPanel, Dock.Bottom);
+        DockPanel.SetDock(_leftToolStripPanel, Dock.Left);
+        DockPanel.SetDock(_rightToolStripPanel, Dock.Right);
+
+        Children.Add(_topToolStripPanel);
+        Children.Add(_bottomToolStripPanel);
+        Children.Add(_leftToolStripPanel);
+        Children.Add(_rightToolStripPanel);
+        Children.Add(_contentPanel);
     }
 }

@@ -31,10 +31,25 @@ namespace CodeBehindMigrationApp
             panel.Text = e.X + "," + e.Y;
         }
 
-        // Avalonia has no Paint event: the method is emitted but nothing subscribes it.
+        // Avalonia has no Paint event - drawing is a Render(DrawingContext) override - so this
+        // childless Panel becomes the bundled paint surface, which turns that override back
+        // into the event, and the constructor subscribes it.
         private void canvasPanel_Paint(object sender, PaintEventArgs e)
         {
             e.Graphics.DrawRectangle(Pens.Black, 0, 0, 10, 10);
+
+            // Text as well as geometry: a FormattedText is built and measured during the render
+            // pass, so a bad typeface or em size throws there rather than at compile time.
+            e.Graphics.DrawString("drawn", this.Font, Brushes.Black, 2, 2);
+
+            // The bounded form, which is where MaxTextWidth/MaxTextHeight and an alignment
+            // actually mean something - and where the layout really runs.
+            e.Graphics.DrawString(
+                "wrapped",
+                this.Font,
+                Brushes.Black,
+                new RectangleF(2, 20, 60, 30),
+                new StringFormat { Alignment = StringAlignment.Center });
         }
 
         // Not promotable (it closes the Form), so these reads touch the real Avalonia members

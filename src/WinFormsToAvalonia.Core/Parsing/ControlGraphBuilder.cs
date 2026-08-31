@@ -38,11 +38,27 @@ public sealed class ControlGraphBuilder
             {
                 formModel.RootControls.Add(child);
             }
-            else if (TrySplitPanelSlot(edge.ParentFieldName, out var containerField, out var panelName)
+            else if (TrySplitPanelSlot(edge.ParentFieldName, out var containerField, out var regionName)
                 && formModel.Controls.TryGetValue(containerField, out var container))
             {
-                var slot = panelName == "Panel1" ? container.Panel1Children : container.Panel2Children;
-                slot.Add(child);
+                // A SplitContainer's two halves keep their own lists - they are emitted as a Grid
+                // with a splitter, a shape nothing else shares. Every other named region goes in
+                // the general dictionary.
+                if (regionName is "Panel1" or "Panel2")
+                {
+                    var slot = regionName == "Panel1" ? container.Panel1Children : container.Panel2Children;
+                    slot.Add(child);
+                }
+                else
+                {
+                    if (!container.RegionChildren.TryGetValue(regionName, out var region))
+                    {
+                        region = [];
+                        container.RegionChildren[regionName] = region;
+                    }
+
+                    region.Add(child);
+                }
             }
             else if (formModel.Controls.TryGetValue(edge.ParentFieldName, out var parent))
             {

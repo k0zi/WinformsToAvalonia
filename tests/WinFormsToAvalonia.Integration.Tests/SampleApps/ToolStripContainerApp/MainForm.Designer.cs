@@ -17,10 +17,11 @@ namespace ToolStripContainerApp
         {
             this.toolStripContainer1 = new ToolStripContainer();
             this.contentLabel = new System.Windows.Forms.Label();
+            this.dockedStrip = new ToolStrip();
             this.SuspendLayout();
             //
-            // contentLabel - put into a nested region, which this conversion cannot place. The
-            // point of the fixture is that it is *reported by name* rather than vanishing.
+            // contentLabel - put into a nested region. Both region kinds are exercised here: the
+            // content panel below and the top strip panel, which become different templates.
             //
             this.contentLabel.Location = new System.Drawing.Point(8, 8);
             this.contentLabel.Name = "contentLabel";
@@ -34,6 +35,12 @@ namespace ToolStripContainerApp
             this.toolStripContainer1.Size = new System.Drawing.Size(240, 140);
             this.toolStripContainer1.TabIndex = 0;
             this.toolStripContainer1.ContentPanel.Controls.Add(this.contentLabel);
+            this.toolStripContainer1.TopToolStripPanel.Controls.Add(this.dockedStrip);
+            //
+            // dockedStrip
+            //
+            this.dockedStrip.Name = "dockedStrip";
+            this.dockedStrip.Size = new System.Drawing.Size(240, 25);
             //
             // MainForm
             //
@@ -46,5 +53,6 @@ namespace ToolStripContainerApp
 
         private ToolStripContainer toolStripContainer1;
         private System.Windows.Forms.Label contentLabel;
+        private ToolStrip dockedStrip;
     }
 }

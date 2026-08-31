@@ -2,7 +2,7 @@
 
 Generated from `All-In-One-WinForms.csproj` by WinFormsToAvalonia.
 
-**97 of 106 handler statements (92%)** came across as real Avalonia code.
+**98 of 106 handler statements (92%)** came across as real Avalonia code.
 
 Everything below is preserved in the generated project as a comment, inside a method that
 calls `MigrationTodo.NotMigrated(...)`. The marker reports rather than throws, so the app
@@ -13,26 +13,22 @@ right Avalonia signature, and its event is subscribed - the AXAML carries the at
 the constructor the subscription. What is left is the body: the statement named beside each
 one is the first the conversion could not prove equivalent.
 
-## Methods to migrate (7)
+## Methods to migrate (6)
 
 ### `Views/MainView.axaml.cs`
 
 - [ ] `MainForm_FormClosing` — `this.notifyIcon1.Visible = false;`
 - [ ] `pageSetupButton_Click` — `this.pageSetupDialog1.ShowDialog(this);`
-- [ ] `pictureBox1_Paint` — `e.Graphics.DrawString("PictureBox.Paint", this.Font, Brushes.SteelBlue, 20, 60);`
 - [ ] `printButton_Click` — `if (this.printDialog1.ShowDialog(this) == DialogResult.OK)`
 - [ ] `printDocument1_PrintPage` — `e.Graphics!.DrawString(`
 - [ ] `printPreviewButton_Click` — `this.printPreviewDialog1.ShowDialog(this);`
 - [ ] `showBalloonButton_Click` — `this.notifyIcon1.ShowBalloonTip(3000);`
 
-## Needs your attention (51)
+## Needs your attention (48)
 
 Everything the conversion decided not to guess at, and why.
 
-- 'toolStripContainer1.ContentPanel' holds 'contentPanelLabel', which is a nested container region this conversion cannot place - only a SplitContainer's Panel1/Panel2 are translated. Those controls are not emitted; add them to the generated 'toolStripContainer1' by hand.
-- 'toolStripContainer1.TopToolStripPanel' holds 'containerToolStrip', which is a nested container region this conversion cannot place - only a SplitContainer's Panel1/Panel2 are translated. Those controls are not emitted; add them to the generated 'toolStripContainer1' by hand.
 - 'helpProvider1' (HelpProvider) calls 'SetShowHelp(...)', which has no Avalonia equivalent - that setting is not carried over.
-- 'ToolStrip' has no built-in Avalonia equivalent; using the bundled fallback control 'ToolStripFallback'.
 - No Avalonia printing API at all - not a dialog, not a document, not a printer list. This dialog only picked a printer and its settings for a PrintDocument, so there is nothing here to wrap and nothing to seed; a cross-platform printing library is the answer, and which one is your call. The `if (printDialog1.ShowDialog() == DialogResult.OK)` shape is therefore left whole for you rather than half-translated.
 - No Avalonia printing API at all. This one is pure data entry - paper size, orientation, margins - so a replacement window would be easy to build and useless: the PageSettings it produces has nothing on the Avalonia side to consume them. It belongs to whichever printing library you adopt.
 - No Avalonia printing API at all, so there is nothing to render a preview from. The *control* form of this, PrintPreviewControl, does get the bundled PrintPreviewControlFallback - a page-shaped placeholder that keeps the converted layout intact - but a dialog previewing a PrintDocument has no honest stand-in, because the document itself cannot be produced on this side.
@@ -77,7 +73,7 @@ Everything the conversion decided not to guess at, and why.
 - Component 'serviceController1' (ServiceController) is Windows-only. The generated View declares it and compiles everywhere, with the platform analyser suppressed for that file - but these calls throw on Linux and macOS.
 - Component 'soundPlayer1' (SoundPlayer) is Windows-only. The generated View declares it and compiles everywhere, with the platform analyser suppressed for that file - but these calls throw on Linux and macOS.
 - 'pictureBox1' subscribes both 'MouseDown' and 'Click', which map to the same Avalonia event 'PointerPressed'. 'pictureBox1_MouseDown' carries the AXAML attribute and 'pictureBox1_Click' is subscribed from the constructor instead, so both run - but they now run at the same moment, which the two WinForms events did not.
-- 'checkedListBox1' is a CheckedListBox, which becomes a multi-selection ListBox: Avalonia has no per-item checkbox list, so ticking is approximated by selection and CheckedItems/CheckedIndices have no equivalent. Bind an ItemTemplate containing a CheckBox if the check state has to be a value of its own.
+- 'checkedListBox1' is a CheckedListBox: Avalonia has no such control, so it becomes a ListBox whose ItemTemplate holds a CheckBox, bound to a generated row type in Models/. SetItemChecked/GetItemChecked translate onto it. CheckedItems and CheckedIndices do not - they are WinForms collections with no counterpart - so read the collection instead.
 - Click handler 'okButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 - Click handler 'cancelButton_Click' stays in code-behind: it drives the Form itself (Close, DialogResult).
 

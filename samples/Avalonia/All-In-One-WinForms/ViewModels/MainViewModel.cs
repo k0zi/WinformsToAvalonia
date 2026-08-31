@@ -17,6 +17,15 @@ public sealed partial class MainViewModel : ViewModelBase
     /// holding its 2 cell(s) in column order.</summary>
     public ObservableCollection<string[]> ItemsListViewRows { get; } = [];
 
+    /// <summary>Bound to checkedListBox1.ItemsSource in the view. Each row is a
+    /// caption and a tick, which is what a WinForms CheckedListBox item was.</summary>
+    public ObservableCollection<CheckedListBox1Item> CheckedListBox1Items { get; } =
+    [
+        new() { Text = "Logging" },
+        new() { Text = "Telemetry" },
+        new() { Text = "Auto-update" },
+    ];
+
     /// <summary>Bound to toolStripProgressBar1.Value in the view.</summary>
     [ObservableProperty]
     public partial double ToolStripProgressBar1Value { get; set; }

@@ -345,18 +345,22 @@ public class ControlMappingRegistryTests
     }
 
     /// <summary>
-    /// The check state is the whole point of a CheckedListBox, and it used to vanish in silence.
+    /// A ListBox, and no <c>SelectionMode="Multiple"</c>. That attribute used to stand in for
+    /// "several items are ticked at once" - a defensible approximation only while the tick had
+    /// nowhere else to live. It has one now (an ItemTemplate with a CheckBox), so a converted
+    /// CheckedListBox selects the way the original did, and the two states are separate again.
     /// </summary>
     [Fact]
-    public void Map_CheckedListBox_IsAMultiSelectListBoxAndSaysWhatItLost()
+    public void Map_CheckedListBox_IsAPlainListBoxAndSaysWhereTheTickWent()
     {
         var mapped = new ControlMappingRegistry()
             .Map(new ControlModel { FieldName = "optionsList", ClrTypeName = "CheckedListBox" });
 
         Assert.Equal(MappingStatus.Direct, mapped.Status);
         Assert.Equal("ListBox", mapped.AvaloniaElementName);
-        Assert.Equal("Multiple", mapped.Attributes["SelectionMode"]);
+        Assert.DoesNotContain("SelectionMode", mapped.Attributes.Keys);
         Assert.Contains(mapped.Warnings, w => w.Contains("optionsList", StringComparison.Ordinal));
+        Assert.Contains(mapped.Warnings, w => w.Contains("ItemTemplate", StringComparison.Ordinal));
     }
 
     [Fact]

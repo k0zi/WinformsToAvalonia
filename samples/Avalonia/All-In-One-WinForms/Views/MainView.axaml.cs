@@ -17,6 +17,7 @@ using Avalonia;
 using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using System.Globalization;
 using System.Linq;
 using All_In_One_WinForms.Controls;
 using All_In_One_WinForms.Generated;
@@ -309,11 +310,10 @@ public partial class MainView : Window
     private void pictureBox1_Paint(object? sender, PaintSurfaceEventArgs e)
     {
         e.Context.DrawEllipse(null, new Pen(new SolidColorBrush(Color.Parse("#FF4682B4"))), new Rect(10, 10, 200, 120));
-
-        /* REMAINING WINFORMS BODY of 'pictureBox1_Paint' - TODO(Winforms2Avalonia): migrate it into this method.
-        e.Graphics.DrawString("PictureBox.Paint", this.Font, Brushes.SteelBlue, 20, 60);
-        */
-        MigrationTodo.NotMigrated(nameof(pictureBox1_Paint), "pictureBox1_Paint");
+        e.Context.DrawText(
+            new FormattedText(
+                "PictureBox.Paint", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface(FontFamily, FontStyle, FontWeight), FontSize, new SolidColorBrush(Color.Parse("#FF4682B4"))),
+            new Point(20, 60));
     }
 
     private void trackBar1_Scroll(object? sender, RangeBaseValueChangedEventArgs e)

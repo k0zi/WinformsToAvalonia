@@ -3394,6 +3394,70 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- CheckedListBox: the per-item tick ---------------------------------------------------
+
+    private static RewrittenBody RewriteChecked(string body) =>
+        Rewriter.RewriteForView(
+            body,
+            FormWith(("checkedListBox1", "CheckedListBox")),
+            checkedLists: [new("checkedListBox1", "CheckedListBox1Items", "CheckedListBox1Item", "Demo.Models", ["a"])]);
+
+    /// <summary>
+    /// Both directions of the one shape, and both exact: the WinForms call named an index and a
+    /// bool, and so does the translation - onto the row object that now carries the tick.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SetItemChecked_WritesTheRowsTick()
+    {
+        var result = RewriteChecked("this.checkedListBox1.SetItemChecked(0, true);");
+
+        Assert.Equal(["w2aViewModel.CheckedListBox1Items[0].IsChecked = true;"], result.MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_GetItemChecked_ReadsTheRowsTick()
+    {
+        var result = RewriteChecked(
+            "this.statusLabel.Text = this.checkedListBox1.GetItemChecked(1).ToString();");
+
+        Assert.Empty(result.MigratedStatements);
+
+        // ...but as a condition, where no unknown control is involved, it really translates.
+        var condition = RewriteChecked(
+            "if (this.checkedListBox1.GetItemChecked(1))\n{\n    this.checkedListBox1.SetItemChecked(0, false);\n}");
+
+        Assert.Contains(
+            "if (w2aViewModel.CheckedListBox1Items[1].IsChecked)",
+            Assert.Single(condition.MigratedStatements),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Without a plan the control is an ordinary ListBox and these calls mean nothing - which is
+    /// also what happens to any other control type that happens to have a method of that name.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SetItemCheckedWithNoPlan_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            "this.checkedListBox1.SetItemChecked(0, true);",
+            FormWith(("checkedListBox1", "CheckedListBox")));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// CheckedItems is a WinForms collection type. Handing back something that merely looks like
+    /// one would let `.Add` or `.Count` compile against an object that is not it.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_CheckedItems_IsNotMigrated()
+    {
+        var result = RewriteChecked("this.statusLabel.Text = this.checkedListBox1.CheckedItems.Count.ToString();");
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     // ---- Paint handlers: Graphics -> DrawingContext ------------------------------------------
 
     private static RewrittenBody RewritePaint(string body) =>
@@ -3447,14 +3511,167 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// DrawString is refused: Avalonia's DrawText wants a Typeface and an em size where WinForms
-    /// passed one Font object, and splitting one argument into two this converter cannot read is
-    /// the kind of guess it does not make. The prefix rule then leaves the rest to a human.
+    /// DrawString needs a font, and a WinForms Font is one object where Avalonia wants two values.
+    /// The Form's own font reads back off the four properties this converter splits a Font into
+    /// everywhere else - and the View is a Window or a UserControl, both TemplatedControls, which
+    /// is where those four actually live.
     /// </summary>
     [Fact]
-    public void RewriteForView_DrawString_IsNotMigrated()
+    public void RewriteForView_DrawStringWithTheFormsFont_UsesTheViewsOwnTypeface()
     {
         var result = RewritePaint("e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, 1, 2);");
+
+        Assert.Equal(
+            [
+                "e.Context.DrawText(\n"
+                + "    new FormattedText(\n"
+                + "        \"x\", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, "
+                + "new Typeface(FontFamily, FontStyle, FontWeight), FontSize, "
+                + "new SolidColorBrush(Color.Parse(\"#FF000000\"))),\n"
+                + "    new Point(1, 2));",
+            ],
+            result.MigratedStatements);
+        Assert.Contains("System.Globalization", result.RequiredUsings);
+    }
+
+    /// <summary>
+    /// A literal font goes through the same evaluator and formatters the designer path uses, so
+    /// the point-to-pixel conversion is the one already written down - 12pt is 16px, not 12.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DrawStringWithALiteralFont_ConvertsPointsToPixels()
+    {
+        var result = RewritePaint(
+            "e.Graphics.DrawString(\"x\", new Font(\"Arial\", 12f, FontStyle.Bold), Brushes.Black, 1, 2);");
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.Contains("new Typeface(\"Arial\", FontStyle.Normal, FontWeight.Bold), 16,", statement, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Underline and Strikeout are not slant or weight in Avalonia but a TextDecorations
+    /// collection, which a Typeface cannot express - so the statement refuses rather than
+    /// silently dropping the decoration.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DrawStringWithAnUnderlinedFont_IsNotMigrated()
+    {
+        var result = RewritePaint(
+            "e.Graphics.DrawString(\"x\", new Font(\"Arial\", 12f, FontStyle.Underline), Brushes.Black, 1, 2);");
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A control's font is only readable where that element really carries all four properties.
+    /// The paint surface itself does not: it derives from Control, which has none of them.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DrawStringWithAFontFromAnElementThatHasNone_IsNotMigrated()
+    {
+        var result = RewritePaint("e.Graphics.DrawString(\"x\", this.canvasPanel.Font, Brushes.Black, 1, 2);");
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A point placement is the origin Avalonia's DrawText already wants, so it is the same call
+    /// with the coordinates read out of the construction.
+    /// </summary>
+    [Theory]
+    [InlineData("new PointF(1, 2)")]
+    [InlineData("new Point(1, 2)")]
+    public void RewriteForView_DrawStringAtAPoint_UsesItAsTheOrigin(string point)
+    {
+        var result = RewritePaint($"e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, {point});");
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.EndsWith("    new Point(1, 2));", statement, StringComparison.Ordinal);
+        Assert.DoesNotContain("MaxTextWidth", statement, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A layout rectangle is an origin *and* a box, and the box is not decoration: it is what made
+    /// the text wrap. MaxTextWidth/MaxTextHeight are the same instruction.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DrawStringInARectangle_BoundsTheText()
+    {
+        var result = RewritePaint(
+            "e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, new RectangleF(1, 2, 30, 40));");
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.Contains("        MaxTextWidth = 30,\n        MaxTextHeight = 40,\n", statement, StringComparison.Ordinal);
+        Assert.EndsWith("    new Point(1, 2));", statement, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The surface's own clip rectangle is already an Avalonia Rect, so its members are read
+    /// straight off it rather than reconstructed.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DrawStringInTheClipRectangle_ReadsItsMembers()
+    {
+        var result = RewritePaint(
+            "e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, e.ClipRectangle);");
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.Contains("MaxTextWidth = e.ClipRectangle.Width,", statement, StringComparison.Ordinal);
+        Assert.EndsWith("    new Point(e.ClipRectangle.X, e.ClipRectangle.Y));", statement, StringComparison.Ordinal);
+    }
+
+    /// <summary>Alignment and trimming both describe behaviour inside a box, and there is one.</summary>
+    [Fact]
+    public void RewriteForView_DrawStringWithAFormatInARectangle_CarriesTheAlignment()
+    {
+        var result = RewritePaint(
+            "e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, new RectangleF(1, 2, 30, 40), "
+            + "new StringFormat { Alignment = StringAlignment.Far, Trimming = StringTrimming.EllipsisWord });");
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.Contains("TextAlignment = TextAlignment.Right,", statement, StringComparison.Ordinal);
+        Assert.Contains("Trimming = TextTrimming.WordEllipsis,", statement, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Without a box there is nothing to align or trim against, and Avalonia applies neither -
+    /// so the setting would be emitted and silently do nothing. Refusing is the honest answer.
+    /// </summary>
+    [Theory]
+    [InlineData("1, 2, new StringFormat { Alignment = StringAlignment.Center }")]
+    [InlineData("new PointF(1, 2), new StringFormat { Alignment = StringAlignment.Center }")]
+    public void RewriteForView_DrawStringWithAFormatButNoBox_IsNotMigrated(string tail)
+    {
+        var result = RewritePaint($"e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, {tail});");
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The parts of a StringFormat with no counterpart: vertical placement, which a FormattedText
+    /// does not do at all; a trimming mode that cuts without an ellipsis, which Avalonia has none
+    /// of; and an opaque static, which a converted body cannot read.
+    /// </summary>
+    [Theory]
+    [InlineData("new StringFormat { LineAlignment = StringAlignment.Center }")]
+    [InlineData("new StringFormat { Trimming = StringTrimming.Character }")]
+    [InlineData("StringFormat.GenericTypographic")]
+    public void RewriteForView_DrawStringWithAnUntranslatableFormat_IsNotMigrated(string format)
+    {
+        var result = RewritePaint(
+            $"e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, new RectangleF(1, 2, 30, 40), {format});");
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A point or rectangle has to be constructed in the call: a local of type PointF could not
+    /// survive the conversion at all, since System.Drawing is not there to declare it.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DrawStringAtAnUnconstructedPoint_IsNotMigrated()
+    {
+        var result = RewritePaint("e.Graphics.DrawString(\"x\", this.Font, Brushes.Black, somePoint);");
 
         Assert.Empty(result.MigratedStatements);
     }

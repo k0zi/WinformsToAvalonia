@@ -155,14 +155,25 @@ public class FallbackControlConversionTests
             vfs.TryGetText("Views/MainView.axaml", out var axaml);
             Assert.Contains("<controls:ToolStripContainerFallback", axaml);
 
-            // A control added to one of the container's nested regions cannot be placed - the
-            // regions are not slots this converter models. It used to disappear from the AXAML
-            // *and* from the report, which made it the one wholly silent loss in the converter.
-            Assert.DoesNotContain("contentLabel", axaml);
-            Assert.Contains(
+            // A control added to one of the container's nested regions is placed into that region,
+            // as a property element holding the panel the region is. It used to disappear from the
+            // AXAML *and* from the report, then it was reported; now it comes across.
+            Assert.Contains("<controls:ToolStripContainerFallback.ContentPanel>", axaml);
+            Assert.Contains("<controls:ToolStripContentPanelFallback>", axaml);
+            Assert.Contains("<TextBlock x:Name=\"contentLabel\"", axaml);
+
+            // Both region kinds, and they are different templates: a strip panel stacks its tool
+            // strips, a content panel positions its controls absolutely.
+            Assert.Contains("<controls:ToolStripContainerFallback.TopToolStripPanel>", axaml);
+            Assert.Contains("<controls:ToolStripPanelFallback>", axaml);
+
+            // Each child really is inside its own region, not merely somewhere in the document.
+            AssertNestedInside(axaml, "controls:ToolStripContainerFallback.ContentPanel", "contentLabel");
+            AssertNestedInside(axaml, "controls:ToolStripContainerFallback.TopToolStripPanel", "dockedStrip");
+
+            Assert.DoesNotContain(
                 result.Report.Warnings,
-                w => w.Contains("contentLabel", StringComparison.Ordinal)
-                    && w.Contains("ContentPanel", StringComparison.Ordinal));
+                w => w.Contains("contentLabel", StringComparison.Ordinal));
 
             var buildResult = await DotnetRunner.RunAsync("build", outputDir);
 
@@ -177,6 +188,22 @@ public class FallbackControlConversionTests
                 Directory.Delete(outputDir, recursive: true);
             }
         }
+    }
+
+    /// <summary>
+    /// That <paramref name="childName"/> appears between the opening and closing tags of
+    /// <paramref name="regionElement"/> - not merely somewhere in the same document.
+    /// </summary>
+    private static void AssertNestedInside(string axaml, string regionElement, string childName)
+    {
+        var open = axaml.IndexOf($"<{regionElement}>", StringComparison.Ordinal);
+        var close = axaml.IndexOf($"</{regionElement}>", StringComparison.Ordinal);
+        var child = axaml.IndexOf(childName, StringComparison.Ordinal);
+
+        Assert.True(open >= 0 && close > open, $"'{regionElement}' is not a well-formed element in the AXAML.");
+        Assert.True(
+            child > open && child < close,
+            $"'{childName}' is in the document but not inside '{regionElement}' - which is the whole claim.");
     }
 
 }

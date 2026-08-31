@@ -35,4 +35,16 @@ public sealed class ControlModel
 
     /// <summary>SplitContainer-specific counterpart to <see cref="Panel1Children"/> for `Panel2`.</summary>
     public List<ControlModel> Panel2Children { get; } = [];
+
+    /// <summary>
+    /// Children added through one of a container's named sub-regions, keyed by region name -
+    /// `this.toolStripContainer1.ContentPanel.Controls.Add(...)`.
+    /// </summary>
+    /// <remarks>
+    /// The general form of <see cref="Panel1Children"/>/<see cref="Panel2Children"/>, which stay
+    /// separate because a SplitContainer's two halves are emitted as a Grid with a splitter
+    /// between them - a shape nothing else shares. A ToolStripContainer's five regions are
+    /// emitted as themselves, so one dictionary covers them.
+    /// </remarks>
+    public Dictionary<string, List<ControlModel>> RegionChildren { get; } = new(StringComparer.Ordinal);
 }

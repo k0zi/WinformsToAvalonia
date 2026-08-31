@@ -94,7 +94,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 |---|---|---|---|---|
 | `ListControl` | — | | | Base class. |
 | `ListBox` | ✅ Direct | `ListBox` | | Designer-declared literal `Items` entries are emitted as `ListBoxItem` children. |
-| `CheckedListBox` | ✅ Direct | `ListBox` | | `SelectionMode="Multiple"`, plus a warning: Avalonia has no per-item checkbox list, so ticking is approximated by selection and `CheckedItems` has no equivalent. Literal `Items` entries are translated. |
+| `CheckedListBox` | ✅ Direct | `ListBox` | | Its `ItemTemplate` holds a real `CheckBox`, bound to a generated `{ Text, IsChecked }` row type in `Models/`. Designer `Items` entries become the collection's contents; `SetItemChecked`/`GetItemChecked` translate. See [Implementation plan](#checkedlistbox). |
 | `ComboBox` | ✅ Direct | `ComboBox` | | Designer-declared literal `Items` entries are emitted as `ComboBoxItem` children. |
 | `ListView` | ✅ Direct | `DataGrid` / `ListBox` | | Per-instance (`ListViewMapper`): `View=Details`, or any parsed `ColumnHeader` children, → `DataGrid` with its columns; otherwise `ListBox`. Items are not translated either way — the control is emitted without rows. |
 | `TreeView` | ✅ Direct | `TreeView` | | |
@@ -128,7 +128,7 @@ the summary counts rows rather than types it agreed with itself while being two 
 | `ToolStrip` | ✅ Fallback | `ToolStripFallback` | | Now a `StackPanel` hosting its real `ToolStripButton`/`Label`/`ComboBox`/`TextBox`/`ProgressBar` item children. |
 | `StatusStrip` | ✅ Fallback | `StatusStripFallback` | | Now a `StackPanel` hosting its real `ToolStripStatusLabel` item children. |
 | `ContextMenuStrip` | ❌ Unsupported | | 🟡 Elsewhere | The component itself has no element — but `this.someControl.ContextMenuStrip = this.contextMenuStrip1` assignments ARE now translated automatically into a nested `<Control.ContextMenu>` on the target control. See [Implementation plan](#contextmenustrip). |
-| `ToolStripContainer` | ✅ Fallback | `ToolStripContainerFallback` | | Builds the 5-region docked layout; nested content is not placed, but every control added to a region is now **reported by name**. |
+| `ToolStripContainer` | ✅ Fallback | `ToolStripContainerFallback` | | Builds the 5-region docked layout, and controls added to a region are placed into it — each region is emitted as a property element holding its panel. See [Implementation plan](#toolstripcontainer-toolstrippanel-toolstripcontentpanel). |
 | `ToolStripPanel` | ✅ Fallback | `ToolStripPanelFallback` | | |
 | `ToolStripContentPanel` | ✅ Fallback | `ToolStripContentPanelFallback` | | |
 
@@ -380,12 +380,33 @@ Implemented as `Fallback` controls:
 is a `DockPanel` that builds the same fixed 5-region layout (`TopToolStripPanel`/
 `BottomToolStripPanel`/`LeftToolStripPanel`/`RightToolStripPanel` + `ContentPanel`) WinForms'
 own constructor creates, exposed as public properties. `ToolStripPanelFallback` is a
-`StackPanel` with an `Orientation` (default Horizontal). Registered as a multi-template
-dependency in `FallbackControlCatalog`/`FallbackControlResolver` (`DependsOnKeys`), since
+`StackPanel` with an `Orientation` (default Horizontal); `ToolStripContentPanelFallback` is a
+`Canvas`, like every other container this conversion emits, because the controls WinForms put on
+a content panel carry absolute coordinates. Registered as a multi-template dependency in
+`FallbackControlCatalog`/`FallbackControlResolver` (`DependsOnKeys`), since
 `ToolStripContainerFallback`'s source references the other two types even when no WinForms
-control was itself mapped to them. Nested content is still not auto-migrated — that needs the
-`.ContentPanel.Controls.Add(...)` three-level member-access parsing, a separate, unpicked
-phase.
+control was itself mapped to them.
+
+**Nested content comes across.** `this.toolStripContainer1.ContentPanel.Controls.Add(x)` is a
+three-level member access, which the designer walker already encoded for a `SplitContainer`'s
+`Panel1`/`Panel2` — a synthetic `"field.Region"` parent id — so the five regions reuse that path
+(`ToolStripContainerRegionCatalog`). Each non-empty region is emitted as a XAML property element
+holding its panel:
+
+```xml
+<controls:ToolStripContainerFallback x:Name="toolStripContainer1">
+  <controls:ToolStripContainerFallback.ContentPanel>
+    <controls:ToolStripContentPanelFallback>
+      <TextBlock x:Name="contentPanelLabel" Canvas.Left="8" Canvas.Top="8" ... />
+    </controls:ToolStripContentPanelFallback>
+  </controls:ToolStripContainerFallback.ContentPanel>
+</controls:ToolStripContainerFallback>
+```
+
+That is why the template's region properties are **settable**: a get-only property could not
+receive the panel. Each setter rebuilds the child list rather than swapping in place, because a
+`DockPanel` lays its children out in order and the content panel has to stay last — that is what
+gives it the space the strips did not take.
 
 ### File dialogs
 
@@ -538,9 +559,29 @@ semantics), a role button that already has its **own** `Click` handler (the deve
 and a navigator whose designer recorded no roles at all — the bindings are still emitted, since the
 count and the selection are worth having, but no button is guessed at from its name or caption.
 
+### CheckedListBox
+
+**Done.**
+Avalonia has no checkbox list, but it has an `ItemTemplate` — so the control stays a `ListBox` and
+each row becomes a `CheckBox` bound to a generated row type, `Models/<Field>Item.cs`, holding a
+`Text` and an `IsChecked`.
+
+Synthesizing that type is defensible here and was not for a Details-mode ListView: there the names
+would have come from column headers, which invents domain vocabulary and has no answer for a blank
+or duplicated header. A CheckedListBox row **is** a caption and a tick — that is the control's own
+contract, not a guess.
+
+The row type derives from `ObservableObject`, which is load-bearing rather than idiom: a handler
+calling `SetItemChecked` writes the tick from code, and without a change notification the box on
+screen would never move. `SetItemChecked`/`GetItemChecked` translate in both directions;
+`CheckedItems`/`CheckedIndices` do not, because they are WinForms collection types.
+
+`SelectionMode="Multiple"` used to be emitted as a stand-in for "several items are ticked at once".
+It is gone: WinForms tracked checked and selected separately, and now so does the conversion.
+
 ### Paint handlers
 
-**Done**, for the geometric drawing calls.
+**Done.**
 Avalonia has no `Paint` event: a control draws by overriding `Render(DrawingContext)`, which is a
 subclass. So the bundled `PaintSurfaceFallback` **is** that subclass, and it turns the override
 back into the event the WinForms code was written against.
@@ -548,16 +589,21 @@ back into the event the WinForms code was written against.
 A `Panel` or a `PictureBox` whose designer wired a `Paint` handler is retargeted onto it, and the
 handler is subscribed from the generated constructor (a CLR event on a template, not an element
 attribute). `e.Graphics.DrawLine/DrawRectangle/FillRectangle/DrawEllipse/FillEllipse` translate to
-their `DrawingContext` equivalents, and `Pens.X`/`Brushes.X`/`SystemBrushes.X` resolve through the
-same colour pipeline the designer path uses — so a system colour, which has no named Avalonia
-brush at all, comes out as explicit ARGB rather than a name that does not exist.
+their `DrawingContext` equivalents, and so does `DrawString` — onto a `FormattedText`, at a point,
+at `(x, y)`, or inside a layout rectangle, which becomes `MaxTextWidth`/`MaxTextHeight` because
+that box is what made the text wrap. A `StringFormat` is carried over only alongside that
+rectangle, since alignment and trimming mean nothing without one. `Pens.X`/`Brushes.X`/`SystemBrushes.X` resolve through the same colour pipeline
+the designer path uses, so a system colour, which has no named Avalonia brush at all, comes out as
+explicit ARGB rather than a name that does not exist. A `Font` becomes a `Typeface` plus an em
+size, from a `new Font(...)` literal (with the designer path's own point-to-pixel conversion), from
+a control that really carries the four font properties, or from the Form's own font — the View is a
+`Window` or `UserControl`, and those are where the four live.
 
 Three cases keep today's behaviour and say why: a control **with children** (Avalonia seals
 `Panel.Render`, so the surface derives from `Control` and can draw or contain, not both), a
 `PictureBox` that also carries an **Image** (WinForms drew over the picture; there is no honest way
-to do both), and any other control type. `DrawString` is refused too — Avalonia's `DrawText` wants
-a `Typeface` and an em size where WinForms passed one `Font`, and splitting one argument into two
-this converter cannot read is exactly the guess it does not make.
+to do both), and any other control type. A font carrying `Underline` or `Strikeout` is refused too:
+Avalonia spells those as a `TextDecorations` collection, which a `Typeface` cannot express.
 
 ### HelpProvider
 

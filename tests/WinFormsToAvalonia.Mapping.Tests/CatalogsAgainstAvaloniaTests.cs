@@ -109,6 +109,41 @@ public class CatalogsAgainstAvaloniaTests
     }
 
     /// <summary>
+    /// Every <c>StringFormat</c> setting this converter carries over, against the Avalonia enum it
+    /// is written as.
+    /// </summary>
+    /// <remarks>
+    /// The WinForms side needs no check - a name that is not a real <c>StringAlignment</c> simply
+    /// never matches a handler body. The Avalonia side does: a member that does not exist is a
+    /// compile error in the *generated* project and nowhere else.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(TextFormatSettings))]
+    public void TextFormatSetting_NamesAMemberTheAvaloniaEnumHas(
+        string winFormsEnum, string winFormsMember, string avaloniaType, string avaloniaMember)
+    {
+        var enumType = AvaloniaMetadata.FindElement(avaloniaType);
+        Assert.True(enumType is not null, $"Avalonia has no '{avaloniaType}' type at all.");
+
+        Assert.True(
+            enumType!.GetMember(avaloniaMember).Length > 0,
+            $"TextFormatCatalog turns {winFormsEnum}.{winFormsMember} into "
+            + $"{avaloniaType}.{avaloniaMember}, which Avalonia does not define.");
+    }
+
+    public static TheoryData<string, string, string, string> TextFormatSettings()
+    {
+        var data = new TheoryData<string, string, string, string>();
+
+        foreach (var (winFormsEnum, winFormsMember, avaloniaType, avaloniaMember) in TextFormatCatalog.All)
+        {
+            data.Add(winFormsEnum, winFormsMember, avaloniaType, avaloniaMember);
+        }
+
+        return data;
+    }
+
+    /// <summary>
     /// Every <c>Graphics</c> call this converter translates, against Avalonia's
     /// <c>DrawingContext</c>.
     /// </summary>

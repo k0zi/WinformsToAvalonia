@@ -156,6 +156,7 @@ public sealed class FormMigrationPlanner
         // After DeriveCanExecuteGuards, which rebuilds the bound-property list wholesale - an
         // entry added before it would be dropped on the floor.
         var bindingNavigators = PlanBindingNavigators(formModel, dataSourceBindings, boundProperties, warnings);
+        var checkedLists = PlanCheckedLists(formModel, modelTypes);
         var timers = PlanTimers(formModel);
         var timerFields = timers.Select(t => t.FieldName).ToHashSet(StringComparer.Ordinal);
         var components = PlanComponents(
@@ -201,7 +202,7 @@ public sealed class FormMigrationPlanner
                     Rewrite = rewriter.RewriteForView(
                         h.OriginalBody, formModel, navigation, SignatureOf(h, codeBehind), timerFields, componentFields,
                         helperCalls, promotedFieldNames, viewSurface.ByType, trayIconFields,
-                        dataSourceBindings, listViewRows),
+                        dataSourceBindings, listViewRows, checkedLists),
                 })
             .ToList();
 
@@ -237,7 +238,8 @@ public sealed class FormMigrationPlanner
             warnings,
             dataSourceBindings,
             listViewRows,
-            bindingNavigators);
+            bindingNavigators,
+            checkedLists);
     }
 
     /// <summary>
@@ -531,6 +533,28 @@ public sealed class FormMigrationPlanner
         MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } member => member.Name.Identifier.ValueText,
         _ => null,
     };
+
+    /// <summary>
+    /// CheckedListBoxes, whose per-item tick becomes a bound CheckBox.
+    /// </summary>
+    /// <remarks>
+    /// Unconditional: every CheckedListBox gets one, because the tick is the whole reason the
+    /// control exists. The designer's <c>Items</c> entries become the collection's initial
+    /// contents - all unticked, which is what a WinForms designer produces too, since it does not
+    /// serialize per-item check state at all.
+    /// </remarks>
+    private static List<CheckedListPlan> PlanCheckedLists(FormModel formModel, ModelTypeContext modelTypes) =>
+    [
+        .. formModel.Controls.Values
+            .Where(c => c.ClrTypeName == "CheckedListBox")
+            .OrderBy(c => c.FieldName, StringComparer.Ordinal)
+            .Select(control => new CheckedListPlan(
+                control.FieldName,
+                $"{NamingConventions.Capitalize(control.FieldName)}Items",
+                $"{NamingConventions.Capitalize(control.FieldName)}Item",
+                modelTypes.ModelsNamespace,
+                [.. control.LiteralItems])),
+    ];
 
     /// <summary>
     /// The navigator's properties that name one of its own buttons, and what that button did.

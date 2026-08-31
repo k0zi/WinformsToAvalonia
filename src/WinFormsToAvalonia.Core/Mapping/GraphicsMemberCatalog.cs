@@ -35,12 +35,10 @@ public sealed record GraphicsCall(GraphicsStrokeKind Stroke, int ArgumentCount, 
 /// <c>PaintSurfaceFallback</c>. Deliberately tiny, and geometric only.
 /// </para>
 /// <para>
-/// <c>DrawString</c> is the notable absence. Avalonia's <c>DrawText</c> takes a
-/// <c>FormattedText</c>, which needs a <c>Typeface</c> and an em size where WinForms passed one
-/// <c>Font</c> object - and the WinForms <c>Font</c> in a handler is usually
-/// <c>this.Font</c> or a control's, neither of which survives as a single value. Splitting one
-/// argument into two that this converter cannot read is exactly the kind of guess it does not
-/// make, so the statement refuses and the prefix rule leaves the rest of the handler to a human.
+/// <c>DrawString</c> is deliberately <em>not</em> here, and not because it is unsupported: its
+/// brush is the third argument rather than the first, and its font is one WinForms object where
+/// Avalonia wants two values. Neither fits this table's shape, so it has a matcher of its own -
+/// <c>HandlerBodyRewriter.TryRewriteDrawString</c>.
 /// </para>
 /// <para>
 /// The shapes themselves are not symmetrical between the two frameworks and the mapping says so:

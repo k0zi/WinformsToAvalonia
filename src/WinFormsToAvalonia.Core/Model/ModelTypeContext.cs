@@ -27,7 +27,13 @@ public sealed record ModelTypeInfo(
 /// cannot settle that, so discovery is hoisted into the pipeline's parse pass and handed back
 /// in as a parameter.
 /// </remarks>
-public sealed record ModelTypeContext(IReadOnlyDictionary<string, ModelTypeInfo> ByTypeName)
+/// <param name="ModelsNamespace">
+/// Where a lifted type lands, and where a *synthesized* one has to land too - the planner invents
+/// a row type for a CheckedListBox, and it has no other way to know the project's namespace.
+/// </param>
+public sealed record ModelTypeContext(
+    IReadOnlyDictionary<string, ModelTypeInfo> ByTypeName,
+    string ModelsNamespace = "Models")
 {
     public static ModelTypeContext None { get; } =
         new(new Dictionary<string, ModelTypeInfo>(StringComparer.Ordinal));
