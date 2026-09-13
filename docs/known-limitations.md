@@ -38,6 +38,23 @@ contributors know what to expect and where to look before filing a duplicate iss
 
 ## Designer parsing
 
+- **What is a control and what is a property is decided by the source, not by a list of type
+  names.** `this.X = new T(...)` in `InitializeComponent` is a control when `X` is a field the
+  designer's own class declares, and a property of the Form/UserControl otherwise - because a
+  designer declares a field for every control it creates and never for an inherited property.
+  It used to be decided by a four-name list (`Size`, `Point`, `Padding`, `Font`), which made every
+  other System.Drawing value a phantom control: `this.AutoScaleDimensions = new SizeF(6F, 13F);`
+  registered a control called *AutoScaleDimensions* of type *SizeF* and reported it as
+  unsupported, once per Form. Every real Visual Studio designer emits that line; this repo's
+  fixtures are hand-written and none of them did, which is why nothing caught it until a real
+  project arrived.
+  - A class that declares **no** fields at all falls back to the old rule. That is not a fudge: a
+    generated designer always declares its controls, but a hand-written `InitializeComponent` can
+    keep them in the other half of the partial class, which the walker never sees - and losing
+    every control there would be far worse than the bug being fixed.
+  - A shape that is neither a declared field nor a known value type is now **reported by name**
+    instead of quietly becoming a control.
+
 - **`Items.Add`/`DropDownItems.Add`/`Columns.Add` are now parsed.**
   `DesignerSyntaxWalker.HandleInvocation` generalized its collection-name check from just
   `"Controls"` to `"Controls" or "Items" or "DropDownItems" or "Columns"` - `ToolStripItem`s
@@ -989,6 +1006,21 @@ rule itself; what follows is what the rule does *not* cover yet.
   evaluate to the same `KnownColor` the designer path already understood, and come out as explicit
   ARGB. That is deliberate: Avalonia's `Brushes` has no system colours at all, so translating a
   name to a name would emit `Brushes.Control`, which does not exist there.
+
+## MDI
+
+- **Avalonia has no multiple-document interface at all** - no child-window surface, no
+  `LayoutMdi`, nothing to arrange. This is not a gap the conversion can close: MDI is a
+  window-management model, and Avalonia's is separate top-level windows.
+- What the conversion does is **say so**. `MdiMemberCatalog` names the five members
+  (`IsMdiContainer`, `MdiParent`, `MdiChildren`, `ActiveMdiChild`, `LayoutMdi`) and the planner
+  reports once per Form when the designer or any handler body uses one, naming the usual
+  replacements: separate Windows, a `TabControl` if the children were really pages, or a docking
+  library.
+- Once per Form, not once per member: an MDI form names four or five of them, and the reader needs
+  the fact rather than a tally. Before this, an MDI application converted in complete silence -
+  `IsMdiContainer` was a Form property with no counterpart so it was dropped without a word, and
+  `LayoutMdi(...)` simply stopped a handler with no explanation.
 
 ## Printing
 

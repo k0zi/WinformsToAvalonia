@@ -157,6 +157,7 @@ public sealed class FormMigrationPlanner
         // entry added before it would be dropped on the floor.
         var bindingNavigators = PlanBindingNavigators(formModel, dataSourceBindings, boundProperties, warnings);
         var checkedLists = PlanCheckedLists(formModel, modelTypes);
+        WarnAboutMdi(formModel, codeBehind, warnings);
         var timers = PlanTimers(formModel);
         var timerFields = timers.Select(t => t.FieldName).ToHashSet(StringComparer.Ordinal);
         var components = PlanComponents(
@@ -566,9 +567,11 @@ public sealed class FormMigrationPlanner
                 Subscriptions:
                 [
                     .. document.Events
-                        .Where(e => e.EventName == "PrintPage"
-                            && codeBehind.FindHandler(e.HandlerMethodName) is not null)
-                        .Select(e => (e.EventName, e.HandlerMethodName)),
+                        .Where(e => e.EventName == "PrintPage")
+                        .Select(e => e.HandlerMethodName)
+                        .OfType<string>()
+                        .Where(handler => codeBehind.FindHandler(handler) is not null)
+                        .Select(handler => ("PrintPage", handler)),
                 ])),
     ];
 
@@ -583,6 +586,58 @@ public sealed class FormMigrationPlanner
         && PropertyValueFormatters.AsText(value) is { } name
             ? [$"DocumentName = \"{name}\""]
             : [];
+
+    /// <summary>
+    /// Reports, once per Form, that this application uses MDI - which Avalonia does not have.
+    /// </summary>
+    /// <remarks>
+    /// Once, not once per member: an MDI form names four or five of them and the reader needs the
+    /// fact, not a tally. Both halves are searched because MDI shows up in both - the designer
+    /// sets <c>IsMdiContainer</c>, the handlers call <c>LayoutMdi</c> and walk <c>MdiChildren</c> -
+    /// and finding only one half would report half an application.
+    /// </remarks>
+    private static void WarnAboutMdi(FormModel formModel, CodeBehindModel codeBehind, List<string> warnings)
+    {
+        var found = new SortedSet<string>(StringComparer.Ordinal);
+
+        foreach (var property in formModel.FormProperties.Keys.Where(MdiMemberCatalog.IsMdiMember))
+        {
+            found.Add(property);
+        }
+
+        foreach (var control in formModel.Controls.Values)
+        {
+            foreach (var property in control.Properties.Keys.Where(MdiMemberCatalog.IsMdiMember))
+            {
+                found.Add(property);
+            }
+        }
+
+        // The same body scan FindDataSourceElementType uses - a handler body is text at this
+        // point, so it has to be parsed to be asked anything.
+        foreach (var body in codeBehind.HandlerMethods.Select(h => h.BodyText)
+                     .Concat(codeBehind.HelperMembers.Select(m => m.SourceText)))
+        {
+            foreach (var name in SyntaxFactory.ParseStatement("{\n" + body + "\n}")
+                         .DescendantNodes()
+                         .Select(node => node switch
+                         {
+                             IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+                             MemberAccessExpressionSyntax member => member.Name.Identifier.ValueText,
+                             _ => null,
+                         })
+                         .OfType<string>()
+                         .Where(MdiMemberCatalog.IsMdiMember))
+            {
+                found.Add(name);
+            }
+        }
+
+        if (found.Count > 0)
+        {
+            warnings.Add(MdiMemberCatalog.GuidanceFor(formModel.ClassName, found));
+        }
+    }
 
     /// <summary>
     /// CheckedListBoxes, whose per-item tick becomes a bound CheckBox.

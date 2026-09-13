@@ -795,6 +795,58 @@ public class FormMigrationPlannerTests
         Assert.Empty(plan.ListViewRows);
     }
 
+    // ---- MDI ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// An MDI application used to convert in total silence: the designer's IsMdiContainer was a
+    /// Form property with no counterpart so it vanished, and LayoutMdi in a handler just stopped
+    /// the body with no reason given.
+    /// </summary>
+    /// <remarks>
+    /// One warning, not one per member. An MDI form names four or five of them and the reader
+    /// needs the fact, not a tally - and both halves are searched, because MDI appears in both.
+    /// </remarks>
+    [Fact]
+    public void Plan_MdiForm_SaysAvaloniaHasNoMdi_Once()
+    {
+        var formModel = FormWith(("cascadeItem", "ToolStripMenuItem"));
+        formModel.FormProperties["IsMdiContainer"] = new PropertyValue.Literal("true");
+        Wire(formModel, "cascadeItem", "Click", "cascadeItem_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void cascadeItem_Click(object sender, EventArgs e)
+                    {
+                        LayoutMdi(MdiLayout.Cascade);
+                        foreach (Form child in MdiChildren)
+                        {
+                            child.Close();
+                        }
+                    }
+                }
+            }
+            """);
+
+        var mdi = Assert.Single(plan.Warnings, w => w.Contains("uses MDI", StringComparison.Ordinal));
+        Assert.Contains("IsMdiContainer", mdi, StringComparison.Ordinal);
+        Assert.Contains("LayoutMdi", mdi, StringComparison.Ordinal);
+        Assert.Contains("MdiChildren", mdi, StringComparison.Ordinal);
+    }
+
+    /// <summary>A form with no MDI in it says nothing about MDI.</summary>
+    [Fact]
+    public void Plan_FormWithoutMdi_SaysNothingAboutIt()
+    {
+        var formModel = FormWith(("button1", "Button"));
+
+        var plan = PlanEmpty(formModel);
+
+        Assert.DoesNotContain(plan.Warnings, w => w.Contains("MDI", StringComparison.Ordinal));
+    }
+
     // ---- Two WinForms events on one Avalonia event ------------------------------------------
 
     /// <summary>

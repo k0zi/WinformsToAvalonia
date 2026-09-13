@@ -8,3 +8,4 @@ obj/
 
 # `dotnet pack` output for the wf2a tool package.
 artifacts/
+/samples/Avalonia

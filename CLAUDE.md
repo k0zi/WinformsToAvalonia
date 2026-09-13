@@ -307,6 +307,14 @@ not by building.
   a ListView row's cell count must equal the designer's column count. A carried-over model type is
   lifted `public`, not `internal` — the ViewModel's `ObservableCollection<T>` is a public property,
   and CS0053 is a build error in the **generated** project and nowhere else.
+- **A designer declares a field for every control it creates, and that is how the walker tells a
+  control from a property.** `this.X = new T(...)` is a control when `X` is declared by the
+  designer's own class. It used to be decided by a four-name value-type list, so every other
+  System.Drawing type became a phantom control - and `this.AutoScaleDimensions = new SizeF(...)`,
+  which *every* real Visual Studio designer emits, was reported as an unsupported control once per
+  Form. The repo's fixtures are hand-written and never contained the line. A class declaring no
+  fields at all falls back to the old rule, because a hand-written `InitializeComponent` may keep
+  its declarations in the other half of the partial class.
 - **The print family is converted, and still cannot print.** Avalonia has no `Print*` type at all;
   what unlocked this was the `Graphics` → `DrawingContext` translation, because a `PrintPage`
   handler is drawing code. `PrintDocumentFallback` renders a real page, so a preview, a page setup

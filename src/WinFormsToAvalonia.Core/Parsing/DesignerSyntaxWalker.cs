@@ -17,14 +17,29 @@ namespace WinFormsToAvalonia.Core.Parsing;
 /// </summary>
 public sealed class DesignerSyntaxWalker
 {
-    // Value types designer code constructs inline for a Form/control PROPERTY value
-    // (`this.ClientSize = new Size(w, h);`, `this.Font = new Font(...);`). Everything else
-    // constructed via `this.field = new T(...);` is a control/component - including cases
-    // like `this.refreshTimer = new Timer(this.components);` where the constructor does
-    // take an argument, so argument count alone can't be the discriminator here.
+    /// <summary>
+    /// Value types designer code constructs inline for a property value
+    /// (<c>this.ClientSize = new Size(w, h);</c>).
+    /// </summary>
+    /// <remarks>
+    /// This used to be the *whole* control-vs-property test: anything constructed whose type was
+    /// not one of these four became a control. It was wrong for every System.Drawing value type
+    /// the list happens not to name - and a real Visual Studio designer emits one of those in
+    /// every single Form, <c>this.AutoScaleDimensions = new SizeF(6F, 13F);</c>, which registered
+    /// a phantom control called "AutoScaleDimensions" of type "SizeF". The repo's own fixtures are
+    /// hand-written and never contained that line, so nothing caught it until a real project
+    /// arrived. See <see cref="HandleThisLevelAssignment"/> for what decides now; this list
+    /// survives as a second guard, and keeps the four names behaving exactly as they did.
+    /// </remarks>
     private static readonly HashSet<string> InlineValueTypeNames = new(StringComparer.Ordinal)
     {
         "Size", "Point", "Padding", "Font",
+
+        // The rest of the System.Drawing value types a designer constructs inline. Listed so the
+        // ordinary lines stay *silent*: the field test below already classifies them correctly,
+        // but `AutoScaleDimensions` is in every Form a real designer ever wrote, and warning about
+        // it once per Form forever would trade a wrong line for a noisy one.
+        "SizeF", "PointF", "Rectangle", "RectangleF", "Color", "Icon",
     };
 
     /// <param name="resx">
@@ -58,6 +73,10 @@ public sealed class DesignerSyntaxWalker
             return new DesignerWalkResult(formModel, edges);
         }
 
+        // Every control a designer creates has a field; no inherited property does. That is what
+        // separates `this.button1 = new Button();` from `this.ClientSize = new Size(...)`.
+        var declaredFields = DeclaredFieldNames(root, className);
+
         foreach (var statement in initializeComponent.Body.Statements)
         {
             if (statement is not ExpressionStatementSyntax expressionStatement)
@@ -68,7 +87,7 @@ public sealed class DesignerSyntaxWalker
             switch (expressionStatement.Expression)
             {
                 case AssignmentExpressionSyntax assignment:
-                    HandleAssignment(formModel, assignment, hostedAliases);
+                    HandleAssignment(formModel, assignment, hostedAliases, declaredFields, warnings);
                     break;
                 case InvocationExpressionSyntax invocation:
                     HandleInvocation(formModel, invocation, edges, warnings);
@@ -156,8 +175,22 @@ public sealed class DesignerSyntaxWalker
         }
     }
 
+    /// <summary>The field names the designer's own partial class declares.</summary>
+    private static IReadOnlySet<string> DeclaredFieldNames(SyntaxNode root, string className) =>
+        root.DescendantNodes()
+            .OfType<ClassDeclarationSyntax>()
+            .Where(c => c.Identifier.ValueText == className)
+            .SelectMany(c => c.Members.OfType<FieldDeclarationSyntax>())
+            .SelectMany(f => f.Declaration.Variables)
+            .Select(v => v.Identifier.ValueText)
+            .ToHashSet(StringComparer.Ordinal);
+
     private static void HandleAssignment(
-        FormModel formModel, AssignmentExpressionSyntax assignment, Dictionary<string, string> hostedAliases)
+        FormModel formModel,
+        AssignmentExpressionSyntax assignment,
+        Dictionary<string, string> hostedAliases,
+        IReadOnlySet<string> declaredFields,
+        List<string> warnings)
     {
         if (!TryParseThisMemberAccess(assignment.Left, out var first, out var second))
         {
@@ -175,7 +208,8 @@ public sealed class DesignerSyntaxWalker
         {
             if (second is null)
             {
-                HandleThisLevelAssignment(formModel, first, assignment.Right, hostedAliases);
+                HandleThisLevelAssignment(
+                    formModel, first, assignment.Right, hostedAliases, declaredFields, warnings);
             }
             else if (formModel.Controls.TryGetValue(first, out var control))
             {
@@ -191,12 +225,60 @@ public sealed class DesignerSyntaxWalker
         }
     }
 
+    /// <summary>
+    /// <c>this.X = new T(...)</c> at the top of a designer's InitializeComponent - either a
+    /// control being created, or a property of the Form/UserControl itself being set.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The two are told apart by a <em>fact</em>: a designer declares a field for every control it
+    /// creates, and never for an inherited property. So <c>this.button1 = new Button();</c> names
+    /// a declared field and <c>this.AutoScaleDimensions = new SizeF(6F, 13F);</c> does not.
+    /// </para>
+    /// <para>
+    /// It used to be told apart by a four-name list of value types, which meant every other
+    /// System.Drawing value became a phantom control - measured across the 97 designer files in
+    /// this repo, 99 assignments target a name their own file does not declare and every one of
+    /// them is a property (<c>ClientSize</c>, <c>Size</c>, <c>Font</c>,
+    /// <c>AutoScaleDimensions</c>), so the field test loses nothing and fixes the rest.
+    /// </para>
+    /// <para>
+    /// A shape that is neither - not a declared field, not a known value type - is reported rather
+    /// than guessed at, which is what the old rule quietly got wrong. And when the class declares
+    /// no fields at all, there is nothing to test against, so the old rule stands.
+    /// </para>
+    /// </remarks>
     private static void HandleThisLevelAssignment(
-        FormModel formModel, string name, ExpressionSyntax right, Dictionary<string, string> hostedAliases)
+        FormModel formModel,
+        string name,
+        ExpressionSyntax right,
+        Dictionary<string, string> hostedAliases,
+        IReadOnlySet<string> declaredFields,
+        List<string> warnings)
     {
         if (right is ObjectCreationExpressionSyntax creation
             && !InlineValueTypeNames.Contains(RoslynTypeNameHelper.GetSimpleTypeName(creation.Type)))
         {
+            // `declaredFields.Count > 0` is the guard, not a fudge: a generated designer always
+            // declares its controls, but a hand-written InitializeComponent may keep them in the
+            // *other* half of the partial class, which this walker never sees. With no
+            // declarations at all there is no evidence to test against, so the old type-name rule
+            // is the best answer available - and it is what every such source got before.
+            if (declaredFields.Count > 0 && !declaredFields.Contains(name))
+            {
+                // Not a field, so it is a property of the Form itself whose value happens to be
+                // constructed. Named rather than silent: the evaluator may well not understand it
+                // either, and a property this converter dropped without a word is the thing the
+                // old rule was hiding.
+                warnings.Add(
+                    $"'{name}' is set to a new {RoslynTypeNameHelper.GetSimpleTypeName(creation.Type)} in "
+                    + $"InitializeComponent, but '{formModel.ClassName}' declares no such field - so it is a "
+                    + "property of the form itself. Its value is not carried over.");
+
+                formModel.FormProperties[name] = ExpressionEvaluator.Evaluate(right);
+                return;
+            }
+
             var typeName = RoslynTypeNameHelper.GetSimpleTypeName(creation.Type);
             formModel.Controls[name] = new ControlModel { FieldName = name, ClrTypeName = typeName };
 

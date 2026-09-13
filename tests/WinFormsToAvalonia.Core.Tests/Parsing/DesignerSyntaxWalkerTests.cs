@@ -76,6 +76,142 @@ public class DesignerSyntaxWalkerTests
         Assert.False(toolTip1.Properties.ContainsKey("ToolTipText"));
     }
 
+    // ---- Control or property: the field-declaration rule ------------------------------------
+
+    private const string RealDesignerShape = """
+        namespace Demo
+        {
+            partial class TestForm
+            {
+                private void InitializeComponent()
+                {
+                    this.button1 = new System.Windows.Forms.Button();
+                    this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
+                    this.ClientSize = new System.Drawing.Size(284, 261);
+                    this.Controls.Add(this.button1);
+                }
+
+                private System.Windows.Forms.Button button1;
+            }
+        }
+        """;
+
+    /// <summary>
+    /// The line every real Visual Studio designer emits, which used to register a phantom control
+    /// called "AutoScaleDimensions" of type "SizeF" - and then reported it as an unsupported
+    /// control, four times over in a four-form project.
+    /// </summary>
+    /// <remarks>
+    /// It never surfaced because this repo's designer fixtures are hand-written and none of them
+    /// contains the line. The rule is now a fact about the source rather than a list of type
+    /// names: a designer declares a field for every control it creates, and never for an
+    /// inherited property.
+    /// </remarks>
+    [Fact]
+    public void Walk_FormPropertyWhoseValueIsConstructed_IsNotAControl()
+    {
+        var result = new DesignerSyntaxWalker().Walk(RealDesignerShape, "TestForm.Designer.cs", "TestForm", "Demo");
+
+        Assert.Equal(["button1"], result.Form.Controls.Keys);
+        Assert.True(result.Form.FormProperties.ContainsKey("AutoScaleDimensions"));
+        Assert.Equal(new PropertyValue.SizeValue(284, 261), result.Form.FormProperties["ClientSize"]);
+
+        // And silently: AutoScaleDimensions is in every Form a real designer ever wrote, so
+        // warning about it would trade a wrong line for a noisy one.
+        Assert.Empty(result.Warnings);
+    }
+
+    /// <summary>A declared field is still a control, whatever it is constructed from.</summary>
+    [Fact]
+    public void Walk_DeclaredFieldAssignedAConstruction_IsStillAControl()
+    {
+        const string source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.refreshTimer = new System.Windows.Forms.Timer(this.components);
+                    }
+
+                    private System.Windows.Forms.Timer refreshTimer;
+                }
+            }
+            """;
+
+        var result = new DesignerSyntaxWalker().Walk(source, "TestForm.Designer.cs", "TestForm", "Demo");
+
+        Assert.Equal("Timer", result.Form.Controls["refreshTimer"].ClrTypeName);
+    }
+
+    /// <summary>
+    /// Neither a declared field nor a known value type: reported by name rather than guessed at.
+    /// </summary>
+    /// <remarks>
+    /// This is the honest replacement for what the old rule did silently - it made such a shape a
+    /// control, which is how a `SizeF` ended up in the unsupported count.
+    /// </remarks>
+    [Fact]
+    public void Walk_ConstructedValueThatIsNeitherFieldNorKnownType_IsReported()
+    {
+        const string source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.button1 = new System.Windows.Forms.Button();
+                        this.SomeUnknownProperty = new Whatever(1);
+                    }
+
+                    private System.Windows.Forms.Button button1;
+                }
+            }
+            """;
+
+        var result = new DesignerSyntaxWalker().Walk(source, "TestForm.Designer.cs", "TestForm", "Demo");
+
+        Assert.Equal(["button1"], result.Form.Controls.Keys);
+        Assert.Contains(
+            result.Warnings,
+            w => w.Contains("SomeUnknownProperty", StringComparison.Ordinal)
+                && w.Contains("declares no such field", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A class that declares no fields at all gets the old type-name rule, because there is no
+    /// evidence to apply the new one to.
+    /// </summary>
+    /// <remarks>
+    /// Not a fudge: a generated designer always declares its controls, but a hand-written
+    /// <c>InitializeComponent</c> can keep them in the other half of the partial class, which this
+    /// walker never sees. Losing every control there would be far worse than the bug being fixed.
+    /// </remarks>
+    [Fact]
+    public void Walk_ClassThatDeclaresNoFields_FallsBackToTheTypeNameRule()
+    {
+        const string source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.button1 = new System.Windows.Forms.Button();
+                        this.ClientSize = new System.Drawing.Size(284, 261);
+                    }
+                }
+            }
+            """;
+
+        var result = new DesignerSyntaxWalker().Walk(source, "TestForm.Designer.cs", "TestForm", "Demo");
+
+        Assert.Equal(["button1"], result.Form.Controls.Keys);
+        Assert.True(result.Form.FormProperties.ContainsKey("ClientSize"));
+    }
+
     /// <summary>
     /// The same mechanism, for the provider whose contribution used to disappear entirely.
     /// </summary>
