@@ -17,6 +17,35 @@ contributors know what to expect and where to look before filing a duplicate iss
   One consequence of matching on simple names: two same-named classes in different namespaces
   merge their base sets, which can only ever make classification *more* inclusive - it converts
   an artifact that should have been left alone, rather than silently losing one.
+- **The project's own subclasses of WinForms controls are converted as the control they derive
+  from.** `RoundButton : Button` had no mapping, so every instance was left out of the window - its
+  handlers and its settings with it. A class deriving (directly, or through other classes of the
+  project) from a type the registry maps is now re-typed to that base right after the designer walk,
+  before anything else looks at it: the mapper, the event table (a Button subclass's `Click` is a
+  real `Click` and can become a command), the bindable-property catalog and the mnemonics all answer
+  for the control it really is. What the subclass adds itself - overridden members, its own
+  painting, behaviour - is not carried, and each such type is reported once with its fields; a
+  designer property only the subclass declares (`RoundButton.CornerRadius`) is listed by the
+  coverage report under the name the designer wrote. A custom control with a designer half of its
+  own is no longer mistaken for a Form whose base lives in another assembly.
+- **Visual inheritance is flattened.** A Form (or UserControl) deriving from another of the
+  project's *designer* artifacts - directly or through intermediate classes with no designer of
+  their own - used to come out with only its own controls: every inherited button, the derived
+  designer's overrides of it (`this.okButton.Text = "Save";`) and its wiring were gone, and nothing
+  said so. WinForms runs the base's `InitializeComponent` and then the derived one, on the same
+  fields; the walker now does exactly that (`DesignerSyntaxWalker.Walk(..., inheritedFrom)`), so
+  the derived View carries the whole result and the later value wins. The base class's handlers
+  come with it (`CodeBehindModel.WithInherited`): a member the derived class redeclares hides the
+  base's, as in C#. Consequences:
+  - Avalonia XAML cannot inherit a View, so the derived View is a **copy**, and a later edit to the
+    base View does not reach it. Reported once per derived Form, since that is a fact about how
+    the generated project has to be maintained.
+  - The base keeps a View of its own - it may well be instantiated by itself.
+  - The preserved original-code comment block is the derived class's file only.
+  - An image the *base* designer took from its own `.resx` is looked up in the derived form's
+    `.resx`, misses, and is reported rather than set.
+  - A base type from a referenced assembly is still not followed (see above); neither is a base
+    whose simple name is ambiguous across namespaces and not beside the derived class.
 - **Components have no visual form, but their code can come across.** `Form` and `UserControl`
   artifacts both go through the conversion pipeline (a Form becomes a `Window`, a UserControl an
   Avalonia `UserControl`, and a project's own UserControls are registered as real control mappings
@@ -35,6 +64,66 @@ contributors know what to expect and where to look before filing a duplicate iss
   declares (which is not carried over with it). A local variable called `Timer` will refuse the
   component; nobody is harmed by that. A custom delegate event is left unsubscribed for the same
   reason - its handler signature cannot be written down with confidence.
+
+## Designer properties nothing translates
+
+- **They are reported, by name.** A designer property no stage of the conversion asked about
+  used to vanish: `OpenFileDialog.Filter`, `PictureBox.SizeMode`, `ToolStripMenuItem.ShortcutKeys`,
+  `TabControl.SelectedIndex`, `Panel.AllowDrop` and dozens more converted into nothing, with no
+  line anywhere saying so. Each artifact now gets one warning listing them, grouped by
+  `Type.Property` with the fields that set it.
+- **How it knows.** No table could say which properties are carried - they are read by dozens of
+  mappers, universal passes and catalogs. So `ControlModel.Properties`/`FormModel.FormProperties`
+  are a `PropertyBag` that records every lookup by name, and what is still unread once the artifact
+  has been emitted is what nothing even asked about. A new mapper is covered without declaring
+  anything.
+- **Its blind spot is "asked, then refused".** A styling pass that reads `BackColor` and finds the
+  target has no Background has looked; those passes report their own refusals where they do, and
+  this check cannot see the ones that do not.
+- **What carries nothing on purpose** is listed in `Mapping/DesignerPropertyCatalog` with the reason
+  (`Name`, `AutoScaleMode`, `UseVisualStyleBackColor`, `AutoSize`, a strip's invisible `Text`, a
+  `TabPage`'s bounds, ...), some only for a value (`CheckState` unless `Indeterminate`,
+  `NotifyIcon.Visible` unless false). `Mapping.Tests` checks each name against WinForms. A type with
+  no mapping at all is already reported whole and its properties are not listed again; a Timer
+  nothing ticks, or a component nothing uses, becomes no field and has nothing to configure.
+
+## Project files
+
+- **Source files are found the way MSBuild finds them, mostly.** SDK-style globbing with
+  `Compile Remove`; explicit `Compile`/`EmbeddedResource` includes, including a wildcard
+  (`..\FullFxApp\*.cs`, `Forms\**\*.cs` - not a wildcard in a directory segment); a Shared
+  Project's `.projitems` imported with `<Import Project="...projitems" />`, read with its
+  `$(MSBuildThisFileDirectory)`. No other MSBuild property is evaluated.
+- **Case.** A legacy csproj written on Windows may say `Form1.designer.cs` for `Form1.Designer.cs`;
+  a path that does not exist as written is resolved against the disk case-insensitively (when the
+  match is unique), or Linux and macOS failed the whole run on "Could not find file".
+- **Linked files land at the project root.** A Form included from outside the project folder is
+  converted as if it sat at the root - which is also where Visual Studio shows it - rather than
+  under a `../Other` folder, which used to become a `..` namespace segment.
+- **Two Forms may share a simple name** in different namespaces and folders (`A/MainForm`,
+  `B/MainForm`); each gets its own View in its own folder. A handler naming one of them by that
+  simple name (`new MainForm()`, `dialog.Value`) is ambiguous to syntax and stays un-migrated.
+- **Carried-over fields may be used only by code that did not come across**, so the generated View
+  wraps them in `#pragma warning disable CS0169, CS0414, CS0649`, and a field with no initializer
+  whose type may be a non-nullable reference starts as `default!` (CS8618 otherwise).
+- **A vendor base class** (`MetroForm`, `C1RibbonForm`, `XtraForm`) cannot be traced by syntax, so
+  a Form deriving from one is skipped - with a message that says how to fix it: a `--mappings`
+  entry `{ "MetroForm": { "as": "Form" } }` (or `"UserControl"`).
+
+## Startup form
+
+- **The main window is the Form `Application.Run` starts.** `Parsing/StartupFormLocator` reads
+  it from the project's sources - `Application.Run(new MainForm())`, or a local passed in
+  (`var form = new MainForm(); Application.Run(form);`), top-level statements included. It used to
+  be simply the first Form discovery listed, so an `AboutForm` or a base form sorting ahead of
+  `MainForm` became the converted app's main window: built, launched, wrong, and unreported.
+- The same answer picks the Form `--with-web` roots at a `UserControl`, so the split and
+  `App.axaml.cs` cannot disagree.
+- Where it cannot be read, the first Form is still used, and the choice is **reported**: an
+  `ApplicationContext` (which picks its Form at run time), a local given two different Forms, a
+  factory call, two `Application.Run` calls naming different Forms (the first wins), or no call
+  at all in a project with more than one Form. Syntax only, as elsewhere: a Form constructed in
+  a helper method and returned is not followed.
 
 ## Designer parsing
 
@@ -96,6 +185,43 @@ contributors know what to expect and where to look before filing a duplicate iss
     ignores;
   - images referenced from a `.resources`/satellite assembly rather than the form's own `.resx`
     are still not handled.
+  - the Form's own `$this.Icon` comes out the same way and becomes the Window's `Icon`.
+- **`Properties.Resources` is carried over.** The designer writes
+  `global::App.Properties.Resources.logo` whenever an image was picked from "Project resource
+  file" - which Visual Studio offers first - and that used to be read as an *enum member* named
+  `logo`: a PictureBox lost its image and a Label showed the resource's name.
+  `ProjectResourcesReader` now reads `Properties/Resources.resx` (bare entry names, and
+  `ResXFileRef`s to files in the project's `Resources/` folder, which are copied as they are), and:
+  - a designer property reading a **string** entry gets the string; one reading an **image** gets
+    the file copied to `Assets/Resources/<name>.<ext>`; the Form's `Icon` becomes the Window icon;
+  - the generated project gets a `Properties/Resources.cs` (`ProjectResourcesEmitter`) with the
+    same member names - strings inlined, images as an Avalonia `Bitmap`, icons as a `WindowIcon`,
+    both loaded from those assets - so a handler body reading `Properties.Resources.Greeting`
+    translates to `<Project>.Properties.Resources.Greeting`. Only **string** entries are
+    translatable in a body: an image entry is now a `Bitmap` where the original code had a
+    `System.Drawing.Image`, so a statement assigning one still stops the prefix;
+  - an entry of any other type (a `Size`, a serialized object, a byte array), and a file reference
+    that does not exist on disk, is left out of the class and reported by name;
+  - **translations are not carried.** The strings are inlined from the neutral file, so a
+    `Properties/Resources.hu.resx` is reported (with its cultures) rather than read.
+- **`Properties.Settings` is carried over, as JSON.** `ProjectSettingsReader` reads
+  `Properties/Settings.settings` (the file Visual Studio generates the class from - its type, scope
+  and default; an `app.config` override of a default is not read), and `ProjectSettingsEmitter`
+  writes a same-shaped `Properties/Settings.cs`: a `Default` instance, user-scoped settings as
+  read/write properties, application-scoped ones read-only, and `Save()`/`Reload()`/`Reset()`,
+  persisted to `<application data>/<Project>/settings.json`. A handler body reading a setting,
+  assigning a user-scoped one (`=`, `+=`, ...) or calling one of the three methods translates onto
+  it. What does not come across:
+  - **values users already saved.** Their `user.config` is not migrated - reported once.
+  - **types JSON cannot store without a converter, or C# cannot write as a literal** - only
+    `string`, `bool`, `int`, `long`, `double`, `float`, `decimal`, `DateTime` and `TimeSpan` are
+    carried; a `Color`, a `Point`, a `StringCollection` is left out and named. So is a setting
+    called `Save`/`Reload`/`Reset`/`Default`, which the class needs itself.
+  - **assigning an application-scoped setting**, which has no setter on either side: the prefix stops.
+  - **designer bindings to a setting.** `DataBindings.Add(new Binding("Text", Settings.Default,
+    "UserName", ...))` is reported (as is every other `DataBindings.Add`, which used to vanish
+    silently), and the `Text = Settings.Default.UserName` the designer writes beside it becomes the
+    setting's *default* value - the control no longer follows what was saved.
 - **An `ImageList`'s images are extracted; where they can be *shown* is the narrower half.**
   `ImageListExtractor` decodes the `ImageStream` payload (RLE + `ILHEAD` + a tiled bitmap strip +
   a 1bpp mask) into one PNG per image under `Assets/<field>_<index>.png`, mask applied as alpha.
@@ -104,8 +230,9 @@ contributors know what to expect and where to look before filing a duplicate iss
   is the only per-item image slot Avalonia has: a `TreeViewItem`, `ListBoxItem` or `TabItem` has
   no icon property, and a `Button`'s `Content` is already its text. For those the image is
   written to `Assets/` and the warning names the file, rather than a header layout being invented.
-  `ImageKey` is not resolved at all - the keys are in the designer's `SetKeyName` calls, not in
-  the payload.
+  `ImageKey` is resolved too: the keys are not in the payload but in the designer's
+  `Images.SetKeyName(i, "key")` calls, which the walker records (`ControlModel.ImageKeys`); a key
+  the list never declares is reported by name.
 
 ## Dialog call shapes
 
@@ -231,6 +358,9 @@ contributors know what to expect and where to look before filing a duplicate iss
   TODO, because Avalonia resolves `TrayIcon.Icon` at run time: referencing an asset the
   conversion cannot produce builds fine and then throws `FileNotFoundException` out of
   `App.Initialize()`, before any window opens.
+  A NotifyIcon the designer gave **no `Icon` at all** is the exception: WinForms shows nothing in
+  the tray without one, and a `TrayIcon` without an `Icon` shows nothing either while referencing
+  no file that could be missing - so it is emitted live, with an accessor, and reported.
 
   A handler *can* reach it: the generated `App` declares one static accessor per emitted icon,
   named after the WinForms field (`App.NotifyIcon1`), and `notifyIcon1.Visible` / `.Text`
@@ -323,9 +453,13 @@ contributors know what to expect and where to look before filing a duplicate iss
   `ColumnHeader` children → `DataGrid` with real columns, otherwise `ListBox`) and a
   `MonthCalendar` maps to `Calendar`, but neither gets its rows or selection ranges. All six `DataGridView` column types are translated now: `TextBox`/`CheckBox` to
   Avalonia's two real column types, and `ComboBox`/`Button`/`Image`/`Link` to a
-  `DataGridTemplateColumn` with a generated cell template. Those templates are **unbound** -
-  Designer.cs records the column but not its `DataPropertyName`-to-view-model mapping - so each
-  one carries a `TODO` comment naming what to add.
+  `DataGridTemplateColumn` with a generated cell template. A **button or link** cell is complete:
+  it shows the column's `Text` when `UseColumnTextForButtonValue`/`UseColumnTextForLinkValue` is
+  set, and otherwise the row's value - so its `Content` binds to `DataPropertyName` (with neither,
+  nothing is invented: WinForms ignores `Text` without the flag). A **ComboBox or Image** cell
+  stays unbound, with a `TODO` naming the `DataPropertyName`: which ComboBox member the value
+  belongs to depends on `DisplayMember`/`ValueMember`/the items' source, and an `Image.Source`
+  wants an `IImage` where the row holds a `System.Drawing.Image` or a byte array.
 
 - **Visual styling is converted, but gated by the target element.** `BackColor`, `ForeColor`,
   `Font` and `Padding` are emitted as `Background`/`Foreground`/`FontFamily`/`FontSize`/
@@ -376,7 +510,7 @@ contributors know what to expect and where to look before filing a duplicate iss
   styles, so `FixedSingle` and `Fixed3D` both become a one-pixel border and the sunken 3D look is
   gone; `None` is the value that carries real information, turning off the border the theme would
   otherwise draw. A `Panel` becomes a `Canvas` and a `PictureBox` an `Image`, neither of which has
-  a `BorderThickness`, so their `BorderStyle` is dropped.
+  a `BorderThickness`, so their `BorderStyle` is not carried - and reported as such.
 
   Because those literal colors are light-mode colors, the generated `App.axaml` pins
   `RequestedThemeVariant="Light"` instead of following the OS. Otherwise a control that set
@@ -471,9 +605,16 @@ rule itself; what follows is what the rule does *not* cover yet.
     too, and the whole comparison collapses the way the converted-dialog contract does:
     `MessageBox.Show(text, caption, MessageBoxButtons.YesNo) == DialogResult.No` becomes
     `!await MessageBoxFallback.ShowYesNoAsync(this, text, caption)`. That works because the dialog
-    on the other end is one this repo ships, so it can be given a `bool` return. `OKCancel` too;
-    `YesNoCancel` and `AbortRetryIgnore` refuse, having no bool answer, and so do the icon
-    overloads - the bundled dialog draws no icon, and accepting them would silently drop a cue;
+    on the other end is one this repo ships, so it can be given a `bool` return. `OKCancel` too.
+    `YesNoCancel` has an entry point of its own returning `bool?` - Yes `true`, No `false`, Cancel
+    `null`, which is also what closing it by the title bar answers, as in WinForms - and is
+    translated in the three shapes it is asked in: compared inline (`== DialogResult.No` →
+    `== false`), kept in a local (`var answer = MessageBox.Show(...)`, after which only comparisons
+    with `DialogResult` members and a `switch` with `case DialogResult.Yes:` labels may use it),
+    and switched on directly. Not inside a `Closing` handler, where nothing may await - which is
+    where "save changes?" usually lives, so that one still needs a human. `AbortRetryIgnore` and
+    `RetryCancel` refuse, and so do the icon overloads - the bundled dialog draws no icon, and
+    accepting them would silently drop a cue;
   - `Application.Exit()` → the desktop lifetime's `Shutdown()`;
   - opening another converted Form: `new SettingsForm().ShowDialog([owner]);` →
     `await new SettingsView().ShowDialog(this);` (async, and the target View's namespace is
@@ -522,9 +663,12 @@ rule itself; what follows is what the rule does *not* cover yet.
     translated code claim something the original did not - and a handler shared by two controls
     has no single answer, so it keeps its comment;
   - **`Clipboard.SetText(x)`** → `await TopLevel.GetTopLevel(this)!.Clipboard!.SetTextAsync(x)`,
-    which makes the handler `async`. `Clipboard.GetText()` is not translated: Avalonia's
-    counterpart returns a `Task`, so a read that can appear anywhere in an expression would need
-    the whole expression restructured. Like a message box, this now blocks ViewModel promotion -
+    which makes the handler `async`. `Clipboard.GetText()` is translated too, and awaited right
+    where it was called - `(await TopLevel.GetTopLevel(this)!.Clipboard!.TryGetTextAsync() ??
+    string.Empty)` - which C# allows anywhere in an async method's expression and which keeps the
+    evaluation order. (This was once refused on the grounds that the expression would need
+    restructuring; it does not.) The `??` is WinForms' empty string for a clipboard with no text,
+    where Avalonia returns null. Not inside a `Closing` handler, where nothing may await. Like a message box, this now blocks ViewModel promotion -
     the replacement hangs off the `TopLevel`, which a View has and a ViewModel does not;
   - **`EventArgs` members**, through `Mapping/EventArgsMemberCatalog`. Three kinds show up and
     only two are translated: a member Avalonia's own args type spells identically (`Cancel` on
@@ -573,7 +717,7 @@ rule itself; what follows is what the rule does *not* cover yet.
     receiver is only *sometimes* provably non-null. Only member accesses and zero-argument calls
     in the chain: an argument could name a control, and the chain is copied verbatim, so
     `s?.StartsWith(this.prefixBox.Text)` is refused rather than half-rewritten;
-  - **local variables**, declared `var` or with a keyword type, when the initializer translates.
+  - **local variables**, declared `var` or with a type from `PlainDotNetTypeCatalog` (keyword types, `string?`, `DateTime`, ...), when the initializer translates.
     Members of a local are then allowed for the same reason members of a control property are: a
     translatable initializer can only produce a plain .NET value. Locals are block-scoped, so one
     declared inside an `if` branch cannot be used after it. `var dialog = new SomeForm();`
@@ -582,11 +726,21 @@ rule itself; what follows is what the rule does *not* cover yet.
     there is no disposal to preserve. A `using` on anything else is refused rather than silently
     dropped. `const` locals are not translated.
 
-  Everything outside that list stops the translation, including: `switch`, `try`/`catch`,
-  `do`/`while`, `lock`, `using` blocks, calls to code-behind helpers, `Paint`/`Graphics` drawing,
+  - **`try`/`catch`/`finally`, `switch`, `do`/`while`, `break`, `continue` and a bare `throw;`**,
+    each translated whole like an `if` (the remainder could only ever be emitted after the
+    statement). A `catch` may name an exception from a closed table of BCL types - whose namespace
+    the View then imports, since the original file's `using`s do not come across and an unqualified
+    `IOException` would otherwise be a CS0246 in the generated project - or any `System.`-qualified
+    one; its variable is a value local scoped to the block, and a `when` filter translates like any
+    condition. `switch` labels must be literals: a label is matched against the governing value's
+    own type, and only a literal is certain to mean the same on both sides. `throw new X()` refuses,
+    because `new` is not something this rewriter translates;
+
+  Everything outside that list stops the translation, including: `lock`, `using` blocks, `throw`
+  with an expression, calls to code-behind helpers, `Paint`/`Graphics` drawing,
   control APIs with no bindable counterpart (`treeView1.Nodes.Add`), properties on
   *fallback*-mapped controls, and unrecognized static receivers
-  (`Clipboard`, `Cursor`, ...). The `MessageBox.Show` overloads that take buttons or icons are
+  (`Cursor`, `Screen`, ...). The `MessageBox.Show` overloads that take buttons or icons are
   deliberately excluded: they return a `DialogResult` the caller branches on.
 
   **The dialog-result contract.** `if (new SettingsForm().ShowDialog(this) == DialogResult.OK)`
@@ -627,9 +781,14 @@ rule itself; what follows is what the rule does *not* cover yet.
   pattern keeps it inline, which also scopes the binding to exactly the branch that used to read
   the dialog. `SaveFileDialog` returns a single nullable file and uses `is { } f` instead.
   What is *not* covered there:
-  - the designer's `Filter`/`InitialDirectory`: the picker is opened with default options,
-    because parsing a WinForms filter string (`"Text|*.txt|All|*.*"`) into `FileTypeFilter`
-    entries and getting it subtly wrong is worse than leaving it out;
+  - nothing about the designer's settings any more: `Title`, `Filter` (→ `FileTypeFilter` /
+    `FileTypeChoices`), `FileName` (→ `SuggestedFileName`), `InitialDirectory` (→ an awaited
+    `SuggestedStartLocation`), `Multiselect`, `DefaultExt` and `OverwritePrompt` all reach the
+    picker (`Mapping/FileDialogOptions`), on the inline path and in the generated helper alike;
+    a folder dialog's `Description` becomes its title and its `SelectedPath` its start folder. The
+    filter grammar is name/patterns pairs and is parsed exactly; a string that is not that shape is
+    reported and left out. `FilterIndex` other than 1 is reported - Avalonia takes the preselected
+    type as an instance an inline initializer cannot point back at;
   - `FileNames` (multi-select) - there is no single path to bind, so the whole branch is left;
   - any use of the dialog's properties *after* the branch, since the selection is a pattern
     variable now rather than an object that outlives the call;
@@ -735,7 +894,15 @@ rule itself; what follows is what the rule does *not* cover yet.
   becomes `async Task` (never `async void`, which its callers could not await) and makes every
   caller await it in turn.
 
-  Not covered: a helper with a **named type** anywhere in its signature (it could be a WinForms
+  Types: keyword types, plus the `System` types that are the same type on both sides and need no
+  import - `DateTime`, `DateTimeOffset`, `TimeSpan`, `DateOnly`, `TimeOnly`, `Guid`, `Uri`,
+  `Version` - and the nullable and array forms of all of them (`Mapping/PlainDotNetTypeCatalog`;
+  the same gate decides a carried-over field, property and local). `string?` was refused along with
+  every named type until then, because it parses as a nullable type rather than a keyword one.
+  `Mapping.Tests` checks that none of the accepted names is also a WinForms type, which was the whole
+  reason named types were refused.
+
+  Not covered: a helper with any **other named type** in its signature (it could be a WinForms
   type whose Avalonia counterpart is a different type entirely); a generic one, an
   expression-bodied one, or one with a `ref`/`out`/`params` parameter; a **value-returning helper
   that turns async**, whose `Task<T>` would only be usable inside an expression, which is exactly
@@ -786,6 +953,13 @@ rule itself; what follows is what the rule does *not* cover yet.
   A helper can end up on **both** sides - the View for the handlers that stayed event-driven, the
   ViewModel for the commands - because the two address the same control differently: a field there,
   a bound property here.
+- **A handler that stays in code-behind is not a warning.** Code-behind is the default, so the
+  reason a `[RelayCommand]` candidate stayed there goes to its own "Stayed in code-behind" section
+  of `MIGRATION.md` (and `ConversionReport.CodeBehindNotes`), after the real warnings rather than
+  among them - on the all-in-one sample it had been 30 of the 43 "Needs your attention" lines.
+  The reason itself is meant to be exact: `DialogResult.OK` is the enum, not the Form's
+  `DialogResult` property, and `this.isBusy` is the class's own state rather than the Form being
+  driven.
 - **Promotion is single-control only.** A handler wired to more than one control needs
   `sender` to tell them apart, so it always stays in code-behind - and when the controls'
   Avalonia events have different signatures (a `Button`'s real `Click` vs. a `Label`'s
@@ -951,8 +1125,17 @@ rule itself; what follows is what the rule does *not* cover yet.
   necessarily expose the Avalonia event a mapping names, and a wrong attribute is an Avalonia
   XAML compiler error (AVLN2000) that would break the generated build - so the handler is
   emitted and the missing subscription is reported as a warning instead.
-- **Inline lambda handlers** captured from `InitializeComponent()`
-  (`this.Load += (s, e) => { ... };`) are reported but not migrated.
+- **Inline handlers are lifted into named methods.** A lambda or an anonymous `delegate { }`
+  subscribed in `InitializeComponent()` (`this.box.TextChanged += (s, e) => { ... };`) used to be
+  reported and dropped - its body did not reach the generated project even as a comment.
+  `Parsing/InlineHandlerLifter` now names it `{field}_{Event}` (`{Class}_{Event}` on the Form),
+  turns it into a method on the class before the code-behind is analysed, and from there it is an
+  ordinary handler: translated, promoted, guarded and checklisted by the same rules. An expression
+  body becomes a statement, discards and a parameterless `delegate` get the conventional
+  `sender`/`e`, and `async` is kept. On a name the class already declares the marker goes on the
+  owner half (`goButtonInline_Click`), because command names are derived by dropping the `_Event`
+  suffix. A body naming a local of `InitializeComponent` itself - designer code has none worth
+  capturing - fails to translate and stays a comment like any other unknown name.
 - **File dialogs** get a `StorageProvider` method on the View, but it is not tied to any
   button: the designer never records which handler opened which dialog, since handler bodies
   are not part of `InitializeComponent()`.
@@ -1037,9 +1220,16 @@ rule itself; what follows is what the rule does *not* cover yet.
   is matched **whole** and becomes `await printDocument1.PrintAsync(this)`, whose destination
   picker is where the dialog went. A branch doing anything other than a single `Print()` refuses,
   and the prefix rule then leaves the handler alone.
-- **Only the first page is rendered.** WinForms looped while `HasMorePages` stayed true. Deciding
-  how several pages become one exported file is a decision about your document, not about the
-  conversion - so the flag is handed to the handler and can be read back, but nothing loops on it.
+- **Every page is rendered, as WinForms printed them.** `PrintDocumentFallback.RenderPages` raises
+  `PrintPage` with fresh arguments for as long as the handler sets `HasMorePages` (capped at
+  `MaxPages`, 1000, where WinForms would have printed forever). `PrintAsync` writes the first page to
+  the file the user picks and the others beside it as `name-2.png`, `name-3.png`, ...; where the
+  storage gives no access to that folder (a browser, a sandbox) they are stacked into the one file.
+  The preview scrolls through all of them. What does not come across:
+  - **`BeginPrint`/`EndPrint`/`QueryPageSettings`** have no counterpart on the bundled document.
+    A handler that pages with a counter on the Form (`pageNumber++`, which now translates) usually
+    resets it in `BeginPrint` - so a second render (a preview, then an export) continues where the
+    first stopped. Reset it before calling `PrintAsync`/showing the preview.
 - **Nothing carries over from `PrinterSettings`/`PageSettings`.** Those are WinForms objects that
   do not survive; the bundled document's page size and margins start at US Letter with one-inch
   margins, in device-independent pixels at 96 dpi, and `PageSetupDialogFallback` is what changes
@@ -1069,6 +1259,16 @@ failing the run: a solution with non-WinForms projects in it is the normal case.
 parsed as text rather than through MSBuild, so a project path built from an MSBuild property is not
 understood - and is reported rather than guessed at.
 
+**A class library converts into a class library.** A project declaring
+`<OutputType>Library</OutputType>` gets a library csproj with its Views, ViewModels and the
+generated helpers - no `Program.cs`, no `App.axaml`, and none of the placeholder `MainWindowView`
+an application without a Form gets. What lives in an application's `App.axaml` is reported instead:
+a packaged control's `StyleInclude` (the referencing app needs it, or the control renders as
+nothing) and a `NotifyIcon`. `--with-web` is not applied to a library. Only the explicit value
+counts - an SDK-style csproj with no `OutputType` is a library to MSBuild too, but it is converted
+as an application, because guessing from an absence is how a hand-written app csproj would become
+unlaunchable.
+
 A Form in one project hosting a **UserControl from another** works, which is the case that most
 often motivates a multi-project solution in the first place. A pass over the whole solution runs
 before any project is converted and predicts what each project's UserControls will be called once
@@ -1085,6 +1285,41 @@ referenced project turns out to have no convertible artifacts, or its UserContro
 locator could not classify, the host still emits the element and the generated build is what
 tells you.
 
+## Third-party controls (`--mappings`)
+
+A vendor control (DevExpress, Telerik, Infragistics, ...) is a type this converter cannot know, and
+on its own it gets "No mapping registered" and no element. `--mappings <file.json>` lets you say
+what it is:
+
+```json
+{
+  "controls": {
+    "TextEdit":     { "as": "TextBox", "properties": { "EditValue": "Text" }, "events": { "EditValueChanged": "TextChanged" } },
+    "GaugeControl": { "element": "ProgressBar", "properties": { "Value": "Value", "Maximum": "Maximum" } }
+  }
+}
+```
+
+- **`as`** names a WinForms control this converter maps (`list-mappings` lists them). The vendor
+  control is re-typed to it right after the designer walk - the same step that handles the project's
+  own `MyButton : Button` - so every table applies: its mapper, its events, its bindable properties,
+  and handler bodies that read it. `properties`/`events` rename the vendor's names to the WinForms
+  control's first; anything else the vendor added is listed among the untranslated properties.
+  Handler bodies are not renamed: `nameEdit.EditValue` in code still stops the prefix.
+- **`as": "Form"`** (or `"UserControl"`) is for a vendor *base class* instead: a Form deriving from
+  `MetroForm` is converted as a Form at all only once the mapping says what `MetroForm` is. It takes
+  no `properties`/`events` - the derived Form's designer properties are read as the Form's.
+- **`element`** names an Avalonia element to emit directly, with `properties` mapping designer
+  property → attribute. Values are formatted by their own shape (text, number, bool, colour, a single
+  enum member); anything else is declined and reported. Nothing else is known about such a control,
+  so its events are only what the generic event table makes of their names. The element name cannot
+  be checked - the tool never references Avalonia - so a misspelt one is a build error in the
+  generated project. Only core Avalonia elements: there is no way to declare an xmlns for a package.
+- The file is checked as a whole and **rejected on any error** (an unknown key, both or neither of
+  `as`/`element`, an `as` target that is not mapped, a type the converter already maps): a mapping
+  that silently did not apply is what the option exists to prevent. A mapped type the project
+  declares itself is ignored, with a warning. JSON comments and trailing commas are allowed.
+
 ## Re-converting over output you have already migrated
 
 Conversion is a starting point you then edit by hand, so a second run defaults to **never
@@ -1094,9 +1329,155 @@ differs from what is on disk is left alone with the regenerated version written 
 `--overwrite-all` restores the old clobber-everything behaviour.
 
 This is a per-file safety net, not a merge tool - it cannot combine your edits with newly
-generated code, and it does not delete generated files that a later run no longer produces
-(a View for a Form you removed from the source project stays behind). `--force` is still
-required before anything is written into a non-empty output directory at all.
+generated code. `--force` is still required before anything is written into a non-empty output
+directory at all.
+
+**Stale files.** Every run writes `.w2a-manifest.json` into the output root: each generated path
+and the SHA-256 of the content it was generated with. A file the previous manifest lists and this
+run no longer produces (the View of a Form you removed or renamed in the source) is reported in the
+summary and left in place. `--prune` deletes it - together with a leftover `*.w2a-new` beside it
+and any folder that ends up empty - **only** if its bytes still match the recorded hash. A stale
+file you have edited is never deleted; it stays listed (and reported) until you remove it. Output
+written by a version without a manifest has nothing to compare against, so its first re-run cannot
+prune anything.
+
+## Window chrome and keyboard
+
+- **The Form's designer-set window properties reach the `Window`** (`Mapping/FormWindowAttributeCatalog`).
+  They used to be dropped without a word - the root element carried a title and a size, so a
+  fixed, centred dialog became a resizable window opening wherever the platform liked.
+  - `StartPosition`: `CenterScreen` → `WindowStartupLocation="CenterScreen"`, `CenterParent` →
+    `CenterOwner`. `Manual` with a `Location` is **reported**: Avalonia's `Position` is in physical
+    pixels, so a fixed value lands differently on every display scale. The `WindowsDefault*`
+    values are what Avalonia does anyway.
+  - `TopMost`, `ShowInTaskbar`, `Opacity`, `WindowState` - the same four `WindowPropertyCatalog`
+    already translated in handler bodies, now from the designer too.
+  - `FormBorderStyle`/`MaximizeBox`/`MinimizeBox`/`ControlBox`, decided as a set: a `Fixed*` style
+    → `CanResize="False"`, `None` → `WindowDecorations="None"`, the two boxes → `CanMaximize`/
+    `CanMinimize`. `ControlBox = false` disables both and **reports** the close button, which
+    Avalonia cannot remove while keeping the title bar; a tool-window style gets an ordinary frame
+    and is reported. `WindowDecorations`, not `SystemDecorations`, which Avalonia 12 marks obsolete.
+  - `MinimumSize`/`MaximumSize` → `Min`/`MaxWidth`/`Height`, **approximately**, and said so: WinForms
+    measures them on the outer frame and Avalonia on the client area. They are clamped to the
+    designed `ClientSize`, so the usual habit of setting `MinimumSize` to the form's outer size does
+    not make the window open bigger than it was drawn.
+  - `KeyPreview` is carried, not as an attribute: the Form's own key handlers are subscribed in the
+    tunnelling phase, which is exactly "before the focused control" (see *Keyboard handlers*).
+- **`AcceptButton`/`CancelButton` → `IsDefault`/`IsCancel` on the button.** The same keypress,
+  turned round: WinForms names the button on the Form, Avalonia flags the button itself. Only on
+  an element that derives from `Button`; pointing at anything else is reported.
+- **`TabIndex`/`TabStop` → `TabIndex`/`IsTabStop`**, on every named element (both are declared on
+  `InputElement`). Avalonia orders Tab by `TabIndex` within a container just as WinForms does;
+  without it the order was the order the designer *added* the controls.
+
+## Defaults the two frameworks disagree on
+
+A designer writes a property only when it differs from WinForms' default - so where Avalonia's
+default is a different one, a control the designer said *nothing* about still converted wrong.
+Each of these is now pinned on the element (and checked against Avalonia's metadata; the defaults
+themselves were measured at run time, since a reference assembly does not carry them):
+
+- **`PictureBox` → `Image` with `Stretch="None"`.** WinForms draws a picture unscaled; Avalonia's
+  `Image` defaults to `Uniform`, so every converted picture was rescaled. `SizeMode` maps
+  `StretchImage` → `Fill`, `Zoom` → `Uniform`, and `Normal`/`CenterImage`/`AutoSize` → `None`.
+  `Normal` anchors top-left and `None` centres - they agree whenever the picture fills its box.
+- **`ComboBox` → `IsEditable="True"`.** WinForms' default `DropDownStyle` is `DropDown`, which is
+  editable; `DropDownList` → `False`.
+- **`TrackBar` → `TickPlacement="BottomRight" TickFrequency="1"`.** WinForms draws ticks by
+  default and Avalonia draws none; `TickStyle` and `TickFrequency` map when set (`Both` → `Outside`).
+- **A multi-line `TextBox` wraps.** WinForms' `WordWrap` defaults to true; Avalonia's
+  `TextWrapping` to `NoWrap`. An explicit `WordWrap = false` still wins. `ScrollBars` maps to the
+  two `ScrollViewer.*ScrollBarVisibility` attached properties.
+- **Designer decimals are read.** Every decimal a designer writes is `new decimal(new int[] { … })`
+  - every `NumericUpDown`'s `Minimum`, `Maximum`, `Value` and `Increment` - and none of them was
+  understood, so every converted spinner ran 0..100. A bound numeric value now also reaches the
+  ViewModel initializer (as `100m` for a decimal) instead of the catalog default. On the way:
+  `-2147483648` - the sign word of a negative decimal - had evaluated as *positive*, because C#
+  types `2147483648` as a uint and the negation fell through.
+
+- **`DataGridView`** carries `ReadOnly` → `IsReadOnly`, `MultiSelect` → `SelectionMode`
+  (`Extended`/`Single`) and `AutoGenerateColumns`. The last is the case where the defaults disagree
+  the other way round: WinForms generates columns unless told not to and Avalonia (measured) does
+  not, so the designer's habitual `= false` is what Avalonia already does.
+- **A `SplitContainer`'s splitter sits where the designer put it.** It used to be a flat
+  `*,Auto,*`, so every converted splitter opened in the middle. `SplitterDistance` is Panel1's size
+  in pixels and `FixedPanel` says which side keeps its pixels on a resize: `None` (the default) is
+  star sizing in the designed proportion, `Panel1`/`Panel2` a fixed size on that side.
+  `SplitterWidth` sizes the `GridSplitter`. `Panel1MinSize`/`Panel2MinSize` and `IsSplitterFixed`
+  are not carried, and are reported.
+- **A ToolTip's delays follow each tip.** WinForms keeps them on the component and Avalonia on the
+  control, so `InitialDelay` → `ToolTip.ShowDelay` and `ReshowDelay` → `ToolTip.BetweenShowDelay`
+  are written on every control the provider gives a tip to (`AutomaticDelay` sets both the
+  WinForms way, and an explicit value wins). Only when the provider sets any of them. `AutoPopDelay`
+  has no counterpart - an Avalonia tooltip stays up while the pointer is on the control - and is
+  reported once per provider.
+
+## Keyboard handlers
+
+- **They are subscribed in the tunnelling phase.** WinForms raises `KeyDown` before the control acts
+  on the key; an Avalonia `TextBox` acts on Back, Delete and the arrows (and Enter, when multi-line)
+  in its own class handler and marks them handled - so a handler wired by AXAML attribute simply
+  never saw those keys. Measured headlessly: attribute-wired got `A, Return, Escape, Tab`, tunnelled
+  got all seven. Control-level `KeyDown`/`KeyUp` are therefore subscribed from the constructor with
+  `AddHandler(InputElement.KeyDownEvent, handler, RoutingStrategies.Tunnel)`; the Form's own, only
+  with `KeyPreview` (that *is* tunnelling - without it a WinForms form hears what nothing took,
+  closer to Avalonia's bubbling). A side effect worth knowing: `e.Handled = true` now really keeps
+  the key from the control, as it did in WinForms.
+- **What a body may say.** `e.Control`/`e.Shift`/`e.Alt` → `e.KeyModifiers.HasFlag(...)`, `e.Handled`
+  unchanged, and comparisons against `Keys` constants - `e.KeyCode == Keys.Enter`,
+  `e.KeyData == (Keys.Control | Keys.S)` (key *and* exact modifiers), `e.Modifiers == Keys.Alt`,
+  with `!=` as the negation. Only as a comparison: the two key enums name members differently
+  (`Next` is `PageDown`), so `e.KeyCode.ToString()` or a `Keys` local refuses, and so does a key
+  outside the same table the menu shortcuts use.
+- **`KeyPress` is `TextInput`, tunnelled too - and that one was worse.** An attribute-wired
+  `TextInput` handler on a TextBox saw *no typed text at all* (measured): the box takes it in its own
+  handler first. So every converted character filter never ran and let everything through. It is
+  now subscribed like `KeyDown`, and `e.Handled = true` really keeps the text out (measured as well).
+  In the body: `char.IsDigit(e.KeyChar)` and the other `char` classifiers become
+  `(e.Text ?? string.Empty).All(char.IsDigit)` - exact for a keystroke, which is one character, and
+  "every character passes" for an IME committing several - and `e.KeyChar == 'x'` becomes
+  `e.Text == "x"` for a printable character. A comparison with a control character (`'\r'`,
+  `'\b'`) refuses: WinForms raises `KeyPress` for Enter and Backspace, Avalonia raises no
+  `TextInput` for them, so the translation would compile and never be true - those belong in
+  `KeyDown`. (`!char.IsControl(c) && !char.IsDigit(c)`, the classic digit filter, translates, since
+  `IsControl` is simply always false here.)
+- **Not translated:** `SuppressKeyPress` - Avalonia raises `TextInput` apart from `KeyDown`, so
+  handling one does not cancel the other - and `KeyChar` anywhere outside those two shapes.
+
+## Menu items
+
+- `Checked` → `IsChecked` plus `ToggleType="CheckBox"`, without which Avalonia draws no tick.
+- `ShortcutKeys` → `InputGesture` (which only *shows* it) **and** `HotKey` (which makes pressing it
+  click the item - measured headlessly, with the submenu closed). Modifiers and a closed set of
+  keys (letters, digits, F1-F24, navigation and editing keys); anything else is reported.
+- `CheckOnClick` is reproduced in code, because an Avalonia `MenuItem` does not toggle itself
+  (measured: a real activation ran the Click handler and left `IsChecked` alone). WinForms flips
+  `Checked` *before* raising `Click`, so the View subscribes the toggle in its constructor and
+  chains the item's own Click handlers after it, out of the AXAML - an attribute is wired during
+  `InitializeComponent` and would run first. Such a handler is never promoted to a
+  `[RelayCommand]`: Avalonia runs a bound command from a class handler, ahead of every instance
+  handler, so it would read the state from before the click.
+
+A designer value that every mapping of its property declines - a shortcut on a key outside the
+table, say - is reported by name (`… sets ShortcutKeys = Control | BrowserBack, which a MenuItem
+has no spelling for`). It was looked up, so the coverage report alone would not have seen it.
+
+## Pointer input: drop targets and hit testing
+
+- **`AllowDrop` → `DragDrop.AllowDrop`.** Without it Avalonia raises none of the drag events, so a
+  converted drop target's handlers - translated, subscribed, compiling - never ran.
+- **An element something listens on is made hit-testable.** A WinForms control is hit anywhere in
+  its bounds. An Avalonia `Panel`/`Canvas`/`Border` with no `Background` is hit *nowhere*, and a
+  `TextBlock` only on its glyphs - measured headlessly, not assumed. Every container becomes the
+  first and every Label the second, and the designer writes `BackColor` only when it differs from
+  the default; so a Panel with a `MouseDown` handler, a drop target, a Label with a `Click`, a
+  tooltip or a context menu converted into something the pointer mostly went straight through.
+  Such an element now gets `Background="Transparent"` (`Mapping/AvaloniaHitTestSupport`) - unless
+  the designer gave it a colour, which already makes it hit-testable. An element nothing listens
+  on is left exactly as it was.
+- The startup tests hit-test every converted drop target at its centre and fail if the pointer
+  lands anywhere else. Not covered: an `Image` (a PictureBox) has no `Background` to set, so a
+  click on its transparent pixels still goes through.
 
 ## Layout
 

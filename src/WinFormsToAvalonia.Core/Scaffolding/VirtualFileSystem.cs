@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
 namespace WinFormsToAvalonia.Core.Scaffolding;
 
 /// <summary>What <see cref="VirtualFileSystem.WriteToDisk"/> does about a file that is already there.</summary>
@@ -19,10 +23,25 @@ public enum ExistingFileStrategy
 /// Files kept as the user has them because the generated content differed. The generated version
 /// sits next to each one under the same path plus <see cref="VirtualFileSystem.GeneratedFileSuffix"/>.
 /// </param>
+/// <param name="Pruned">
+/// Files an earlier run generated, this one no longer does, and nobody had edited - deleted
+/// because pruning was asked for.
+/// </param>
+/// <param name="Orphaned">
+/// Files an earlier run generated and this one no longer does, left on disk: either pruning was not
+/// asked for, or the file was edited since it was generated.
+/// </param>
 public sealed record WriteToDiskResult(
     IReadOnlyList<string> Written,
     IReadOnlyList<string> Unchanged,
-    IReadOnlyList<string> Preserved);
+    IReadOnlyList<string> Preserved,
+    IReadOnlyList<string>? Pruned = null,
+    IReadOnlyList<string>? Orphaned = null)
+{
+    public IReadOnlyList<string> Pruned { get; } = Pruned ?? [];
+
+    public IReadOnlyList<string> Orphaned { get; } = Orphaned ?? [];
+}
 
 /// <summary>
 /// In-memory staging area for generated project files. Every emitter writes here first;
@@ -33,6 +52,12 @@ public sealed class VirtualFileSystem
 {
     /// <summary>Appended to a generated file whose real path already holds different content.</summary>
     public const string GeneratedFileSuffix = ".w2a-new";
+
+    /// <summary>
+    /// What the last run generated, and the hash of each file as generated - written into the output
+    /// root on every run, so the next one can tell its own stale files from a human's.
+    /// </summary>
+    public const string ManifestFileName = ".w2a-manifest.json";
 
     private readonly Dictionary<string, string> _textFiles = new(StringComparer.Ordinal);
     private readonly Dictionary<string, byte[]> _binaryFiles = new(StringComparer.Ordinal);
@@ -74,10 +99,18 @@ public sealed class VirtualFileSystem
     /// work has started must not silently delete it. A first conversion into an empty directory
     /// is unaffected either way - every file is new.
     /// </remarks>
+    /// <param name="prune">
+    /// Delete what an earlier run generated and this one no longer does (a Form removed or renamed
+    /// in the source) - but only a file still exactly as it was generated. An edited one is a
+    /// human's work and is only reported, in <see cref="WriteToDiskResult.Orphaned"/>.
+    /// </param>
     public WriteToDiskResult WriteToDisk(
-        string rootDirectory, ExistingFileStrategy existingFiles = ExistingFileStrategy.PreserveExisting)
+        string rootDirectory,
+        ExistingFileStrategy existingFiles = ExistingFileStrategy.PreserveExisting,
+        bool prune = false)
     {
         Directory.CreateDirectory(rootDirectory);
+        var previous = ReadManifest(rootDirectory);
 
         var written = new List<string>();
         var unchanged = new List<string>();
@@ -99,7 +132,98 @@ public sealed class VirtualFileSystem
                 write: path => File.WriteAllBytes(path, content));
         }
 
-        return new WriteToDiskResult(Ordered(written), Ordered(unchanged), Ordered(preserved));
+        var current = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (relativePath, content) in _textFiles)
+        {
+            current[relativePath] = Hash(Encoding.UTF8.GetBytes(content));
+        }
+
+        foreach (var (relativePath, content) in _binaryFiles)
+        {
+            current[relativePath] = Hash(content);
+        }
+
+        var pruned = new List<string>();
+        var orphaned = new List<string>();
+        foreach (var (relativePath, generatedHash) in previous.Where(e => !current.ContainsKey(e.Key)))
+        {
+            var fullPath = Path.Combine(rootDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(fullPath))
+            {
+                continue;
+            }
+
+            if (prune && Hash(File.ReadAllBytes(fullPath)) == generatedHash)
+            {
+                File.Delete(fullPath);
+
+                // A merge copy beside it is this tool's own output for a file that no longer exists.
+                File.Delete(fullPath + GeneratedFileSuffix);
+                RemoveEmptyDirectories(rootDirectory, Path.GetDirectoryName(fullPath));
+                pruned.Add(relativePath);
+            }
+            else
+            {
+                orphaned.Add(relativePath);
+            }
+        }
+
+        // An orphan left in place stays in the manifest with the hash it was generated with: the
+        // usual sequence is a run that reports it, then a run with --prune - which has to still
+        // know the file is this tool's, and whether it has been touched since.
+        foreach (var relativePath in orphaned)
+        {
+            current[relativePath] = previous[relativePath];
+        }
+
+        WriteManifest(rootDirectory, current);
+
+        return new WriteToDiskResult(
+            Ordered(written), Ordered(unchanged), Ordered(preserved), Ordered(pruned), Ordered(orphaned));
+    }
+
+    private static string Hash(byte[] content) => Convert.ToHexString(SHA256.HashData(content));
+
+    private static Dictionary<string, string> ReadManifest(string rootDirectory)
+    {
+        var path = Path.Combine(rootDirectory, ManifestFileName);
+        try
+        {
+            if (File.Exists(path)
+                && JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(File.ReadAllText(path)) is { } manifest
+                && manifest.TryGetValue("files", out var files))
+            {
+                return files;
+            }
+        }
+        catch (JsonException)
+        {
+            // A damaged manifest only means nothing is known to be stale - never a reason to fail.
+        }
+
+        return new Dictionary<string, string>(StringComparer.Ordinal);
+    }
+
+    private static void WriteManifest(string rootDirectory, SortedDictionary<string, string> files)
+    {
+        var manifest = new Dictionary<string, SortedDictionary<string, string>> { ["files"] = files };
+        File.WriteAllText(
+            Path.Combine(rootDirectory, ManifestFileName),
+            JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }) + "\n");
+    }
+
+    /// <summary>Removes <paramref name="directory"/> and its parents while they are empty, stopping at the root.</summary>
+    private static void RemoveEmptyDirectories(string rootDirectory, string? directory)
+    {
+        var root = Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar);
+        while (directory is not null
+               && !string.Equals(Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar), root, StringComparison.Ordinal)
+               && Directory.Exists(directory)
+               && !Directory.EnumerateFileSystemEntries(directory).Any())
+        {
+            Directory.Delete(directory);
+            directory = Path.GetDirectoryName(directory);
+        }
     }
 
     private static void WriteOne(

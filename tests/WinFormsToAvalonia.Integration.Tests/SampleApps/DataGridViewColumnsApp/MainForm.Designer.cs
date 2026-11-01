@@ -56,6 +56,7 @@ namespace DataGridViewColumnsApp
             this.actionColumn.HeaderText = "Action";
             this.actionColumn.Name = "actionColumn";
             this.actionColumn.Text = "Run";
+            this.actionColumn.UseColumnTextForButtonValue = true;
             //
             // iconColumn
             //
@@ -64,6 +65,7 @@ namespace DataGridViewColumnsApp
             //
             // linkColumn
             //
+            this.linkColumn.DataPropertyName = "Url";
             this.linkColumn.HeaderText = "Link";
             this.linkColumn.Name = "linkColumn";
             //

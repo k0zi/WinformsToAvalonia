@@ -79,9 +79,10 @@ public sealed partial class AvaloniaProjectScaffolder
     }
 
     /// <summary>
-    /// Builds the real generated project from converted forms. The first Form-kind entry in
-    /// <paramref name="forms"/> is wired up as the application's MainWindow - a UserControl
-    /// entry never can be, since it is emitted as an Avalonia UserControl, not a Window.
+    /// Builds the real generated project from converted forms. <paramref name="mainForm"/> is
+    /// wired up as the application's MainWindow, or - when the caller has no opinion - the first
+    /// Form-kind entry in <paramref name="forms"/>. A UserControl entry never can be, since it is
+    /// emitted as an Avalonia UserControl, not a Window.
     /// </summary>
     /// <remarks>
     /// A form converted from a subfolder gets its own correctly-nested namespace (see
@@ -95,15 +96,40 @@ public sealed partial class AvaloniaProjectScaffolder
     /// Other generated projects this one must reference, relative to its own folder. Only a
     /// solution-wide conversion produces any: a Form here hosting a UserControl from there.
     /// </param>
+    /// <param name="mainForm">
+    /// The startup Form's output - one of <paramref name="forms"/> - as the pipeline read it from
+    /// <c>Application.Run</c>. Null keeps the first-Form rule.
+    /// </param>
     public VirtualFileSystem BuildProject(
         string projectName,
         IReadOnlyList<ConvertedFormOutput> forms,
         IReadOnlySet<string>? extraNuGetPackages = null,
         IReadOnlyList<NotifyIconInfo>? notifyIcons = null,
-        IReadOnlyList<string>? projectReferences = null)
+        IReadOnlyList<string>? projectReferences = null,
+        ConvertedFormOutput? mainForm = null,
+        bool asLibrary = false)
     {
+        if (mainForm is not null && (mainForm.Kind != WinFormsArtifactKind.Form || !forms.Contains(mainForm)))
+        {
+            throw new ArgumentException("The main form must be one of the converted Forms.", nameof(mainForm));
+        }
+
         var packages = extraNuGetPackages ?? (IReadOnlySet<string>)new HashSet<string>();
         var references = projectReferences ?? [];
+
+        // A converted class library stays one: its Views are for the applications that reference
+        // it, so it gets no entry point, no App and no placeholder window - only what the Views
+        // themselves compile against.
+        if (asLibrary)
+        {
+            var library = new VirtualFileSystem();
+            library.AddText($"{projectName}.csproj", BuildCsproj(projectName, packages, references, asLibrary: true));
+            library.AddText("ViewModels/ViewModelBase.cs", BuildViewModelBase(projectName));
+            library.AddText("Controls/Generated/LayoutHint.cs", BuildLayoutHint(projectName));
+            library.AddText("Generated/MigrationTodo.cs", BuildMigrationTodo(projectName));
+            AddViews(library, forms);
+            return library;
+        }
 
         if (forms.Count == 0)
         {
@@ -120,7 +146,7 @@ public sealed partial class AvaloniaProjectScaffolder
         // project of nothing but UserControls still needs one, and gets the placeholder
         // MainWindowView the empty skeleton provides - its converted UserControl Views are
         // then merged in below, exactly as they would be alongside a real Form.
-        var mainForm = forms.FirstOrDefault(f => f.Kind == WinFormsArtifactKind.Form);
+        mainForm ??= forms.FirstOrDefault(f => f.Kind == WinFormsArtifactKind.Form);
         var vfs = new VirtualFileSystem();
 
         if (mainForm is null)
@@ -144,6 +170,13 @@ public sealed partial class AvaloniaProjectScaffolder
         vfs.AddText("Controls/Generated/LayoutHint.cs", BuildLayoutHint(projectName));
         vfs.AddText("Generated/MigrationTodo.cs", BuildMigrationTodo(projectName));
 
+        AddViews(vfs, forms);
+
+        return vfs;
+    }
+
+    private static void AddViews(VirtualFileSystem vfs, IReadOnlyList<ConvertedFormOutput> forms)
+    {
         foreach (var form in forms)
         {
             var viewsFolder = CombineFolder("Views", form.RelativeFolder);
@@ -161,8 +194,6 @@ public sealed partial class AvaloniaProjectScaffolder
                 vfs.AddText($"{viewsFolder}/{wrapper.WindowClassName}.axaml.cs", wrapper.CodeBehindContent);
             }
         }
-
-        return vfs;
     }
 
     private static string CombineFolder(string root, string relativeFolder) =>
@@ -312,7 +343,8 @@ public sealed partial class AvaloniaProjectScaffolder
     /// BuildAppAxaml's output stays byte-identical to before this feature existed.
     /// </summary>
     /// <remarks>
-    /// Only icons whose file was actually resolved and copied into Assets/ are emitted as live
+    /// Only icons whose file was actually resolved and copied into Assets/ - or that never had an
+    /// icon at all, and so reference no file (<see cref="NotifyIconInfo.DeclaresNoIcon"/>) - are emitted as live
     /// XAML. Avalonia resolves TrayIcon.Icon at run time, so a reference to an asset the
     /// conversion never produced is a FileNotFoundException out of App.Initialize() - the
     /// generated app would build and then die before showing a window. Those are emitted as a
@@ -321,8 +353,8 @@ public sealed partial class AvaloniaProjectScaffolder
     /// </remarks>
     private static string BuildTrayIconsSection(IReadOnlyList<NotifyIconInfo> notifyIcons)
     {
-        var resolved = notifyIcons.Where(i => i.IconAssetPath is not null).ToList();
-        var unresolved = notifyIcons.Where(i => i.IconAssetPath is null).ToList();
+        var resolved = notifyIcons.Where(i => i.IsLive).ToList();
+        var unresolved = notifyIcons.Where(i => !i.IsLive).ToList();
         var section = "";
 
         if (resolved.Count > 0)
@@ -368,7 +400,7 @@ public sealed partial class AvaloniaProjectScaffolder
     /// </remarks>
     private static string BuildTrayIconAccessors(IReadOnlyList<NotifyIconInfo> notifyIcons)
     {
-        var resolved = notifyIcons.Where(i => i.IconAssetPath is not null).ToList();
+        var resolved = notifyIcons.Where(i => i.IsLive).ToList();
         if (resolved.Count == 0)
         {
             return "";
@@ -396,7 +428,8 @@ public sealed partial class AvaloniaProjectScaffolder
     /// </remarks>
     private static string BuildTrayIconElement(NotifyIconInfo icon)
     {
-        var open = $"            <TrayIcon Icon=\"/{icon.IconAssetPath}\"{ToolTipAttribute(icon)}";
+        var iconAttribute = icon.IconAssetPath is null ? "" : $" Icon=\"/{icon.IconAssetPath}\"";
+        var open = $"            <TrayIcon{iconAttribute}{ToolTipAttribute(icon)}";
         if (icon.MenuItems.Count == 0)
         {
             return $"{open} />\n";

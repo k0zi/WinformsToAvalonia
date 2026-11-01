@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -14,8 +15,7 @@ namespace __TARGET_NAMESPACE__;
 /// <remarks>
 /// <c>Context</c> stands in for <c>Graphics</c>, and the two rectangles for the properties of the
 /// same name. <c>HasMorePages</c> is settable and read back after the handler returns, exactly as
-/// WinForms did - so a handler that paginates still says what it meant, even though this
-/// implementation renders only the first page.
+/// WinForms did: the document keeps raising <c>PrintPage</c> while it stays true.
 /// </remarks>
 public sealed class PrintPageSurfaceEventArgs : EventArgs
 {
@@ -77,30 +77,45 @@ public class PrintDocumentFallback
     /// <summary>Raised once per rendered page - the WinForms PrintPage equivalent.</summary>
     public event EventHandler<PrintPageSurfaceEventArgs>? PrintPage;
 
-    /// <summary>Draws the first page onto a bitmap.</summary>
+    /// <summary>
+    /// A cap on <see cref="RenderPages"/>, so a handler that never clears <c>HasMorePages</c> ends
+    /// in a finished export instead of filling the memory. WinForms had none, and such a handler
+    /// printed forever.
+    /// </summary>
+    public int MaxPages { get; set; } = 1000;
+
+    /// <summary>Draws the first page onto a bitmap - whatever the handler says about the rest.</summary>
+    public RenderTargetBitmap RenderFirstPage() => RenderPage(out _);
+
+    /// <summary>
+    /// Every page, as WinForms printed them: <c>PrintPage</c> is raised once per page, with fresh
+    /// arguments, for as long as the handler sets <c>HasMorePages</c>.
+    /// </summary>
     /// <remarks>
-    /// Only the first. WinForms looped while <c>HasMorePages</c> stayed true, and reproducing that
-    /// would mean deciding how several pages become one file - a decision about your document, not
-    /// about the conversion. The flag is still handed to the handler and can be read back.
+    /// The handler's own state is what pages through the content - a row counter on the Form,
+    /// typically - so rendering twice (a preview, then an export) continues from wherever the first
+    /// run left it, exactly as printing twice did in WinForms. Reset that state before each run, as
+    /// the original's BeginPrint handler did.
     /// </remarks>
-    public RenderTargetBitmap RenderFirstPage()
+    public IReadOnlyList<RenderTargetBitmap> RenderPages()
     {
-        var bitmap = new RenderTargetBitmap(new PixelSize((int)PageSize.Width, (int)PageSize.Height));
-
-        using (var context = bitmap.CreateDrawingContext())
+        var pages = new List<RenderTargetBitmap>();
+        bool hasMorePages;
+        do
         {
-            var page = new Rect(0, 0, PageSize.Width, PageSize.Height);
-
-            // Paper is white; a RenderTargetBitmap starts transparent.
-            context.FillRectangle(Brushes.White, page);
-
-            PrintPage?.Invoke(this, new PrintPageSurfaceEventArgs(context, page, MarginBounds(page)));
+            pages.Add(RenderPage(out hasMorePages));
         }
+        while (hasMorePages && pages.Count < MaxPages);
 
-        return bitmap;
+        return pages;
     }
 
-    /// <summary>Renders the page and writes it to a file the user picks.</summary>
+    /// <summary>
+    /// Renders every page and writes them to files the user picks: the chosen file is the first
+    /// page, and the rest go beside it as <c>name-2.png</c>, <c>name-3.png</c>, ... - or, where the
+    /// storage gives no access to the chosen file's folder (a browser, a sandbox), stacked top to
+    /// bottom in the one file.
+    /// </summary>
     public async Task PrintAsync(Visual owner)
     {
         if (TopLevel.GetTopLevel(owner)?.StorageProvider is not { } storage)
@@ -110,7 +125,7 @@ public class PrintDocumentFallback
 
         var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Export page",
+            Title = "Export pages",
             SuggestedFileName = DocumentName + ".png",
             DefaultExtension = "png",
         });
@@ -120,7 +135,71 @@ public class PrintDocumentFallback
             return;
         }
 
-        using var bitmap = RenderFirstPage();
+        var pages = RenderPages();
+        try
+        {
+            var folder = pages.Count > 1 ? await file.GetParentAsync() : null;
+            if (pages.Count > 1 && folder is null)
+            {
+                using var stacked = Stack(pages);
+                await WriteAsync(file, stacked);
+                return;
+            }
+
+            await WriteAsync(file, pages[0]);
+
+            var baseName = System.IO.Path.GetFileNameWithoutExtension(file.Name);
+            for (var index = 1; index < pages.Count; index++)
+            {
+                if (await folder!.CreateFileAsync($"{baseName}-{index + 1}.png") is { } pageFile)
+                {
+                    await WriteAsync(pageFile, pages[index]);
+                }
+            }
+        }
+        finally
+        {
+            foreach (var page in pages)
+            {
+                page.Dispose();
+            }
+        }
+    }
+
+    private RenderTargetBitmap RenderPage(out bool hasMorePages)
+    {
+        var bitmap = new RenderTargetBitmap(new PixelSize((int)PageSize.Width, (int)PageSize.Height));
+        var page = new Rect(0, 0, PageSize.Width, PageSize.Height);
+
+        using (var context = bitmap.CreateDrawingContext())
+        {
+            // Paper is white; a RenderTargetBitmap starts transparent.
+            context.FillRectangle(Brushes.White, page);
+
+            var args = new PrintPageSurfaceEventArgs(context, page, MarginBounds(page));
+            PrintPage?.Invoke(this, args);
+            hasMorePages = args.HasMorePages;
+        }
+
+        return bitmap;
+    }
+
+    private static RenderTargetBitmap Stack(IReadOnlyList<RenderTargetBitmap> pages)
+    {
+        var width = pages[0].PixelSize.Width;
+        var height = pages[0].PixelSize.Height;
+        var sheet = new RenderTargetBitmap(new PixelSize(width, height * pages.Count));
+        using var context = sheet.CreateDrawingContext();
+        for (var index = 0; index < pages.Count; index++)
+        {
+            context.DrawImage(pages[index], new Rect(0, index * height, width, height));
+        }
+
+        return sheet;
+    }
+
+    private static async Task WriteAsync(IStorageFile file, RenderTargetBitmap bitmap)
+    {
         await using var stream = await file.OpenWriteAsync();
 
         // The options overload, not Save(stream, quality) - that one is [Obsolete], and a

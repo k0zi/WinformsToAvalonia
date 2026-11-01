@@ -36,8 +36,10 @@ public sealed record WindowProperty(
 /// <para>
 /// <c>FormBorderStyle</c>, <c>ControlBox</c>, <c>MaximizeBox</c> and <c>StartPosition</c> are out
 /// for the sharper version of the same problem: Avalonia expresses those through
-/// <c>SystemDecorations</c>, <c>CanResize</c> and <c>WindowStartupPosition</c>, and the mapping
-/// between them is many-to-many rather than one-to-one.
+/// <c>WindowDecorations</c>, <c>CanResize</c> and <c>WindowStartupLocation</c>, and the mapping
+/// between them is many-to-many rather than one-to-one. The <em>designer's</em> values are a
+/// different matter - there the whole set is known at once - and
+/// <see cref="FormWindowAttributeCatalog"/> translates them.
 /// </para>
 /// </remarks>
 public static class WindowPropertyCatalog

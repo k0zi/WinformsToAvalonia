@@ -37,8 +37,11 @@ namespace TrayIconApp
             this.notifyIcon1.Click += new System.EventHandler(this.notifyIcon1_Click);
             this.notifyIcon1.DoubleClick += new System.EventHandler(this.notifyIcon1_DoubleClick);
             //
-            // notifyIcon2 - no icon the conversion can resolve, so no TrayIcon is emitted for it.
+            // notifyIcon2 - an icon the conversion cannot resolve (computed, not a file or a resx
+            // payload), so no TrayIcon is emitted for it. Distinct from declaring no Icon at all,
+            // which WinForms shows nothing for either and which is therefore emitted live.
             //
+            this.notifyIcon2.Icon = System.Drawing.SystemIcons.Application;
             this.notifyIcon2.Text = "No icon";
             this.notifyIcon2.Click += new System.EventHandler(this.notifyIcon2_Click);
             //

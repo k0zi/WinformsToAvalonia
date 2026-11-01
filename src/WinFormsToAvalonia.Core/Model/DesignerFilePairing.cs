@@ -11,6 +11,10 @@ namespace WinFormsToAvalonia.Core.Model;
 /// class that lives in a referenced assembly). Lets the pipeline report a skipped designer artifact
 /// instead of dropping it silently.
 /// </param>
+/// <param name="BaseTypeNames">
+/// The simple names in the class's own base list, ordinal-sorted. What lets the pipeline follow
+/// visual inheritance to a base Form whose designer has to run first.
+/// </param>
 public sealed record DesignerFilePairing(
     string ClassName,
     string? Namespace,
@@ -18,9 +22,12 @@ public sealed record DesignerFilePairing(
     string? PrimaryFilePath,
     string? DesignerFilePath,
     string? ResxFilePath,
-    IReadOnlyList<string>? UnresolvedBaseTypes = null)
+    IReadOnlyList<string>? UnresolvedBaseTypes = null,
+    IReadOnlyList<string>? BaseTypeNames = null)
 {
     public IReadOnlyList<string> UnresolvedBaseTypes { get; } = UnresolvedBaseTypes ?? [];
+
+    public IReadOnlyList<string> BaseTypeNames { get; } = BaseTypeNames ?? [];
 
     public string FullyQualifiedName => Namespace is null ? ClassName : $"{Namespace}.{ClassName}";
 }

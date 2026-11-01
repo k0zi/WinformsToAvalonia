@@ -12,10 +12,10 @@
         <vm:DirectMappedTreeViewModel />
     </Design.DataContext>
     <Canvas>
-        <TextBox x:Name="topTextBox" Canvas.Left="10" Canvas.Top="120" Width="200" Height="23" />
-        <Canvas x:Name="panel1" Canvas.Left="10" Canvas.Top="10" Width="200" Height="100">
-            <Button x:Name="innerButton" Canvas.Left="8" Canvas.Top="8" Width="75" Height="23" Content="OK" />
-            <TextBlock x:Name="innerLabel" Canvas.Left="8" Canvas.Top="40" Width="100" Height="23" Text="Status" />
+        <TextBox x:Name="topTextBox" Canvas.Left="10" Canvas.Top="120" Width="200" Height="23" TabIndex="1" />
+        <Canvas x:Name="panel1" Canvas.Left="10" Canvas.Top="10" Width="200" Height="100" TabIndex="0">
+            <Button x:Name="innerButton" Canvas.Left="8" Canvas.Top="8" Width="75" Height="23" Content="OK" TabIndex="0" />
+            <TextBlock x:Name="innerLabel" Canvas.Left="8" Canvas.Top="40" Width="100" Height="23" Text="Status" TabIndex="1" />
         </Canvas>
     </Canvas>
 </Window>

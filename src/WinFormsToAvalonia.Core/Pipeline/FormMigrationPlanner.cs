@@ -52,6 +52,12 @@ public sealed class FormMigrationPlanner
         _eventMappings = eventMappings;
     }
 
+    /// <summary>The project's string resources a handler body may read.</summary>
+    public ProjectStringResources ProjectStrings { get; init; } = ProjectStringResources.None;
+
+    /// <summary>The project's settings a handler body may read, write and save.</summary>
+    public ProjectSettingsAccess ProjectSettings { get; init; } = ProjectSettingsAccess.None;
+
     /// <param name="formViews">
     /// Every Form in the project resolved to its generated View, so a handler that opens another
     /// Form can be translated. Empty means navigation stays un-migrated, which is the safe default.
@@ -91,6 +97,7 @@ public sealed class FormMigrationPlanner
         trayIconFields ??= new HashSet<string>(StringComparer.Ordinal);
         modelTypes ??= ModelTypeContext.None;
         var warnings = new List<string>();
+        var codeBehindNotes = new List<string>();
         var subscriptionsByHandler = CollectSubscriptions(formModel, codeBehind, warnings);
 
         var codeBehindHandlers = new List<CodeBehindHandlerPlan>();
@@ -125,7 +132,7 @@ public sealed class FormMigrationPlanner
 
             if (reason is not null)
             {
-                warnings.Add($"Click handler '{handlerMethodName}' stays in code-behind: {reason}");
+                codeBehindNotes.Add($"Click handler '{handlerMethodName}' stays in code-behind: {reason}");
             }
 
             codeBehindHandlers.AddRange(PlanCodeBehindHandler(handlerMethodName, subscriptions, source, warnings));
@@ -141,7 +148,7 @@ public sealed class FormMigrationPlanner
         // Body translation runs last, over the finished decisions: which control properties are
         // bound - and therefore what a ViewModel body is even allowed to name - is only settled
         // once every handler has been classified.
-        var rewriter = new HandlerBodyRewriter(_controlMappings);
+        var rewriter = new HandlerBodyRewriter(_controlMappings) { ProjectStrings = ProjectStrings, ProjectSettings = ProjectSettings };
         var navigation = new ViewNavigationContext(
             formViews ?? new Dictionary<string, FormViewInfo>(StringComparer.Ordinal),
             HostIsWindow: hostIsWindow,
@@ -199,7 +206,13 @@ public sealed class FormMigrationPlanner
         var trayResolved = SuppressUnresolvedTrayIconSubscriptions(codeBehindHandlers, trayIconFields, warnings);
 
         var paintResolved = SuppressPaintOnNonSurfaces(trayResolved, formModel, warnings);
-        var rewrittenHandlers = ResolveDuplicateXamlAttributes(paintResolved, formModel, _controlMappings, warnings)
+        var checkOnClickToggles = formModel.Controls.Values
+            .Where(IsCheckOnClick)
+            .Select(c => c.FieldName)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        var rewrittenHandlers = TunnelKeyboardEvents(ChainAfterCheckOnClickToggles(
+                ResolveDuplicateXamlAttributes(paintResolved, formModel, _controlMappings, warnings), checkOnClickToggles), formModel)
             .Select(h => h.Rewrite is not null
                 // Already synthesized (a designer-set DialogResult) - there is no original body
                 // to translate, and re-running the rewriter would erase it.
@@ -229,7 +242,7 @@ public sealed class FormMigrationPlanner
             boundProperties,
             timers,
             components,
-            PlanFileDialogs(formModel, inlinedDialogFields),
+            PlanFileDialogs(formModel, inlinedDialogFields, warnings),
             promotedFields,
             promotedHelpers,
             viewModelHelpers,
@@ -246,7 +259,9 @@ public sealed class FormMigrationPlanner
             dataSourceBindings,
             listViewRows,
             bindingNavigators,
-            checkedLists);
+            checkedLists,
+            codeBehindNotes,
+            checkOnClickToggles);
     }
 
     /// <summary>
@@ -438,6 +453,84 @@ public sealed class FormMigrationPlanner
                     suppressed.Contains((s.ControlFieldName, s.WinFormsEventName)) ? s with { Suppressed = true }
                     : chained.Contains((s.ControlFieldName, s.WinFormsEventName)) ? s with { ChainedInConstructor = true }
                     : s)],
+            }),
+        ];
+    }
+
+    /// <summary>The Avalonia keyboard events that have a tunnelling phase to subscribe to.</summary>
+    /// <remarks>
+    /// TextInput (WinForms' KeyPress) worse than the others: an attribute-wired handler on a TextBox
+    /// saw <em>no</em> typed text at all - measured - so a converted character filter never ran.
+    /// </remarks>
+    private static readonly HashSet<string> TunnelledKeyEvents = new(StringComparer.Ordinal) { "KeyDown", "KeyUp", "TextInput" };
+
+    /// <summary>
+    /// Keyboard handlers subscribe in the tunnelling phase - before the control acts on the key,
+    /// which is when WinForms raised them (see <see cref="FormMigrationPlan.TunnelEventSubscriptions"/>).
+    /// </summary>
+    /// <remarks>
+    /// On a control, always. On the Form only with <c>KeyPreview</c>: that is precisely "the form
+    /// sees the key before the focused control", which tunnelling is. Without it a WinForms form
+    /// hears only keys nothing focused took - closer to Avalonia's bubbling, so it stays an attribute.
+    /// </remarks>
+    private static IReadOnlyList<CodeBehindHandlerPlan> TunnelKeyboardEvents(
+        IReadOnlyList<CodeBehindHandlerPlan> handlers, FormModel formModel)
+    {
+        var keyPreview = formModel.FormProperties.TryGetValue("KeyPreview", out var preview)
+            && preview is PropertyValue.Literal { Value: true };
+
+        return
+        [
+            .. handlers.Select(h => h with
+            {
+                Subscriptions = [.. h.Subscriptions.Select(s =>
+                    !s.Suppressed
+                    && !s.ChainedInConstructor
+                    && s.Mapping.AvaloniaEventName is { } avaloniaEvent
+                    && TunnelledKeyEvents.Contains(avaloniaEvent)
+                    && (s.ControlFieldName is not null || keyPreview)
+                        ? s with { Tunnel = true }
+                        : s)],
+            }),
+        ];
+    }
+
+    /// <summary>
+    /// A <c>ToolStripMenuItem</c> with <c>CheckOnClick</c>: WinForms flips its <c>Checked</c> itself,
+    /// before raising <c>Click</c>. An Avalonia <c>MenuItem</c> does not toggle at all - measured: a
+    /// real activation ran the Click handler and left <c>IsChecked</c> as it was.
+    /// </summary>
+    private static bool IsCheckOnClick(ControlModel control) =>
+        control.ClrTypeName == "ToolStripMenuItem"
+        && control.Properties.TryGetValue("CheckOnClick", out var value)
+        && value is PropertyValue.Literal { Value: true };
+
+    /// <summary>
+    /// Moves the Click subscriptions of a CheckOnClick item from the AXAML into the constructor,
+    /// after the toggle the View subscribes there. A XAML attribute is wired during
+    /// InitializeComponent, before anything in the constructor - so left there, the handler would
+    /// run first and read the state from before the click.
+    /// </summary>
+    private static IReadOnlyList<CodeBehindHandlerPlan> ChainAfterCheckOnClickToggles(
+        IReadOnlyList<CodeBehindHandlerPlan> handlers,
+        IReadOnlyList<string> toggledFields)
+    {
+        if (toggledFields.Count == 0)
+        {
+            return handlers;
+        }
+
+        return
+        [
+            .. handlers.Select(h => h with
+            {
+                Subscriptions = [.. h.Subscriptions.Select(s =>
+                    !s.Suppressed
+                    && s.WinFormsEventName == "Click"
+                    && s.ControlFieldName is { } field
+                    && toggledFields.Contains(field, StringComparer.Ordinal)
+                        ? s with { ChainedInConstructor = true }
+                        : s)],
             }),
         ];
     }
@@ -825,6 +918,12 @@ public sealed class FormMigrationPlanner
             var tick = component.Events.FirstOrDefault(e => e.EventName == "Tick" && e.HandlerMethodName is not null);
             if (tick is null)
             {
+                // A Timer nothing ticks becomes no field, so its settings configure nothing.
+                foreach (var propertyName in component.Properties.Keys)
+                {
+                    component.Properties.MarkRead(propertyName);
+                }
+
                 continue;
             }
 
@@ -957,7 +1056,7 @@ public sealed class FormMigrationPlanner
         CodeBehindModel codeBehind,
         WinFormsArtifactKind artifactKind = WinFormsArtifactKind.Form)
     {
-        var rewriter = new HandlerBodyRewriter(_controlMappings);
+        var rewriter = new HandlerBodyRewriter(_controlMappings) { ProjectStrings = ProjectStrings, ProjectSettings = ProjectSettings };
         var navigation = new ViewNavigationContext(
             new Dictionary<string, FormViewInfo>(StringComparer.Ordinal),
             HostIsWindow: artifactKind != WinFormsArtifactKind.UserControl);
@@ -1127,11 +1226,11 @@ public sealed class FormMigrationPlanner
 
         var parsed = SyntaxFactory.ParseParameterList(signature.ParameterListText);
         return !parsed.ContainsDiagnostics
-            && parsed.Parameters.All(p => p.Type is PredefinedTypeSyntax);
+            && parsed.Parameters.All(p => p.Type is { } type && PlainDotNetTypeCatalog.IsPlain(type));
     }
 
-    private static bool IsKeywordTypeText(string typeText) =>
-        SyntaxFactory.ParseTypeName(typeText) is PredefinedTypeSyntax;
+    /// <summary>Keyword types and the few System types that survive unchanged - see <see cref="PlainDotNetTypeCatalog"/>.</summary>
+    private static bool IsKeywordTypeText(string typeText) => PlainDotNetTypeCatalog.IsPlain(typeText);
 
     private static int CountParameters(string parameterListText) =>
         SyntaxFactory.ParseParameterList(parameterListText).Parameters.Count;
@@ -1189,12 +1288,20 @@ public sealed class FormMigrationPlanner
 
             if (subscriptions.Count == 0 && !referenced.Contains(component.FieldName))
             {
+                // Nothing uses it, so it gets no field - and its settings have nothing to configure.
+                foreach (var propertyName in component.Properties.Keys)
+                {
+                    component.Properties.MarkRead(propertyName);
+                }
+
                 continue;
             }
 
             var initializers = new List<string>();
             foreach (var (propertyName, value) in component.Properties.OrderBy(p => p.Key, StringComparer.Ordinal))
             {
+                // Reproduced or reported by name just below - accounted for either way.
+                component.Properties.MarkRead(propertyName);
                 if (TryFormatCSharpLiteral(value, out var literal))
                 {
                     initializers.Add($"{propertyName} = {literal}");
@@ -1253,7 +1360,23 @@ public sealed class FormMigrationPlanner
     /// Dialogs a handler body already opens inline. Emitting a separate method for those too
     /// would leave a dead one behind, since nothing would ever call it.
     /// </param>
-    private static List<FileDialogPlan> PlanFileDialogs(FormModel formModel, IReadOnlySet<string> inlinedFields) =>
+    private static List<FileDialogPlan> PlanFileDialogs(
+        FormModel formModel, IReadOnlySet<string> inlinedFields, List<string> warnings)
+    {
+        // Whichever way a dialog is opened - inline, or through the helper below - it opens with
+        // the same options, so what those options could not say is said once, here.
+        foreach (var dialog in formModel.Controls.Values.OrderBy(c => c.FieldName, StringComparer.Ordinal))
+        {
+            if (FileDialogCatalog.TryGet(dialog.ClrTypeName, out var dialogKind))
+            {
+                warnings.AddRange(FileDialogOptions.Build(dialog, dialogKind, "StorageProvider").Warnings);
+            }
+        }
+
+        return BuildFileDialogPlans(formModel, inlinedFields);
+    }
+
+    private static List<FileDialogPlan> BuildFileDialogPlans(FormModel formModel, IReadOnlySet<string> inlinedFields) =>
     [
         .. formModel.Controls.Values
             .Where(c => FileDialogCatalog.TryGet(c.ClrTypeName, out _) && !inlinedFields.Contains(c.FieldName))
@@ -1264,7 +1387,8 @@ public sealed class FormMigrationPlanner
                     c.FieldName,
                     $"Show{NamingConventions.Capitalize(c.FieldName)}Async",
                     kind.PickerMethodName,
-                    kind.OptionsTypeName);
+                    kind.OptionsTypeName,
+                    FileDialogOptions.Build(c, kind, FileDialogPlan.StorageProviderPlaceholder).Expression);
             }),
     ];
 
@@ -1372,6 +1496,18 @@ public sealed class FormMigrationPlanner
 
         var subscription = subscriptions[0];
 
+        // WinForms flips Checked *before* raising Click, and the converted View does the same from
+        // its constructor - but Avalonia runs a MenuItem's bound Command from a class handler,
+        // ahead of every instance handler, so a command would see the old state.
+        if (subscription.ControlFieldName is { } clickedField
+            && formModel.Controls.TryGetValue(clickedField, out var clicked)
+            && IsCheckOnClick(clicked))
+        {
+            reason = "its menu item toggles itself on click (CheckOnClick), and that toggle has to run before the "
+                + "handler - which a bound command, run ahead of every Click handler, cannot wait for.";
+            return false;
+        }
+
         if (subscription.ControlFieldName is null
             || !formModel.Controls.TryGetValue(subscription.ControlFieldName, out var owner)
             || _controlMappings.Map(owner).Status != MappingStatus.Direct)
@@ -1418,6 +1554,13 @@ public sealed class FormMigrationPlanner
         if (source.TouchedFormMembers.Count > 0)
         {
             reason = $"it drives the Form itself ({string.Join(", ", source.TouchedFormMembers)}).";
+            return false;
+        }
+
+        if (source.TouchedOwnState.Count > 0)
+        {
+            reason = $"it uses state '{formModel.ClassName}' keeps in its own members "
+                + $"({string.Join(", ", source.TouchedOwnState)}), which stays on the View.";
             return false;
         }
 
@@ -1528,6 +1671,7 @@ public sealed class FormMigrationPlanner
         var createsOtherForms = source.CreatesOtherForms;
         var needsTopLevel = source.NeedsTopLevel;
         var touchedFormMembers = new SortedSet<string>(source.TouchedFormMembers, StringComparer.Ordinal);
+        var touchedOwnState = new SortedSet<string>(source.TouchedOwnState, StringComparer.Ordinal);
         var unanalysable = new SortedSet<string>(StringComparer.Ordinal);
         var accesses = source.ControlMemberAccesses.ToDictionary(
             kvp => kvp.Key, kvp => new List<string>(kvp.Value), StringComparer.Ordinal);
@@ -1555,6 +1699,7 @@ public sealed class FormMigrationPlanner
             createsOtherForms |= facts.CreatesOtherForms;
             needsTopLevel |= facts.NeedsTopLevel;
             touchedFormMembers.UnionWith(facts.TouchedFormMembers);
+            touchedOwnState.UnionWith(facts.TouchedOwnState);
 
             foreach (var (fieldName, members) in facts.ControlMemberAccesses)
             {
@@ -1580,6 +1725,7 @@ public sealed class FormMigrationPlanner
             CreatesOtherForms = createsOtherForms,
             NeedsTopLevel = needsTopLevel,
             TouchedFormMembers = [.. touchedFormMembers],
+            TouchedOwnState = [.. touchedOwnState],
             CalledHelperMethods = [.. unanalysable],
             ControlMemberAccesses = accesses.ToDictionary(
                 kvp => kvp.Key, kvp => (IReadOnlyList<string>)kvp.Value, StringComparer.Ordinal),
@@ -1858,6 +2004,12 @@ public sealed class FormMigrationPlanner
                 // is the same caption, it just reaches the element from the ViewModel instead.
                 string text => $" = {SymbolDisplay.FormatLiteral(MnemonicAware(control, winFormsPropertyName, text), quote: true)};",
                 bool flag => $" = {(flag ? "true" : "false")};",
+
+                // Numbers were left to the catalog default, so a bound spinner's or slider's
+                // designer value was lost. A decimal needs its suffix: `= 0.5;` into a decimal is
+                // CS0664 in the generated project, and every NumericUpDown value is one.
+                decimal number => $" = {number.ToString(System.Globalization.CultureInfo.InvariantCulture)}m;",
+                int or long or double => $" = {Convert.ToString(literal.Value, System.Globalization.CultureInfo.InvariantCulture)};",
                 _ => catalogDefault,
             }
             : catalogDefault;

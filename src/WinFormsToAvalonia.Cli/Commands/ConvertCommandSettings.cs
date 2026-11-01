@@ -22,6 +22,14 @@ public sealed class ConvertCommandSettings : CommandSettings
     [Description("Replace existing output files instead of preserving them and writing the regenerated version as *.w2a-new.")]
     public bool OverwriteAll { get; init; }
 
+    [CommandOption("--mappings <PATH>")]
+    [Description("A JSON file mapping third-party control types: { \"controls\": { \"TextEdit\": { \"as\": \"TextBox\" } } } (see docs/known-limitations.md).")]
+    public string? Mappings { get; init; }
+
+    [CommandOption("--prune")]
+    [Description("Delete files an earlier conversion generated that this one no longer does (a removed or renamed Form), unless they were edited since.")]
+    public bool Prune { get; init; }
+
     [CommandOption("--dry-run")]
     [Description("Run the full pipeline and render the report UI, but write nothing to disk.")]
     public bool DryRun { get; init; }

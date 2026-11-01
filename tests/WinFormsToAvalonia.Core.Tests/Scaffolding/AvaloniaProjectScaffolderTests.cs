@@ -100,6 +100,34 @@ public class AvaloniaProjectScaffolderTests
         Assert.DoesNotContain("<StyleInclude", app);
     }
 
+    /// <summary>
+    /// A class library converts into a class library: the Views and what they compile against,
+    /// and none of an application's own files.
+    /// </summary>
+    [Fact]
+    public void BuildProject_AsLibrary_WritesNoEntryPointAppOrPlaceholderWindow()
+    {
+        var vfs = new AvaloniaProjectScaffolder().BuildProject(
+            "Widgets",
+            [new("Controls", "PanelView", "PanelViewModel", "<UserControl />", "// view", "// vm", WinFormsArtifactKind.UserControl)],
+            asLibrary: true);
+
+        Assert.Equal(
+            [
+                "Controls/Generated/LayoutHint.cs",
+                "Generated/MigrationTodo.cs",
+                "ViewModels/Controls/PanelViewModel.cs",
+                "ViewModels/ViewModelBase.cs",
+                "Views/Controls/PanelView.axaml",
+                "Views/Controls/PanelView.axaml.cs",
+                "Widgets.csproj",
+            ],
+            vfs.RelativePaths);
+        vfs.TryGetText("Widgets.csproj", out var csproj);
+        Assert.DoesNotContain("<OutputType>", csproj);
+        Assert.DoesNotContain("Avalonia.Desktop", csproj);
+    }
+
     /// <summary>Every package that ships a theme has to be one the csproj writer can emit.</summary>
     [Fact]
     public void PackageStyleIncludes_OnlyNamesPackagesTheCsprojCanReference()
@@ -189,6 +217,38 @@ public class AvaloniaProjectScaffolderTests
         Assert.InRange(commentStart, 0, int.MaxValue);
         Assert.InRange(appAxaml.IndexOf("TrayIcon", StringComparison.Ordinal), commentStart, commentEnd);
         Assert.DoesNotContain("TrayIcon", appAxaml[(commentEnd + 3)..]);
+    }
+
+    /// <summary>
+    /// A NotifyIcon the designer gave no Icon at all is not an unresolved one: there is no file
+    /// to go missing, and WinForms showed nothing in the tray either. Emitted live without an
+    /// Icon, it gets an accessor - which is what lets `notifyIcon1.Visible = false;` translate.
+    /// </summary>
+    [Fact]
+    public void BuildProject_NotifyIconDeclaringNoIcon_IsEmittedLiveWithoutAnIcon()
+    {
+        var scaffolder = new AvaloniaProjectScaffolder();
+        var forms = new List<ConvertedFormOutput>
+        {
+            new("", "MainView", "MainViewModel", "<Window />", "// view code-behind", "// view model"),
+        };
+        var notifyIcons = new List<NotifyIconInfo>
+        {
+            new("notifyIcon1", null, "My App", DeclaresNoIcon: true),
+            new("notifyIcon2", "Assets/app.ico", null),
+        };
+
+        var vfs = scaffolder.BuildProject("Demo", forms, notifyIcons: notifyIcons);
+        vfs.TryGetText("App.axaml", out var appAxaml);
+        vfs.TryGetText("App.axaml.cs", out var appCode);
+
+        Assert.Contains("<TrayIcon ToolTipText=\"My App\" />", appAxaml);
+        Assert.Contains("<TrayIcon Icon=\"/Assets/app.ico\" />", appAxaml);
+        Assert.DoesNotContain("<!--", appAxaml);
+
+        // Accessors index App.axaml's collection in declaration order.
+        Assert.Contains("public static TrayIcon NotifyIcon1 =>\n        TrayIcon.GetIcons(Current!)![0];", appCode.ReplaceLineEndings("\n"));
+        Assert.Contains("public static TrayIcon NotifyIcon2 =>\n        TrayIcon.GetIcons(Current!)![1];", appCode.ReplaceLineEndings("\n"));
     }
 
     [Fact]

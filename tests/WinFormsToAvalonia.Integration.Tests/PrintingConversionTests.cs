@@ -41,7 +41,8 @@ public class PrintingConversionTests
         Assert.Contains("private void printDocument1_PrintPage(object? sender, PrintPageSurfaceEventArgs e)", codeBehind);
         Assert.Contains("e.Context.DrawRectangle(null, new Pen(", codeBehind);
         Assert.Contains("MaxTextWidth = e.MarginBounds.Width,", codeBehind);
-        Assert.Contains("e.HasMorePages = false;", codeBehind);
+        Assert.Contains("pagesPrinted++;", codeBehind);
+        Assert.Contains("e.HasMorePages = pagesPrinted < 2;", codeBehind);
         Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(printDocument1_PrintPage)", codeBehind);
 
         // A PrintDialog still has no printer to offer. Its one shape is translated whole: the

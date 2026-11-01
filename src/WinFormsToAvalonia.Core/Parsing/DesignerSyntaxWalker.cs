@@ -52,15 +52,41 @@ public sealed class DesignerSyntaxWalker
         string designerFilePath,
         string className,
         string? @namespace,
-        ResxDocument? resx = null)
+        ResxDocument? resx = null,
+        DesignerWalkResult? inheritedFrom = null)
     {
         var tree = CSharpSyntaxTree.ParseText(designerFileContent, path: designerFilePath);
         var root = tree.GetRoot();
 
+        // Visual inheritance: a Form deriving from another of this project's designer Forms runs
+        // the base's InitializeComponent first and then its own, on the same fields. Continuing
+        // the walk from the base's finished state reproduces exactly that order - the derived
+        // designer's `this.okButton.Text = "Go";` lands on the button the base created, and wins.
+        // The base walk was made for this merge alone, so its control objects are taken over
+        // rather than copied. Its warnings are not: the base's own conversion reports them.
         var formModel = new FormModel { ClassName = className, Namespace = @namespace };
         var edges = new List<ParentChildEdge>();
         var hostedAliases = new Dictionary<string, string>(StringComparer.Ordinal);
         var warnings = new List<string>();
+        if (inheritedFrom is not null)
+        {
+            foreach (var (name, value) in inheritedFrom.Form.FormProperties)
+            {
+                formModel.FormProperties[name] = value;
+            }
+
+            formModel.FormEvents.AddRange(inheritedFrom.Form.FormEvents);
+            foreach (var (name, control) in inheritedFrom.Form.Controls)
+            {
+                formModel.Controls[name] = control;
+            }
+
+            edges.AddRange(inheritedFrom.Edges);
+            foreach (var (host, hosted) in inheritedFrom.HostedControlAliases)
+            {
+                hostedAliases[host] = hosted;
+            }
+        }
 
         var initializeComponent = root.DescendantNodes()
             .OfType<MethodDeclarationSyntax>()
@@ -70,12 +96,15 @@ public sealed class DesignerSyntaxWalker
 
         if (initializeComponent?.Body is null)
         {
-            return new DesignerWalkResult(formModel, edges);
+            return new DesignerWalkResult(formModel, edges, warnings, hostedAliases);
         }
 
         // Every control a designer creates has a field; no inherited property does. That is what
-        // separates `this.button1 = new Button();` from `this.ClientSize = new Size(...)`.
-        var declaredFields = DeclaredFieldNames(root, className);
+        // separates `this.button1 = new Button();` from `this.ClientSize = new Size(...)`. A field
+        // the base class declared is one of this class's fields too.
+        var declaredFields = inheritedFrom is null
+            ? DeclaredFieldNames(root, className)
+            : DeclaredFieldNames(root, className).Concat(inheritedFrom.Form.Controls.Keys).ToHashSet(StringComparer.Ordinal);
 
         foreach (var statement in initializeComponent.Body.Statements)
         {
@@ -93,6 +122,8 @@ public sealed class DesignerSyntaxWalker
                     HandleInvocation(formModel, invocation, edges, warnings);
                     HandleExtenderProviderInvocation(formModel, invocation, warnings);
                     HandleApplyResourcesInvocation(formModel, invocation, resx, className, warnings);
+                    HandleDataBindingsInvocation(invocation, warnings);
+                    HandleSetKeyNameInvocation(formModel, invocation);
                     break;
             }
         }
@@ -319,10 +350,11 @@ public sealed class DesignerSyntaxWalker
 
     private static bool TryParseEventHandlerRhs(ExpressionSyntax right, out string? methodName, out string? inlineBody)
     {
-        if (right is LambdaExpressionSyntax lambda)
+        // A lambda or an anonymous `delegate { }` - InlineHandlerLifter names it afterwards.
+        if (right is AnonymousFunctionExpressionSyntax function)
         {
             methodName = null;
-            inlineBody = lambda.ToString();
+            inlineBody = function.ToString();
             return true;
         }
 
@@ -364,6 +396,77 @@ public sealed class DesignerSyntaxWalker
 
         name = "";
         return false;
+    }
+
+    /// <summary>
+    /// <c>this.nameBox.DataBindings.Add(new Binding("Text", source, "UserName", ...))</c> - a
+    /// WinForms simple binding, reported by what it binds. It used to vanish without a word, which
+    /// for an application-settings binding meant a box that silently stopped remembering its value.
+    /// </summary>
+    /// <summary><c>this.imageList1.Images.SetKeyName(0, "folder.png")</c> - see <see cref="ControlModel.ImageKeys"/>.</summary>
+    private static void HandleSetKeyNameInvocation(FormModel formModel, InvocationExpressionSyntax invocation)
+    {
+        if (invocation is
+            {
+                Expression: MemberAccessExpressionSyntax
+                {
+                    Name.Identifier.ValueText: "SetKeyName",
+                    Expression: MemberAccessExpressionSyntax
+                    {
+                        Name.Identifier.ValueText: "Images",
+                        Expression: MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var field },
+                    },
+                },
+                ArgumentList.Arguments:
+                [
+                    { Expression: LiteralExpressionSyntax { Token.Value: int index } },
+                    { Expression: LiteralExpressionSyntax { Token.Value: string key } },
+                ],
+            }
+            && formModel.Controls.TryGetValue(field, out var imageList))
+        {
+            // First wins on a duplicate key, as ImageList.Images[key] returns the first match.
+            imageList.ImageKeys.TryAdd(key, index);
+        }
+    }
+
+    private static void HandleDataBindingsInvocation(InvocationExpressionSyntax invocation, List<string> warnings)
+    {
+        if (invocation.Expression is not MemberAccessExpressionSyntax
+            {
+                Name.Identifier.ValueText: "Add",
+                Expression: MemberAccessExpressionSyntax
+                {
+                    Name.Identifier.ValueText: "DataBindings",
+                    Expression: MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var field },
+                },
+            })
+        {
+            return;
+        }
+
+        // `Add(new Binding("Text", src, "Member", ...))` or the `Add("Text", src, "Member", ...)` overload.
+        var arguments = invocation.ArgumentList.Arguments switch
+        {
+            [{ Expression: ObjectCreationExpressionSyntax { ArgumentList.Arguments: var inner } }] => inner,
+            var direct => direct,
+        };
+
+        if (arguments.Count < 3
+            || arguments[0].Expression is not LiteralExpressionSyntax { Token.Value: string property }
+            || arguments[2].Expression is not LiteralExpressionSyntax { Token.Value: string member })
+        {
+            warnings.Add($"'{field}' declares a data binding (DataBindings.Add) in a shape this converter cannot read - it is not carried over.");
+            return;
+        }
+
+        var source = arguments[1].Expression;
+        warnings.Add(ExpressionEvaluator.IsProjectSettingsInstance(source)
+            ? $"'{field}.{property}' is bound to the application setting '{member}' (DataBindings). The binding is not "
+              + $"carried over: read Properties.Settings.Default.{member} into the control when the view opens, and write it "
+              + "back (then Save()) when it changes."
+            : $"'{field}.{property}' is data-bound to '{source}.{member}' (DataBindings), which is not carried over - "
+              + "bind the Avalonia property in the AXAML by hand.");
     }
 
     private static void HandleInvocation(
@@ -553,6 +656,7 @@ public sealed class DesignerSyntaxWalker
         }
 
         target.Properties[setter.PropertyKey] = ExpressionEvaluator.Evaluate(invocation.ArgumentList.Arguments[1].Expression);
+        target.ExtenderProviders[setter.PropertyKey] = ownerField;
     }
 
     private static IEnumerable<ExpressionSyntax> GetArrayElements(ExpressionSyntax arrayExpression) => arrayExpression switch

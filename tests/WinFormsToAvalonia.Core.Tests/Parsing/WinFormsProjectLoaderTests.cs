@@ -99,6 +99,80 @@ public class WinFormsProjectLoaderTests
     }
 
     [Fact]
+    public void Load_LegacyIncludeInTheWrongCase_ResolvesToTheFileOnDisk()
+    {
+        using var fixture = TempProjectFixture.Create();
+        fixture.WriteFile("Form1.Designer.cs", "partial class Form1 { }");
+        fixture.WriteFile("Project.csproj", """
+            <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <ItemGroup>
+                <Compile Include="Form1.designer.cs" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        var model = new WinFormsProjectLoader().Load(fixture.PathTo("Project.csproj"));
+
+        Assert.Equal([fixture.PathTo("Form1.Designer.cs")], model.CompileFiles);
+    }
+
+    [Fact]
+    public void Load_WildcardLinkAndSharedProject_AreThisProjectsFilesToo()
+    {
+        using var fixture = TempProjectFixture.Create();
+        fixture.WriteFile("Linked/A.cs", "class A { }");
+        fixture.WriteFile("Linked/B.cs", "class B { }");
+        fixture.WriteFile("Linked/notes.txt", "");
+        fixture.WriteFile("Shared/S.cs", "class S { }");
+        fixture.WriteFile("Shared/S.resx", "<root />");
+        fixture.WriteFile("Shared/Shared.projitems", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <ItemGroup>
+                <Compile Include="$(MSBuildThisFileDirectory)S.cs" />
+                <EmbeddedResource Include="$(MSBuildThisFileDirectory)S.resx" />
+              </ItemGroup>
+            </Project>
+            """);
+        fixture.WriteFile("App/App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <Compile Include="..\Linked\*.cs" />
+              </ItemGroup>
+              <Import Project="..\Shared\Shared.projitems" Label="Shared" />
+            </Project>
+            """);
+
+        var model = new WinFormsProjectLoader().Load(fixture.PathTo("App/App.csproj"));
+
+        Assert.Equal(
+            [fixture.PathTo("Linked/A.cs"), fixture.PathTo("Linked/B.cs"), fixture.PathTo("Shared/S.cs")],
+            model.CompileFiles.Order(StringComparer.Ordinal));
+        Assert.Equal([fixture.PathTo("Shared/S.resx")], model.ResourceFiles);
+    }
+
+    [Theory]
+    [InlineData("<OutputType>Library</OutputType>", true)]
+    [InlineData("<OutputType>library</OutputType>", true)]
+    [InlineData("<OutputType>WinExe</OutputType>", false)]
+    [InlineData("", false)]
+    public void Load_OutputType_OnlyAnExplicitLibraryIsOne(string outputType, bool isLibrary)
+    {
+        using var fixture = TempProjectFixture.Create();
+        fixture.WriteFile("Project.csproj", $$"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                {{outputType}}
+                <TargetFramework>net9.0-windows</TargetFramework>
+              </PropertyGroup>
+            </Project>
+            """);
+
+        var model = new WinFormsProjectLoader().Load(fixture.PathTo("Project.csproj"));
+
+        Assert.Equal(isLibrary, model.IsLibrary);
+    }
+
+    [Fact]
     public void Load_ProjectWithoutReferences_HasNone()
     {
         using var fixture = TempProjectFixture.Create();

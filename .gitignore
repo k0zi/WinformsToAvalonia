@@ -9,3 +9,6 @@ obj/
 # `dotnet pack` output for the wf2a tool package.
 artifacts/
 /samples/Avalonia
+
+# Real-world corpus checkouts and outputs (samples/corpus/run.sh).
+/samples/corpus/.cache

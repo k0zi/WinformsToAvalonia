@@ -29,6 +29,9 @@ namespace ImageListApp
             //
             this.iconList.ImageStream = ((ImageListStreamer)(resources.GetObject("iconList.ImageStream")));
             this.iconList.TransparentColor = System.Drawing.Color.Transparent;
+            this.iconList.Images.SetKeyName(0, "open.png");
+            this.iconList.Images.SetKeyName(1, "folder.png");
+            this.iconList.Images.SetKeyName(2, "save.png");
             //
             // openMenuItem
             //
@@ -37,7 +40,7 @@ namespace ImageListApp
             //
             // saveMenuItem
             //
-            this.saveMenuItem.ImageIndex = 2;
+            this.saveMenuItem.ImageKey = "save.png";
             this.saveMenuItem.Text = "Save";
             //
             // fileMenuItem

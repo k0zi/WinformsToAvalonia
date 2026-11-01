@@ -51,6 +51,12 @@ public sealed class WindowWrapperEmitter
 
         builder.Attribute("Title", AxamlEmitter.GetFormTitle(formModel, viewClassName));
 
+        // Its warnings were already reported by the View's own emission.
+        foreach (var (name, value) in AxamlEmitter.TranslateWindowChrome(formModel).Attributes)
+        {
+            builder.Attribute(name, value);
+        }
+
         // One attribute per distinct event: XAML has nowhere to put a second, so the generated
         // forwarder below calls every handler that subscribed to it.
         foreach (var attributeName in DistinctEventNames(deferredWindowEvents))

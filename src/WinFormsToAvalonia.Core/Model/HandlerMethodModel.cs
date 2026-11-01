@@ -52,6 +52,14 @@ public sealed record HandlerMethodModel
     /// <summary>Well-known Form members the body touches ("Close", "Hide", "ShowDialog", ...).</summary>
     public IReadOnlyList<string> TouchedFormMembers { get; init; } = [];
 
+    /// <summary>
+    /// Fields and properties the Form/UserControl class itself declares (not designer controls)
+    /// that the body reaches through <c>this.</c> - <c>this.isBusy</c>. Blocks promotion like
+    /// <see cref="TouchedFormMembers"/> does, since that state lives on the View, but is kept
+    /// apart so the reason given says what it really is.
+    /// </summary>
+    public IReadOnlyList<string> TouchedOwnState { get; init; } = [];
+
     /// <summary>Names of other (non-handler) methods declared on the same class that this body calls.</summary>
     public IReadOnlyList<string> CalledHelperMethods { get; init; } = [];
 }

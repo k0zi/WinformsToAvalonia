@@ -47,7 +47,16 @@ public class SolutionConversionTests
 
             // ...and not the other way round: Widgets names nothing of Shell's.
             var widgets = result.Converted.Single(c => c.SourceProjectPath.EndsWith("Widgets.csproj", StringComparison.Ordinal));
-            Assert.DoesNotContain("ProjectReference", await File.ReadAllTextAsync(Path.Combine(widgets.OutputDirectory, "Widgets.csproj")));
+            var widgetsCsproj = await File.ReadAllTextAsync(Path.Combine(widgets.OutputDirectory, "Widgets.csproj"));
+            Assert.DoesNotContain("ProjectReference", widgetsCsproj);
+
+            // Widgets is a class library, and stays one: no entry point, no App, no stand-in window.
+            Assert.DoesNotContain("<OutputType>", widgetsCsproj);
+            Assert.DoesNotContain("Avalonia.Desktop", widgetsCsproj);
+            Assert.False(File.Exists(Path.Combine(widgets.OutputDirectory, "Program.cs")));
+            Assert.False(File.Exists(Path.Combine(widgets.OutputDirectory, "App.axaml")));
+            Assert.False(File.Exists(Path.Combine(widgets.OutputDirectory, "Views", "MainWindowView.axaml")));
+            Assert.True(File.Exists(Path.Combine(widgets.OutputDirectory, "Views", "Controls", "SharedPanelView.axaml")));
 
             // The point of the whole thing: `dotnet build` on the *generated solution*.
             var buildResult = await DotnetRunner.RunAsync($"build {result.SolutionFileName}", outputDir);

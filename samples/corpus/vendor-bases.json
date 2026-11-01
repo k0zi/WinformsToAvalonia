@@ -1,0 +1,7 @@
+{
+  // Third-party base Forms in the corpus: MetroFramework (MatchingGame) and ComponentOne (FlexGrid).
+  "controls": {
+    "MetroForm": { "as": "Form" },
+    "C1RibbonForm": { "as": "Form" }
+  }
+}

@@ -215,6 +215,149 @@ public static class PropertyValueFormatters
     /// an AVLN error in the generated project, so this is only ever used where the two enums have
     /// been checked to agree - and <c>ControlMapperTests</c> checks the property itself exists.
     /// </remarks>
+    /// <summary>
+    /// <c>PictureBoxSizeMode</c> as an <c>Image.Stretch</c>. <c>Normal</c> - WinForms' default,
+    /// the picture unscaled - is <c>None</c>; Avalonia's own default is <c>Uniform</c>, which is why
+    /// the PictureBox mapper pins <c>None</c> even when the designer wrote nothing. Normal anchors
+    /// the picture at the top-left and None centres it; the two agree whenever the picture fills
+    /// the box, which a designer-sized PictureBox usually does.
+    /// </summary>
+    public static string? AsImageStretch(PropertyValue value) => AsEnumMember(value) switch
+    {
+        "Normal" or "CenterImage" or "AutoSize" => "None",
+        "StretchImage" => "Fill",
+        "Zoom" => "Uniform",
+        _ => null,
+    };
+
+    /// <summary><c>MultiSelect</c> as a DataGrid's <c>SelectionMode</c>; both default to several rows.</summary>
+    public static string? AsGridSelectionMode(PropertyValue value) => value switch
+    {
+        PropertyValue.Literal { Value: true } => "Extended",
+        PropertyValue.Literal { Value: false } => "Single",
+        _ => null,
+    };
+
+    /// <summary><c>ComboBoxStyle</c> as <c>IsEditable</c>: only DropDownList is a closed list.</summary>
+    public static string? AsComboBoxEditable(PropertyValue value) => AsEnumMember(value) switch
+    {
+        "DropDownList" => "False",
+        "DropDown" or "Simple" => "True",
+        _ => null,
+    };
+
+    /// <summary><c>TickStyle</c> as a Slider's <c>TickPlacement</c>; Both is Avalonia's Outside.</summary>
+    public static string? AsTickPlacement(PropertyValue value) => AsEnumMember(value) switch
+    {
+        "None" => "None",
+        "TopLeft" => "TopLeft",
+        "BottomRight" => "BottomRight",
+        "Both" => "Outside",
+        _ => null,
+    };
+
+    /// <summary>A TextBox's <c>ScrollBars</c>, one axis at a time.</summary>
+    public static string? AsHorizontalScrollBar(PropertyValue value) => AsEnumMember(value) switch
+    {
+        "Horizontal" or "Both" => "Visible",
+        "None" or "Vertical" => "Disabled",
+        _ => null,
+    };
+
+    /// <inheritdoc cref="AsHorizontalScrollBar"/>
+    public static string? AsVerticalScrollBar(PropertyValue value) => AsEnumMember(value) switch
+    {
+        "Vertical" or "Both" => "Visible",
+        "None" or "Horizontal" => "Disabled",
+        _ => null,
+    };
+
+    /// <summary>
+    /// A multi-line TextBox wraps in WinForms unless told not to (<c>WordWrap</c> defaults to
+    /// true), and an Avalonia TextBox never wraps unless told to - so <c>Multiline</c> alone means Wrap.
+    /// </summary>
+    public static string? AsMultilineWrapping(PropertyValue value) =>
+        value is PropertyValue.Literal { Value: true } ? "Wrap" : null;
+
+    /// <summary><c>WordWrap</c>, which overrides the wrapping <see cref="AsMultilineWrapping"/> implied.</summary>
+    public static string? AsWordWrapping(PropertyValue value) => value switch
+    {
+        PropertyValue.Literal { Value: true } => "Wrap",
+        PropertyValue.Literal { Value: false } => "NoWrap",
+        _ => null,
+    };
+
+    /// <summary>A menu item that is checked, or toggles, needs Avalonia told it is a check box at all.</summary>
+    public static string? AsCheckToggleType(PropertyValue value) =>
+        value is PropertyValue.Literal { Value: true } ? "CheckBox" : null;
+
+    /// <summary>
+    /// WinForms <c>Keys</c> modifier names and their <c>KeyGesture</c> spelling, in the order a
+    /// gesture string lists them.
+    /// </summary>
+    private static readonly (string WinForms, string Gesture)[] GestureModifiers =
+        [("Control", "Ctrl"), ("Shift", "Shift"), ("Alt", "Alt")];
+
+    /// <summary>
+    /// The non-modifier <c>Keys</c> members this converter spells as an Avalonia <c>Key</c>. Letters,
+    /// digits and function keys are generated; the rest are listed because WinForms and Avalonia
+    /// name them differently (<c>Next</c> vs <c>PageDown</c>) or to keep the set closed - a key
+    /// outside it is reported rather than guessed. Every value is checked against Avalonia's
+    /// <c>Key</c> enum by <c>WinFormsToAvalonia.Mapping.Tests</c>.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> GestureKeys { get; } = BuildGestureKeys();
+
+    private static Dictionary<string, string> BuildGestureKeys()
+    {
+        var keys = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Delete"] = "Delete", ["Insert"] = "Insert", ["Home"] = "Home", ["End"] = "End",
+            ["PageUp"] = "PageUp", ["Prior"] = "PageUp", ["PageDown"] = "PageDown", ["Next"] = "PageDown",
+            ["Escape"] = "Escape", ["Enter"] = "Enter", ["Return"] = "Enter", ["Space"] = "Space",
+            ["Tab"] = "Tab", ["Back"] = "Back", ["Left"] = "Left", ["Right"] = "Right", ["Up"] = "Up", ["Down"] = "Down",
+            ["Oemplus"] = "OemPlus", ["Oemminus"] = "OemMinus", ["Oemcomma"] = "OemComma", ["OemPeriod"] = "OemPeriod",
+        };
+
+        for (var letter = 'A'; letter <= 'Z'; letter++)
+        {
+            keys[letter.ToString()] = letter.ToString();
+        }
+
+        for (var digit = 0; digit <= 9; digit++)
+        {
+            keys[$"D{digit}"] = $"D{digit}";
+            keys[$"NumPad{digit}"] = $"NumPad{digit}";
+        }
+
+        for (var function = 1; function <= 24; function++)
+        {
+            keys[$"F{function}"] = $"F{function}";
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    /// <c>ShortcutKeys</c> (<c>Keys.Control | Keys.N</c>) as a <c>KeyGesture</c> string
+    /// (<c>Ctrl+N</c>): exactly one key from <see cref="GestureKeys"/>, any of the three modifiers.
+    /// </summary>
+    public static string? AsKeyGesture(PropertyValue value)
+    {
+        if (value is not PropertyValue.EnumMembers { MemberNames: var members })
+        {
+            return null;
+        }
+
+        var modifiers = GestureModifiers.Where(m => members.Contains(m.WinForms)).Select(m => m.Gesture).ToList();
+        var keys = members.Where(m => !GestureModifiers.Any(g => g.WinForms == m)).ToList();
+        if (keys.Count != 1 || !GestureKeys.TryGetValue(keys[0], out var key))
+        {
+            return null;
+        }
+
+        return string.Join("+", [.. modifiers, key]);
+    }
+
     public static string? AsEnumMember(PropertyValue value) =>
         value is PropertyValue.EnumMembers { MemberNames: [var member] } ? member : null;
 

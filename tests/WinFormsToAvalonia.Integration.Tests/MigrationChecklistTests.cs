@@ -72,4 +72,29 @@ public class MigrationChecklistTests
         Assert.Contains("MIGRATION.md", result.Vfs.RelativePaths);
         Assert.False(Directory.Exists(outputDir));
     }
+
+    /// <summary>
+    /// A handler that stayed in code-behind is the conversion working as designed, so it is not a
+    /// warning. On the all-in-one sample it was thirty of the forty-three "Needs your attention"
+    /// lines, which buried the dozen that really were.
+    /// </summary>
+    [Fact]
+    public void HandlersThatStayedInCodeBehind_AreListedApartFromTheWarnings()
+    {
+        var sourceProject = Path.Combine(AppContext.BaseDirectory, "SampleApps", "CodeBehindMigrationApp", "CodeBehindMigrationApp.csproj");
+        var outputDir = Path.Combine(Path.GetTempPath(), "w2a-checklist-notes-" + Guid.NewGuid());
+
+        var result = new ConversionPipeline().Run(new ConversionOptions(sourceProject, outputDir) { DryRun = true });
+
+        Assert.NotEmpty(result.Report.CodeBehindNotes);
+        Assert.All(result.Report.CodeBehindNotes, n => Assert.Contains("stays in code-behind", n));
+        Assert.DoesNotContain(result.Report.Warnings, w => w.Contains("stays in code-behind", StringComparison.Ordinal));
+
+        Assert.True(result.Vfs.TryGetText("MIGRATION.md", out var checklist));
+        var notesSection = checklist.IndexOf($"## Stayed in code-behind ({result.Report.CodeBehindNotes.Count})", StringComparison.Ordinal);
+        Assert.True(notesSection >= 0, checklist);
+
+        // Every such line sits in that section, and nowhere above it.
+        Assert.DoesNotContain("stays in code-behind", checklist[..notesSection], StringComparison.Ordinal);
+    }
 }

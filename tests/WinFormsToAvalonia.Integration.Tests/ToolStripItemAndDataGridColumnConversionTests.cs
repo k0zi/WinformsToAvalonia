@@ -110,6 +110,8 @@ public class ToolStripItemAndDataGridColumnConversionTests
             Assert.Contains("bind this cell to the row model's 'Category'", axaml);
             Assert.Contains("<DataGridTemplateColumn Header=\"Action\">", axaml);
             Assert.Contains("<Button Content=\"Run\" />", axaml);
+            // A link cell shows the row's value: DataPropertyName decides which, so it is bound.
+            Assert.Contains("<HyperlinkButton Content=\"{ReflectionBinding Url}\" />", axaml);
 
             // A Details-mode ListView is a grid, so its ColumnHeaders have somewhere to live - and
             // each one carries a real Binding. Without it the column renders a header over an

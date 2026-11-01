@@ -183,6 +183,42 @@ public class ControlMappingRegistryTests
         Assert.Equal(expectedCellElementName, Assert.Single(dataTemplate.Children).ElementName);
     }
 
+    /// <summary>
+    /// A button/link cell's caption: the column's Text when UseColumnText... says so, the row's
+    /// DataPropertyName value otherwise - and with neither, nothing is invented.
+    /// </summary>
+    [Theory]
+    [InlineData("DataGridViewButtonColumn", "UseColumnTextForButtonValue", true, "Go", "Go", false)]
+    [InlineData("DataGridViewButtonColumn", "UseColumnTextForButtonValue", false, "Go", "{ReflectionBinding Action}", false)]
+    [InlineData("DataGridViewLinkColumn", "UseColumnTextForLinkValue", false, null, "{ReflectionBinding Action}", false)]
+    [InlineData("DataGridViewLinkColumn", "UseColumnTextForLinkValue", null, "Go", null, true)]
+    public void Map_ButtonAndLinkColumns_CaptionFollowsUseColumnText(
+        string type, string flagName, bool? flag, string? text, string? expectedContent, bool expectsTodo)
+    {
+        var control = new ControlModel { FieldName = "_probe", ClrTypeName = type };
+        if (flag is { } value)
+        {
+            control.Properties[flagName] = new PropertyValue.Literal(value);
+        }
+
+        if (text is not null)
+        {
+            control.Properties["Text"] = new PropertyValue.Literal(text);
+        }
+
+        if (expectedContent?.StartsWith('{') == true)
+        {
+            control.Properties["DataPropertyName"] = new PropertyValue.Literal("Action");
+        }
+
+        var mapped = new ControlMappingRegistry().Map(control);
+
+        var dataTemplate = Assert.Single(Assert.Single(mapped.NestedElements).Children);
+        var cell = Assert.Single(dataTemplate.Children);
+        Assert.Equal(expectedContent, cell.Attributes.GetValueOrDefault("Content"));
+        Assert.Equal(expectsTodo, dataTemplate.Comment is not null);
+    }
+
     [Fact]
     public void Map_ListViewInDetailsMode_MapsToADataGridSoItsColumnHeadersHaveAHome()
     {
@@ -415,5 +451,42 @@ public class ControlMappingRegistryTests
         {
             Assert.Equal(key, mapper.WinFormsTypeName);
         }
+    }
+    /// <summary>
+    /// A designer value every mapping of its property declined is said by name - it was looked
+    /// up, so the coverage report could not see that it was lost.
+    /// </summary>
+    [Fact]
+    public void Map_ValueNoMappingCanSpell_IsReported()
+    {
+        var item = new ControlModel { FieldName = "backItem", ClrTypeName = "ToolStripMenuItem" };
+        item.Properties["ShortcutKeys"] = new PropertyValue.EnumMembers(["Control", "BrowserBack"]);
+
+        var mapped = new ControlMappingRegistry().Map(item);
+
+        Assert.DoesNotContain("HotKey", mapped.Attributes.Keys);
+        Assert.Contains(mapped.Warnings, w => w.Contains("ShortcutKeys = Control | BrowserBack") && w.Contains("not carried over"));
+    }
+
+    /// <summary>One axis declining is not a loss when the other spells the value.</summary>
+    [Fact]
+    public void Map_ValueOneMappingSpells_IsNotReported()
+    {
+        var box = new ControlModel { FieldName = "logBox", ClrTypeName = "TextBox" };
+        box.Properties["Multiline"] = new PropertyValue.Literal(false);
+
+        Assert.Empty(new ControlMappingRegistry().Map(box).Warnings);
+    }
+
+    [Fact]
+    public void Map_DefaultsThatDisagree_ArePinnedEvenWhenTheDesignerWroteNothing()
+    {
+        Assert.Equal("None", new ControlMappingRegistry().Map(new ControlModel { FieldName = "p", ClrTypeName = "PictureBox" }).Attributes["Stretch"]);
+        Assert.Equal("True", new ControlMappingRegistry().Map(new ControlModel { FieldName = "c", ClrTypeName = "ComboBox" }).Attributes["IsEditable"]);
+        Assert.Equal("BottomRight", new ControlMappingRegistry().Map(new ControlModel { FieldName = "t", ClrTypeName = "TrackBar" }).Attributes["TickPlacement"]);
+
+        var list = new ControlModel { FieldName = "c", ClrTypeName = "ComboBox" };
+        list.Properties["DropDownStyle"] = new PropertyValue.EnumMembers(["DropDownList"]);
+        Assert.Equal("False", new ControlMappingRegistry().Map(list).Attributes["IsEditable"]);
     }
 }

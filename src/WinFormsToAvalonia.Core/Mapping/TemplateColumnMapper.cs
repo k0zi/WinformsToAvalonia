@@ -43,6 +43,16 @@ public sealed class TemplateColumnMapper : IControlMapper
 
     private readonly string _cellElementName;
     private readonly IReadOnlyList<(string WinFormsProperty, string AvaloniaAttribute, Func<PropertyValue, string?> Format)> _cellPropertyMappings;
+    private readonly CellCaption? _caption;
+
+    /// <summary>
+    /// A cell whose caption is either the column's own <c>Text</c> or the row's value - a button or
+    /// link column, where <paramref name="UseColumnTextProperty"/> decides which. Both halves are
+    /// decidable from the designer, which is what lets this one cell member be bound.
+    /// </summary>
+    /// <param name="Attribute">The cell element's caption member - <c>Content</c>.</param>
+    /// <param name="UseColumnTextProperty"><c>UseColumnTextForButtonValue</c> / <c>UseColumnTextForLinkValue</c>.</param>
+    public sealed record CellCaption(string Attribute, string UseColumnTextProperty);
 
     /// <param name="cellElementName">The Avalonia element placed inside the cell DataTemplate.</param>
     /// <param name="cellPropertyMappings">
@@ -52,11 +62,13 @@ public sealed class TemplateColumnMapper : IControlMapper
     public TemplateColumnMapper(
         string winFormsTypeName,
         string cellElementName,
-        IReadOnlyList<(string WinFormsProperty, string AvaloniaAttribute, Func<PropertyValue, string?> Format)>? cellPropertyMappings = null)
+        IReadOnlyList<(string WinFormsProperty, string AvaloniaAttribute, Func<PropertyValue, string?> Format)>? cellPropertyMappings = null,
+        CellCaption? caption = null)
     {
         WinFormsTypeName = winFormsTypeName;
         _cellElementName = cellElementName;
         _cellPropertyMappings = cellPropertyMappings ?? [];
+        _caption = caption;
     }
 
     public string WinFormsTypeName { get; }
@@ -79,13 +91,45 @@ public sealed class TemplateColumnMapper : IControlMapper
             }
         }
 
+        // A button/link cell shows the column's Text when UseColumnText... is set, and the row's
+        // DataPropertyName value otherwise - the one template cell whose bound member is not a guess.
+        var todo = BindingTodo(control);
+        if (_caption is not null)
+        {
+            var usesColumnText = control.Properties.TryGetValue(_caption.UseColumnTextProperty, out var flag)
+                && flag is PropertyValue.Literal { Value: true };
+            if (usesColumnText)
+            {
+                if (control.Properties.TryGetValue("Text", out var text) && PropertyValueFormatters.AsText(text) is { } caption)
+                {
+                    cellAttributes[_caption.Attribute] = caption;
+                }
+
+                todo = null;
+            }
+            else if (control.Properties.TryGetValue("DataPropertyName", out var path)
+                && PropertyValueFormatters.AsBinding(path) is { } binding)
+            {
+                cellAttributes[_caption.Attribute] = binding;
+                todo = null;
+            }
+            else
+            {
+                // Without the flag WinForms ignores Text for display - so it is not invented here.
+                _ = control.Properties.TryGetValue("Text", out _);
+                todo = $"TODO(Winforms2Avalonia): this cell shows the row's value, and the column has no " +
+                       $"DataPropertyName to bind - set {_caption.UseColumnTextProperty} in the original, or bind " +
+                       $"{_cellElementName}.{_caption.Attribute} by hand.";
+            }
+        }
+
         var cellTemplate = new AxamlElementSpec(
             "DataGridTemplateColumn.CellTemplate",
             Children:
             [
                 new AxamlElementSpec(
                     "DataTemplate",
-                    Comment: BindingTodo(control),
+                    Comment: todo,
                     Children: [new AxamlElementSpec(_cellElementName, cellAttributes)]),
             ]);
 

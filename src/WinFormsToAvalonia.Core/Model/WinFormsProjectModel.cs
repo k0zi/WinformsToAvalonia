@@ -12,7 +12,16 @@ public sealed record WinFormsProjectModel(
     IReadOnlyList<string> TargetFrameworks,
     IReadOnlyList<string> CompileFiles,
     IReadOnlyList<string> ResourceFiles,
-    IReadOnlyList<string> ProjectReferences)
+    IReadOnlyList<string> ProjectReferences,
+    string? OutputType = null)
 {
     public string ProjectDirectory => Path.GetDirectoryName(ProjectFilePath)!;
+
+    /// <summary>
+    /// Declared a class library - <c>&lt;OutputType&gt;Library&lt;/OutputType&gt;</c>. Only the explicit
+    /// value counts: an SDK-style project with no OutputType is a library to MSBuild too, but every
+    /// WinForms application template writes <c>WinExe</c>, and guessing from an absence would turn a
+    /// hand-written app csproj into a library.
+    /// </summary>
+    public bool IsLibrary => string.Equals(OutputType, "Library", StringComparison.OrdinalIgnoreCase);
 }

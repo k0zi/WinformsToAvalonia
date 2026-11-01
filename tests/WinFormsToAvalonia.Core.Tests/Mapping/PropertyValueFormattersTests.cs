@@ -153,4 +153,23 @@ public class PropertyValueFormattersTests
     [Fact]
     public void AsBinding_RefusesANonStringValue() =>
         Assert.Null(PropertyValueFormatters.AsBinding(new PropertyValue.Literal(42)));
+    [Theory]
+    [InlineData(new[] { "Control", "N" }, "Ctrl+N")]
+    [InlineData(new[] { "Shift", "Control", "S" }, "Ctrl+Shift+S")]
+    [InlineData(new[] { "F5" }, "F5")]
+    [InlineData(new[] { "Alt", "D4" }, "Alt+D4")]
+    [InlineData(new[] { "Control", "Next" }, "Ctrl+PageDown")]
+    public void AsKeyGesture_SpellsShortcutKeysAsAGesture(string[] members, string expected)
+    {
+        Assert.Equal(expected, PropertyValueFormatters.AsKeyGesture(new PropertyValue.EnumMembers(members)));
+    }
+
+    [Theory]
+    [InlineData("Control")]
+    [InlineData("Control|BrowserBack")]
+    [InlineData("Control|A|B")]
+    public void AsKeyGesture_RefusesWhatItCannotSpell(string members)
+    {
+        Assert.Null(PropertyValueFormatters.AsKeyGesture(new PropertyValue.EnumMembers(members.Split('|'))));
+    }
 }

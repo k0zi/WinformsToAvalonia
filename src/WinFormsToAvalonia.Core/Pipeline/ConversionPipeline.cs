@@ -22,6 +22,7 @@ public sealed class ConversionPipeline
 {
     private readonly WinFormsProjectLoader _projectLoader = new();
     private readonly DesignerFileLocator _designerFileLocator = new();
+    private readonly StartupFormLocator _startupFormLocator = new();
     private readonly DesignerSyntaxWalker _designerSyntaxWalker = new();
     private readonly ControlGraphBuilder _controlGraphBuilder = new();
     private readonly ResxReader _resxReader = new();
@@ -43,11 +44,19 @@ public sealed class ConversionPipeline
         var codeBehindEmitter = new ViewCodeBehindEmitter();
 
         var project = _projectLoader.Load(options.SourceProjectPath);
-        var allPairings = _designerFileLocator.Locate(project);
+        // The user's --mappings file: third-party base classes (a vendor's Form) decide what is
+        // converted at all, so it is read before discovery; third-party controls are re-typed as a
+        // WinForms control while parsing, or emitted as an element the user named.
+        var userMappings = options.MappingsFile is { } mappingsFile
+            ? UserMappings.Load(mappingsFile, new ControlMappingRegistry())
+            : new Dictionary<string, UserMapping>(StringComparer.Ordinal);
+        var allPairings = _designerFileLocator.Locate(project, UserMappings.BaseTypes(userMappings));
 
         if (!allPairings.Any(p => p.Kind is WinFormsArtifactKind.Form or WinFormsArtifactKind.UserControl or WinFormsArtifactKind.Component))
         {
-            throw new NoConvertibleArtifactsException(project.ProjectFilePath);
+            throw new NoConvertibleArtifactsException(
+                project.ProjectFilePath,
+                [.. allPairings.SelectMany(p => p.UnresolvedBaseTypes).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)]);
         }
 
         // UserControls first: a Form that hosts one must already have its mapping (and its
@@ -58,6 +67,20 @@ public sealed class ConversionPipeline
             .ToList();
 
         var allWarnings = new List<string>();
+
+        // The main window is the Form `Application.Run` starts, not whichever Form discovery
+        // happened to list first. Decided once, here, because two places act on it: the
+        // --with-web split below and the App.axaml.cs the scaffolder writes.
+        var startup = _startupFormLocator.Locate(
+            project, pairings.Where(p => p.Kind == WinFormsArtifactKind.Form).ToList());
+        // A class library has no Application.Run to find - saying so would be noise.
+        if (startup.Warning is { } startupWarning && !project.IsLibrary)
+        {
+            allWarnings.Add(startupWarning);
+        }
+
+        var startupPairing = startup.Form
+            ?? pairings.FirstOrDefault(p => p.Kind == WinFormsArtifactKind.Form);
 
         // A Component this project defines is plain .NET when it names nothing that would not
         // survive - so its source comes across and it gets a real field, instead of the whole
@@ -78,21 +101,54 @@ public sealed class ConversionPipeline
         // opens another Form has to name a type whose View may not have been converted yet, so
         // unlike the UserControl ordering trick this genuinely needs a separate discovery pass.
         var formViews = BuildFormViews(project.ProjectDirectory, projectName, pairings);
+        var projectMappers = userControlViews
+            .Select(v => (IControlMapper)new UserControlMapper(v.WinFormsTypeName, v.ElementName))
+            .Concat(ProjectComponentMappers(allPairings, carriedComponentNamespaces.Keys.ToHashSet(StringComparer.Ordinal)))
+            .ToList();
+        var projectTypeNames = projectMappers.Select(m => m.WinFormsTypeName).ToHashSet(StringComparer.Ordinal);
+        foreach (var shadowed in userMappings.Keys.Where(projectTypeNames.Contains).Order(StringComparer.Ordinal))
+        {
+            allWarnings.Add(
+                $"The mappings file maps '{shadowed}', which this project declares itself - the project's own type is "
+                + "converted, and the mapping is ignored.");
+        }
+
         var mappingRegistry = new ControlMappingRegistry(DefaultControlMappers.All
-            .Concat<IControlMapper>(userControlViews.Select(v => new UserControlMapper(v.WinFormsTypeName, v.ElementName)))
-            .Concat(ProjectComponentMappers(allPairings, carriedComponentNamespaces.Keys.ToHashSet(StringComparer.Ordinal))));
+            .Concat(projectMappers)
+            .Concat(userMappings.Values
+                .Where(m => m.Element is not null && !projectTypeNames.Contains(m.SourceType))
+                .Select(UserMappings.ToMapper)));
 
         var axamlEmitter = new AxamlEmitter(mappingRegistry);
         var windowWrapperEmitter = new WindowWrapperEmitter();
-        var migrationPlanner = new FormMigrationPlanner(mappingRegistry, eventMappingRegistry);
+        // The project-wide resource file: designer properties read it, handler bodies read its
+        // strings, and the generated project gets a class of the same shape (ProjectResourcesEmitter).
+        var projectResources = ProjectResourcesReader.Read(project);
+        var projectResourceClass = ProjectResourcesEmitter.Emit(projectResources, projectName);
+        // Properties/Settings.settings, the same way: a same-shaped class, which bodies may use.
+        var projectSettings = ProjectSettingsReader.Read(project);
+        var projectSettingsClass = ProjectSettingsEmitter.Emit(projectSettings, projectName);
+        var migrationPlanner = new FormMigrationPlanner(mappingRegistry, eventMappingRegistry)
+        {
+            ProjectStrings = projectResourceClass.Strings,
+            ProjectSettings = projectSettingsClass.Access,
+        };
 
         // Under --with-web the startup Form's View is rooted at a UserControl so the browser head
         // can show it under a single-view lifetime, and a generated Window hosts it on the desktop
-        // head. `pairings` puts UserControls first and Forms after, so the first Form here is the
-        // one AvaloniaProjectScaffolder will pick as the main window.
-        var splitMainFormClassName = options.WithWeb
-            ? pairings.FirstOrDefault(p => p.Kind == WinFormsArtifactKind.Form)?.ClassName
-            : null;
+        // head - the same Form the scaffolder is told to make the main window.
+        // A library has no head to split into: its Views go wherever the referencing app runs.
+        var withWeb = options.WithWeb && !project.IsLibrary;
+        if (options.WithWeb && project.IsLibrary)
+        {
+            allWarnings.Add(
+                $"{Path.GetFileName(project.ProjectFilePath)} is a class library, so --with-web was not applied to it: "
+                + "it has no window of its own to split into desktop and browser heads. Its Views can still be used "
+                + "from a browser head of the application that references it.");
+        }
+
+        var splitMainFormClassName = withWeb ? startupPairing?.ClassName : null;
+        ConvertedFormOutput? startupOutput = null;
 
         var convertedForms = new List<ConvertedFormOutput>();
         var migrationSummaries = new List<ArtifactMigrationSummary>();
@@ -102,19 +158,28 @@ public sealed class ConversionPipeline
         // A group with a .Designer.cs that still didn't classify is a designer artifact this run
         // is about to skip - almost always a Form deriving from a base class that lives in a
         // referenced assembly, which syntax alone cannot follow. Say so rather than drop it.
-        foreach (var skipped in allPairings.Where(p => p.UnresolvedBaseTypes.Count > 0))
+        // The project's own subclasses of WinForms controls (`MyButton : Button`). A custom control
+        // with a designer half of its own is one of these too - not a Form whose base is missing.
+        var customControls = CustomControlBaseTypes(allPairings);
+
+        foreach (var skipped in allPairings.Where(p => p.UnresolvedBaseTypes.Count > 0 && !customControls.ContainsKey(p.ClassName)))
         {
             allWarnings.Add(
                 $"'{skipped.FullyQualifiedName}' has a designer file but derives from " +
                 $"{string.Join("/", skipped.UnresolvedBaseTypes)}, which could not be traced to a WinForms " +
                 "base type inside this project - it was not converted. If that base type is a Form or " +
-                "UserControl from a referenced assembly, convert its project too, or temporarily change the " +
-                "declaration to the WinForms base type and re-run.");
+                "UserControl from a referenced assembly, convert its project too - or, for a vendor's base class, " +
+                $"say what it is in a --mappings file: {{ \"controls\": {{ \"{skipped.UnresolvedBaseTypes[0]}\": {{ \"as\": \"Form\" }} }} }}.");
         }
         var notifyIcons = new List<NotifyIconInfo>();
         var assetsToCopy = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach (var (assetPath, content) in projectResourceClass.Assets)
+        {
+            assetsToCopy[assetPath] = content;
+        }
         var convertedElsewhereCount = 0;
         var convertedElsewhereNotes = new List<string>();
+        var codeBehindNotes = new List<string>();
         var directCount = 0;
         var fallbackCount = 0;
         var unsupportedCount = 0;
@@ -125,7 +190,7 @@ public sealed class ConversionPipeline
         // `dialog.EnteredText` names a property of a View that may not be planned yet, so - like
         // BuildFormViews for the Forms themselves - ordering alone cannot settle it.
         var parsedArtifacts = pairings
-            .Select(p => ParseArtifact(project.ProjectDirectory, p))
+            .Select(p => ParseArtifact(project.ProjectDirectory, p, allPairings, customControls, userMappings))
             .ToList();
 
         // Same pre-pass, same reason: a handler body may name a type declared inside a Form, and
@@ -135,27 +200,45 @@ public sealed class ConversionPipeline
         var modelTypes = CarryOverModelTypes(pairings, projectName);
         var synthesizedModelTypes = new Dictionary<string, string>(StringComparer.Ordinal);
 
+        // By the full name: two Forms may share a simple name in different namespaces (one sample
+        // per folder, each a `MainForm`), and keying by it crashed the whole conversion.
         var promotedPropertiesByArtifact = parsedArtifacts.ToDictionary(
-            a => a.Pairing.ClassName,
+            a => a.Pairing.FullyQualifiedName,
             a => migrationPlanner.PlanProperties(a.FormModel, a.CodeBehind, a.Pairing.Kind),
             StringComparer.Ordinal);
 
         // Only the public ones cross an artifact boundary - a private property is nobody else's
-        // vocabulary, exactly as in C#.
-        var viewPropertiesByType = promotedPropertiesByArtifact.ToDictionary(
-            entry => entry.Key,
-            entry => (IReadOnlyList<ViewPropertyInfo>)
-            [
-                .. entry.Value
-                    .Where(p => p.ModifiersText.Split(' ').Contains("public"))
-                    .Select(p => new ViewPropertyInfo(p.Name, p.TypeText, p.Setter is not null)),
-            ],
-            StringComparer.Ordinal);
+        // vocabulary, exactly as in C#. Looked up by the simple name a handler writes, so an
+        // ambiguous one is left out: which of two MainForms `dialog.X` means is not decidable
+        // from syntax, and the handler stays un-migrated rather than guessing.
+        var viewPropertiesByType = parsedArtifacts
+            .GroupBy(a => a.Pairing.ClassName, StringComparer.Ordinal)
+            .Where(g => g.Count() == 1)
+            .Select(g => g.Single())
+            .ToDictionary(
+                a => a.Pairing.ClassName,
+                a => (IReadOnlyList<ViewPropertyInfo>)
+                [
+                    .. promotedPropertiesByArtifact[a.Pairing.FullyQualifiedName]
+                        .Where(p => p.ModifiersText.Split(' ').Contains("public"))
+                        .Select(p => new ViewPropertyInfo(p.Name, p.TypeText, p.Setter is not null)),
+                ],
+                StringComparer.Ordinal);
 
         foreach (var (pairing, relativeFolder, formModel, codeBehindModel, resx, walkWarnings) in parsedArtifacts)
         {
+            // What parsing looked at carries nothing into the output; from here on a lookup means
+            // some stage of the conversion asked about the property.
+            formModel.FormProperties.ResetReads();
+            foreach (var control in formModel.Controls.Values)
+            {
+                control.Properties.ResetReads();
+            }
+
             allWarnings.AddRange(walkWarnings);
             ResolveResourceAssets(formModel, resx, assetsToCopy, allWarnings);
+            ResolveProjectResources(formModel, projectResources, projectResourceClass, allWarnings);
+            ResolveProjectSettings(formModel, projectSettings, allWarnings);
 
             foreach (var component in formModel.Components)
             {
@@ -190,7 +273,7 @@ public sealed class ConversionPipeline
 
             var viewClassName = NamingConventions.DeriveViewName(pairing.ClassName);
             var viewModelClassName = NamingConventions.DeriveViewModelName(pairing.ClassName);
-            var rootKind = string.Equals(pairing.ClassName, splitMainFormClassName, StringComparison.Ordinal)
+            var rootKind = withWeb && ReferenceEquals(pairing, startupPairing)
                 ? ViewRootKind.UserControl
                 : (ViewRootKind?)null;
 
@@ -198,15 +281,16 @@ public sealed class ConversionPipeline
             // where a handler ended up or which properties are bound.
             var migrationPlan = migrationPlanner.Plan(
                 formModel, codeBehindModel, formViews, pairing.Kind, carriedComponentNamespaces,
-                new ViewSurfaceContext(promotedPropertiesByArtifact[pairing.ClassName], viewPropertiesByType),
+                new ViewSurfaceContext(promotedPropertiesByArtifact[pairing.FullyQualifiedName], viewPropertiesByType),
                 // Collected just above, in this same iteration: only an icon whose file resolved
                 // reaches App.axaml, and only those get an accessor a handler could name.
-                notifyIcons.Where(i => i.IconAssetPath is not null)
+                notifyIcons.Where(i => i.IsLive)
                     .Select(i => i.FieldName)
                     .ToHashSet(StringComparer.Ordinal),
                 rootKind,
                 modelTypes.Context);
             allWarnings.AddRange(migrationPlan.Warnings);
+            codeBehindNotes.AddRange(migrationPlan.CodeBehindNotes);
 
             // Synthesized rather than lifted, so it comes from the plan rather than from the
             // pre-pass that carried the Form's own nested types over.
@@ -252,12 +336,25 @@ public sealed class ConversionPipeline
                     pairing.ClassName, viewClassName, axamlResult.DeferredWindowEvents ?? [])
                 : null;
 
-            convertedForms.Add(new ConvertedFormOutput(
+            var output = new ConvertedFormOutput(
                 relativeFolder, viewClassName, viewModelClassName, axamlResult.Axaml, viewCodeBehind, viewModel,
-                pairing.Kind, windowWrapper));
+                pairing.Kind, windowWrapper);
+            convertedForms.Add(output);
+            if (ReferenceEquals(pairing, startupPairing))
+            {
+                startupOutput = output;
+            }
 
             migrationSummaries.Add(SummarizeMigration(
                 pairing.ClassName, relativeFolder, viewClassName, viewModelClassName, migrationPlan));
+
+            // Last, once every emitter has had its chance to ask.
+            if (DesignerPropertyCoverage.Report(
+                    pairing.ClassName, pairing.Kind, formModel, c => mappingRegistry.Mappers.ContainsKey(c.ClrTypeName))
+                is { } untranslated)
+            {
+                allWarnings.Add(untranslated);
+            }
         }
 
         // A bundled template can need a package of its own (ColorDialogFallback wraps Avalonia's
@@ -273,9 +370,15 @@ public sealed class ConversionPipeline
             }
         }
 
+        if (project.IsLibrary)
+        {
+            allWarnings.AddRange(LibraryWarnings(project, allRequiredNuGetPackages, notifyIcons));
+        }
+
         var vfs = _scaffolder.BuildProject(
-            projectName, convertedForms, allRequiredNuGetPackages, notifyIcons,
-            solutionContext?.ProjectReferences ?? []);
+            projectName, convertedForms, allRequiredNuGetPackages, project.IsLibrary ? [] : notifyIcons,
+            solutionContext?.ProjectReferences ?? [], project.IsLibrary ? null : startupOutput,
+            asLibrary: project.IsLibrary);
         _fallbackControlResolver.CopyResolvedTemplates(vfs, projectName, allUsedFallbackKeys);
 
         foreach (var (relativePath, text) in carriedComponents.SelectMany(c => c.Files))
@@ -300,9 +403,41 @@ public sealed class ConversionPipeline
             vfs.AddBinary(assetPath, content);
         }
 
+        if (projectResourceClass.File is { } resourcesFile)
+        {
+            vfs.AddText(resourcesFile.RelativePath, resourcesFile.Text);
+        }
+
+        allWarnings.AddRange(projectResourceClass.Warnings);
+
+        if (projectSettingsClass.File is { } settingsFile)
+        {
+            vfs.AddText(settingsFile.RelativePath, settingsFile.Text);
+        }
+
+        allWarnings.AddRange(projectSettingsClass.Warnings);
+
+        // Properties/Resources.hu.resx and friends. The carried class inlines the neutral strings,
+        // so a translated build would show only those - said once, with the cultures by name.
+        var satelliteCultures = project.ResourceFiles
+            .Where(f => string.Equals(Path.GetFileName(Path.GetDirectoryName(f)), "Properties", StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileName(f) is var name
+                && name.StartsWith("Resources.", StringComparison.OrdinalIgnoreCase)
+                && name.Split('.').Length == 3)
+            .Select(f => Path.GetFileName(f).Split('.')[1])
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        if (projectResourceClass.File is not null && satelliteCultures.Count > 0)
+        {
+            allWarnings.Add(
+                $"Properties/Resources.resx has translations ({string.Join(", ", satelliteCultures)}) that the generated "
+                + "Properties.Resources class does not carry - it holds the neutral strings only. Move them into Avalonia "
+                + "resource dictionaries or a ResourceManager if the app must stay localized.");
+        }
+
         // Before the checklist, so what a browser head cannot do is in the same list as everything
         // else this conversion left to a human.
-        if (options.WithWeb)
+        if (withWeb)
         {
             allWarnings.AddRange(WebHeadWarnings(allRequiredNuGetPackages, notifyIcons, splitMainFormClassName));
         }
@@ -311,22 +446,24 @@ public sealed class ConversionPipeline
         // VFS like everything else, so --dry-run and the preserve-existing re-run behave on it.
         vfs.AddText("MIGRATION.md", new MigrationChecklistEmitter().Emit(
             projectName, options.SourceProjectPath, allMigratedStatements, allHandlerStatements,
-            allWarnings, migrationSummaries, convertedElsewhereNotes));
+            allWarnings, migrationSummaries, convertedElsewhereNotes, codeBehindNotes));
 
         // Last, so every stage above - and the fallback templates, components, assets and
         // MIGRATION.md added since the scaffold - keeps writing single-project relative paths.
-        if (options.WithWeb)
+        if (withWeb)
         {
             vfs = _scaffolder.SplitIntoHeads(
                 vfs, projectName, allRequiredNuGetPackages, solutionContext?.ProjectReferences ?? []);
         }
 
         var preservedFiles = new List<string>();
+        WriteToDiskResult? writeResult = null;
         if (!options.DryRun)
         {
-            var writeResult = vfs.WriteToDisk(
+            writeResult = vfs.WriteToDisk(
                 options.OutputDirectory,
-                options.OverwriteAll ? ExistingFileStrategy.Overwrite : ExistingFileStrategy.PreserveExisting);
+                options.OverwriteAll ? ExistingFileStrategy.Overwrite : ExistingFileStrategy.PreserveExisting,
+                options.Prune);
             preservedFiles.AddRange(writeResult.Preserved);
         }
 
@@ -348,7 +485,10 @@ public sealed class ConversionPipeline
             allMigratedStatements,
             allHandlerStatements,
             convertedElsewhereCount,
-            convertedElsewhereNotes);
+            convertedElsewhereNotes,
+            codeBehindNotes,
+            writeResult?.Pruned,
+            writeResult?.Orphaned);
 
         return new ConversionRunResult(vfs, report);
     }
@@ -414,6 +554,193 @@ public sealed class ConversionPipeline
         }
 
         ResolveImageListReferences(formModel, imageListAssets, warnings);
+
+        // The Form's own - in practice its Icon, which every Form with a custom icon stores as
+        // `$this.Icon`. A Window takes it as an asset path, like an Image.
+        foreach (var (propertyName, value) in formModel.FormProperties.ToList())
+        {
+            if (value is not PropertyValue.ResourceReference(var resourceKey))
+            {
+                continue;
+            }
+
+            formModel.FormProperties.Remove(propertyName);
+            var entry = resx.EntriesFor(OwnerOf(resourceKey)).FirstOrDefault(e => e.Name == resourceKey);
+            if (entry is null || !entry.IsBinary || !ResxImageExtractor.TryExtract(entry.Value, out var image))
+            {
+                warnings.Add(
+                    $"Form '{formModel.ClassName}': its {propertyName} reads resource '{resourceKey}', which is not a " +
+                    "recognizable image in the form's .resx - the property is not set in the generated view.");
+                continue;
+            }
+
+            var assetPath = $"Assets/{formModel.ClassName}_{propertyName}{image.FileExtension}";
+            assetsToCopy[assetPath] = image.Bytes;
+            formModel.FormProperties[propertyName] = new PropertyValue.Literal($"/{assetPath}");
+        }
+    }
+
+    /// <summary>
+    /// Turns every <see cref="PropertyValue.ProjectResource"/> - a designer's
+    /// <c>Properties.Resources.X</c> - into what it holds: the string itself, or an image copied
+    /// to <c>Assets/Resources/</c> once however many controls use it.
+    /// </summary>
+    /// <remarks>
+    /// The designer writes this shape whenever an image was picked from "Project resource file",
+    /// which Visual Studio offers first. It used to be evaluated as an enum member named after the
+    /// resource, so a PictureBox lost its image and a Label showed the resource's name.
+    /// </remarks>
+    private static void ResolveProjectResources(
+        FormModel formModel, ProjectResources resources, ProjectResourceClass carried, List<string> warnings)
+    {
+        void ResolveIn(PropertyBag properties, string owner)
+        {
+            foreach (var (propertyName, value) in properties.ToList())
+            {
+                if (value is not PropertyValue.ProjectResource(var name))
+                {
+                    continue;
+                }
+
+                properties.Remove(propertyName);
+                if (TryResolveProjectResource(resources, carried, name, out var resolved, out var problem))
+                {
+                    properties[propertyName] = resolved;
+                }
+                else
+                {
+                    warnings.Add($"'{owner}.{propertyName}' reads Properties.Resources.{name}, {problem} - the property is not set in the generated view.");
+                }
+            }
+        }
+
+        ResolveIn(formModel.FormProperties, formModel.ClassName);
+        foreach (var control in formModel.Controls.Values)
+        {
+            ResolveIn(control.Properties, control.FieldName);
+        }
+    }
+
+    /// <summary>
+    /// What a converted class library cannot do for itself, because it is the referencing
+    /// application's <c>App.axaml</c> that does it: theme a packaged control, host a tray icon.
+    /// </summary>
+    private static IEnumerable<string> LibraryWarnings(
+        WinFormsProjectModel project, IReadOnlySet<string> packages, IReadOnlyList<NotifyIconInfo> notifyIcons)
+    {
+        yield return $"{Path.GetFileName(project.ProjectFilePath)} is a class library (OutputType Library), so it is "
+            + "converted as one: no Program.cs, no App.axaml, no placeholder window - its Views are for the "
+            + "applications that reference it.";
+
+        foreach (var package in packages
+                     .Where(AvaloniaProjectScaffolder.PackageStyleIncludes.ContainsKey)
+                     .Order(StringComparer.Ordinal))
+        {
+            yield return $"This library's Views use {package}, whose controls render only when the application's "
+                + $"App.axaml includes its theme: <StyleInclude Source=\"{AvaloniaProjectScaffolder.PackageStyleIncludes[package]}\" />. "
+                + "Add it to every application that references this library (a converted one only has it if it uses the package itself).";
+        }
+
+        foreach (var icon in notifyIcons)
+        {
+            yield return $"NotifyIcon '{icon.FieldName}' is not converted: a tray icon lives in the application's App.axaml "
+                + "(TrayIcon.Icons), and a library has none. Declare it in the referencing application.";
+        }
+    }
+
+    /// <summary>
+    /// Every <see cref="PropertyValue.ProjectSetting"/> - a designer's
+    /// <c>Properties.Settings.Default.X</c> - as the setting's default value, and reported: the
+    /// designer writes it beside an application-settings binding, so the original control followed
+    /// the saved value, and the generated view shows only the default.
+    /// </summary>
+    private static void ResolveProjectSettings(FormModel formModel, ProjectSettings settings, List<string> warnings)
+    {
+        void ResolveIn(PropertyBag properties, string owner)
+        {
+            foreach (var (propertyName, value) in properties.ToList())
+            {
+                if (value is not PropertyValue.ProjectSetting(var name))
+                {
+                    continue;
+                }
+
+                properties.Remove(propertyName);
+                var entry = settings.Entries.FirstOrDefault(e => e.Name == name);
+                if (entry is not null && DefaultSettingValue(entry) is { } literal)
+                {
+                    properties[propertyName] = new PropertyValue.Literal(literal);
+                    warnings.Add(
+                        $"'{owner}.{propertyName}' is set from Properties.Settings.Default.{name}; the generated view shows "
+                        + "its default value. Read the setting in the constructor (and write it back on change) if it should "
+                        + "follow the saved one.");
+                }
+                else
+                {
+                    warnings.Add(
+                        $"'{owner}.{propertyName}' is set from Properties.Settings.Default.{name}, which "
+                        + (entry is null ? "Properties/Settings.settings does not declare" : $"is a {entry.TypeName} this converter cannot write")
+                        + " - the property is not set in the generated view.");
+                }
+            }
+        }
+
+        ResolveIn(formModel.FormProperties, formModel.ClassName);
+        foreach (var control in formModel.Controls.Values)
+        {
+            ResolveIn(control.Properties, control.FieldName);
+        }
+    }
+
+    private static object? DefaultSettingValue(ProjectSettingEntry entry)
+    {
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        var text = entry.DefaultValue ?? "";
+        return entry.TypeName switch
+        {
+            "System.String" => text,
+            "System.Boolean" => bool.TryParse(text, out var b) ? b : null,
+            "System.Int32" => int.TryParse(text, System.Globalization.NumberStyles.Integer, invariant, out var i) ? i : null,
+            "System.Double" => double.TryParse(text, System.Globalization.NumberStyles.Float, invariant, out var d) ? d : null,
+            "System.Decimal" => decimal.TryParse(text, System.Globalization.NumberStyles.Number, invariant, out var m) ? m : null,
+            _ => null,
+        };
+    }
+
+    /// <summary>One project resource as a property value: the string itself, or the copied image's path.</summary>
+    private static bool TryResolveProjectResource(
+        ProjectResources resources,
+        ProjectResourceClass carried,
+        string name,
+        out PropertyValue value,
+        out string problem)
+    {
+        value = null!;
+        problem = "";
+        if (!resources.TryGet(name, out var entry))
+        {
+            problem = resources.FilePath is null
+                ? "but the project has no Properties/Resources.resx"
+                : "which Properties/Resources.resx does not declare";
+            return false;
+        }
+
+        if (entry is { Kind: ProjectResourceKind.Text, TypeSimpleName: "String", Text: { } text })
+        {
+            value = new PropertyValue.Literal(text);
+            return true;
+        }
+
+        if (carried.AssetPaths.TryGetValue(entry.Name, out var assetPath))
+        {
+            value = new PropertyValue.Literal($"/{assetPath}");
+            return true;
+        }
+
+        problem = entry.Kind == ProjectResourceKind.File && entry.FilePath is null && entry.TypeSimpleName != "String"
+            ? "whose file reference does not exist on disk"
+            : $"a {entry.TypeSimpleName ?? "binary"} resource this converter cannot carry over";
+        return false;
     }
 
     /// <summary>
@@ -490,16 +817,32 @@ public sealed class ConversionPipeline
             // Both are consumed either way: leaving them behind would only make an emitter warn
             // about a property it has no Avalonia counterpart for.
             var hasIndex = control.Properties.TryGetValue("ImageIndex", out var indexValue);
-            var hasKey = control.Properties.ContainsKey("ImageKey");
+            var hasKey = control.Properties.TryGetValue("ImageKey", out var keyValue);
             control.Properties.Remove("ImageList");
             control.Properties.Remove("ImageIndex");
             control.Properties.Remove("ImageKey");
 
-            if (hasKey && !hasIndex)
+            // The designer writes one or the other; an empty key is its "none".
+            if (hasKey && keyValue is PropertyValue.Literal { Value: string { Length: > 0 } imageKey } && declaredList is not null)
+            {
+                // The keys come from the list's SetKeyName calls, which name an index.
+                if (!formModel.Controls.TryGetValue(declaredList, out var listControl)
+                    || !listControl.ImageKeys.TryGetValue(imageKey, out var keyedIndex))
+                {
+                    warnings.Add(
+                        $"'{control.FieldName}.ImageKey' names '{imageKey}', which '{declaredList}' declares no key for " +
+                        "(Images.SetKeyName) - no image is set on the generated element.");
+                    continue;
+                }
+
+                indexValue = new PropertyValue.Literal(keyedIndex);
+                hasIndex = true;
+            }
+            else if (hasKey && !hasIndex && keyValue is PropertyValue.Literal { Value: string { Length: > 0 } })
             {
                 warnings.Add(
-                    $"'{control.FieldName}.ImageKey' names an image by key, and an ImageList's keys live in the " +
-                    "designer rather than in the payload this conversion reads - set the image by hand from Assets/.");
+                    $"'{control.FieldName}.ImageKey' names an image by key, but no ImageList with readable images is in " +
+                    "scope for it - set the image by hand from Assets/.");
                 continue;
             }
 
@@ -729,8 +1072,15 @@ public sealed class ConversionPipeline
     private static string CombineOutputFolder(string root, string relativeFolder) =>
         string.IsNullOrEmpty(relativeFolder) ? root : $"{root}/{relativeFolder}";
 
-    private static string FirstLineOf(string body) =>
-        body.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
+    /// <summary>
+    /// The first line of what is left that is code - the checklist names the statement that stopped
+    /// the translation, and a comment above it says nothing about where the work is.
+    /// </summary>
+    private static string FirstLineOf(string body)
+    {
+        var lines = body.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        return lines.FirstOrDefault(l => !l.StartsWith("//", StringComparison.Ordinal)) ?? lines.FirstOrDefault() ?? "";
+    }
 
     /// <summary>
     /// Resolves every discovered Form to the View it will be emitted as, keyed by the original
@@ -752,25 +1102,246 @@ public sealed class ConversionPipeline
     /// Parsing only - no warnings are reported and no assets resolved here, so that the main loop
     /// below keeps saying everything in the order it always did.
     /// </summary>
-    private ParsedArtifact ParseArtifact(string projectDirectory, DesignerFilePairing pairing)
+    private ParsedArtifact ParseArtifact(
+        string projectDirectory,
+        DesignerFilePairing pairing,
+        IReadOnlyList<DesignerFilePairing> allPairings,
+        IReadOnlyDictionary<string, string> customControls,
+        IReadOnlyDictionary<string, UserMapping> userMappings)
     {
+        // Visual inheritance: every base Form of this project's own whose designer has to run
+        // first, root first - each walk continues from the one before, as InitializeComponent
+        // runs at construction. Avalonia XAML has no inheritance to map this onto, so the View is
+        // flattened; without this the derived View silently lost every inherited control.
+        var bases = InheritanceChain(pairing, allPairings);
+        DesignerWalkResult? inherited = null;
+        foreach (var basePairing in bases)
+        {
+            inherited = _designerSyntaxWalker.Walk(
+                File.ReadAllText(basePairing.DesignerFilePath!), basePairing.DesignerFilePath!,
+                basePairing.ClassName, basePairing.Namespace, _resxReader.Read(basePairing.ResxFilePath), inherited);
+        }
+
         var designerContent = File.ReadAllText(pairing.DesignerFilePath!);
         var resx = _resxReader.Read(pairing.ResxFilePath);
         var walkResult = _designerSyntaxWalker.Walk(
-            designerContent, pairing.DesignerFilePath!, pairing.ClassName, pairing.Namespace, resx);
+            designerContent, pairing.DesignerFilePath!, pairing.ClassName, pairing.Namespace, resx, inherited);
+
+        // Before the tree is built, so that nothing from here on - mappers, event and property
+        // tables, the planner - ever sees the subclass name instead of the control it is.
+        var customControlWarnings = new List<string>();
+        foreach (var control in walkResult.Form.Controls.Values.OrderBy(c => c.FieldName, StringComparer.Ordinal))
+        {
+            if (customControls.TryGetValue(control.ClrTypeName, out var winFormsBase))
+            {
+                control.DeclaredClrTypeName = control.ClrTypeName;
+                control.ClrTypeName = winFormsBase;
+            }
+            else if (userMappings.TryGetValue(control.ClrTypeName, out var userMapping)
+                     && userMapping.As is { } asType && !UserMappings.BaseTypeTargets.Contains(asType))
+            {
+                UserMappings.Retype(control, userMapping);
+            }
+        }
+
+        foreach (var mapped in walkResult.Form.Controls.Values
+                     .Where(c => c.DeclaredClrTypeName is { } declared && !customControls.ContainsKey(declared))
+                     .GroupBy(c => c.DeclaredClrTypeName!)
+                     .OrderBy(g => g.Key, StringComparer.Ordinal))
+        {
+            var fields = string.Join(", ", mapped.Select(c => $"'{c.FieldName}'").Order(StringComparer.Ordinal));
+            customControlWarnings.Add(
+                $"{fields} ({mapped.Key}) {(mapped.Count() == 1 ? "is" : "are")} converted as {mapped.First().ClrTypeName}, as the "
+                + "mappings file says. Only the properties and events it renames come across under the vendor's names; "
+                + "anything else the vendor added is listed among the untranslated properties or reported as an unknown event.");
+        }
+
+        foreach (var custom in walkResult.Form.Controls.Values
+                     .Where(c => c.DeclaredClrTypeName is not null && customControls.ContainsKey(c.DeclaredClrTypeName))
+                     .GroupBy(c => c.DeclaredClrTypeName!)
+                     .OrderBy(g => g.Key, StringComparer.Ordinal))
+        {
+            var fields = string.Join(", ", custom.Select(c => $"'{c.FieldName}'").Order(StringComparer.Ordinal));
+            customControlWarnings.Add(
+                $"{fields} {(custom.Count() == 1 ? "is a" : "are")} {custom.Key}, this project's own subclass of "
+                + $"{custom.First().ClrTypeName}, and {(custom.Count() == 1 ? "is" : "are")} converted as that control. What "
+                + $"{custom.Key} adds itself - overridden members, custom painting, its own behaviour - is not carried "
+                + "over; any designer property only it declares is listed among the untranslated ones.");
+        }
         // Assembling the tree can drop something the designer set - a hosted control's host
         // carries ToolStrip item settings nothing else has a place for - so the builder reports
         // alongside the walker rather than into a void.
         var graphWarnings = new List<string>();
         var formModel = _controlGraphBuilder.Build(walkResult, graphWarnings);
 
+        // Inline lambdas become named methods first, so the analysis below sees them as the
+        // handlers they are - with the same rules, and the same report, as a hand-written one.
+        var primarySource = pairing.PrimaryFilePath is { } primaryPath && File.Exists(primaryPath)
+            ? File.ReadAllText(primaryPath)
+            : null;
+        var lifted = InlineHandlerLifter.Lift(formModel, DeclaredMemberNames(primarySource, pairing.ClassName));
+        var codeBehind = lifted.Count == 0
+            ? _codeBehindAnalyzer.Analyze(pairing.PrimaryFilePath, formModel)
+            : _codeBehindAnalyzer.Analyze(
+                InlineHandlerLifter.InjectInto(primarySource, pairing.ClassName, pairing.Namespace, lifted),
+                pairing.PrimaryFilePath ?? pairing.DesignerFilePath!,
+                formModel);
+
+        // The base classes' handlers too: the flattened designer wires the base's own events,
+        // and their bodies live in the base's code-behind. Nearest base first, so a member a
+        // closer class redeclares hides the one further up.
+        foreach (var basePairing in Enumerable.Reverse(bases))
+        {
+            codeBehind = codeBehind.WithInherited(
+                _codeBehindAnalyzer.Analyze(basePairing.PrimaryFilePath, formModel, basePairing.ClassName));
+        }
+
+        var inheritanceWarnings = bases.Count == 0
+            ? []
+            : new[]
+            {
+                $"'{pairing.ClassName}' derives from {string.Join(" : ", bases.AsEnumerable().Reverse().Select(b => $"'{b.ClassName}'"))}, "
+                + "whose designer content it inherits. Avalonia XAML cannot inherit a View, so the generated "
+                + $"{NamingConventions.DeriveViewName(pairing.ClassName)} carries the inherited controls and handlers "
+                + "itself - a later change to the base View will not reach it.",
+            };
+
         return new ParsedArtifact(
             pairing,
             GetRelativeFolder(projectDirectory, pairing.DesignerFilePath!),
             formModel,
-            _codeBehindAnalyzer.Analyze(pairing.PrimaryFilePath, formModel),
+            codeBehind,
             resx,
-            [.. walkResult.Warnings, .. graphWarnings]);
+            [.. inheritanceWarnings, .. customControlWarnings, .. walkResult.Warnings, .. graphWarnings]);
+    }
+
+    /// <summary>
+    /// The project's own classes that derive - directly or through each other - from a WinForms
+    /// control this converter maps, each with that WinForms type.
+    /// </summary>
+    /// <remarks>
+    /// Read from the base lists alone, like the rest of discovery: a class deriving from
+    /// <c>Button</c> is a Button for every purpose the conversion has. Form and UserControl are not
+    /// in the registry, so their subclasses never land here - they are artifacts of their own.
+    /// </remarks>
+    private static Dictionary<string, string> CustomControlBaseTypes(IReadOnlyList<DesignerFilePairing> allPairings)
+    {
+        var mapped = DefaultControlMappers.All.Select(m => m.WinFormsTypeName).ToHashSet(StringComparer.Ordinal);
+        var candidates = allPairings
+            .Where(p => p.Kind == WinFormsArtifactKind.Other)
+            .GroupBy(p => p.ClassName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.SelectMany(p => p.BaseTypeNames).Distinct().ToList(), StringComparer.Ordinal);
+
+        string? Resolve(string className, HashSet<string> visiting)
+        {
+            if (!candidates.TryGetValue(className, out var bases) || !visiting.Add(className))
+            {
+                return null;
+            }
+
+            foreach (var baseName in bases)
+            {
+                if (mapped.Contains(baseName))
+                {
+                    return baseName;
+                }
+
+                if (Resolve(baseName, visiting) is { } resolved)
+                {
+                    return resolved;
+                }
+            }
+
+            return null;
+        }
+
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var className in candidates.Keys.Order(StringComparer.Ordinal))
+        {
+            if (Resolve(className, new HashSet<string>(StringComparer.Ordinal)) is { } winFormsBase)
+            {
+                result[className] = winFormsBase;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Every member name the class's hand-written half declares - what a lifted handler must not collide with.</summary>
+    private static HashSet<string> DeclaredMemberNames(string? source, string className)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        if (source is null)
+        {
+            return names;
+        }
+
+        foreach (var declaration in CSharpSyntaxTree.ParseText(source).GetRoot()
+                     .DescendantNodes().OfType<ClassDeclarationSyntax>()
+                     .Where(c => c.Identifier.ValueText == className))
+        {
+            foreach (var member in declaration.Members)
+            {
+                switch (member)
+                {
+                    case MethodDeclarationSyntax method:
+                        names.Add(method.Identifier.ValueText);
+                        break;
+                    case PropertyDeclarationSyntax property:
+                        names.Add(property.Identifier.ValueText);
+                        break;
+                    case FieldDeclarationSyntax field:
+                        names.UnionWith(field.Declaration.Variables.Select(v => v.Identifier.ValueText));
+                        break;
+                }
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// The base classes of <paramref name="pairing"/> that are this project's own designer
+    /// artifacts of the same kind, root first. Stops at the first base that is not one - a
+    /// framework type, an intermediate class with no designer (whose base is followed further,
+    /// since it adds no InitializeComponent of its own), or a cycle.
+    /// </summary>
+    private static List<DesignerFilePairing> InheritanceChain(
+        DesignerFilePairing pairing,
+        IReadOnlyList<DesignerFilePairing> allPairings)
+    {
+        var chain = new List<DesignerFilePairing>();
+        var seen = new HashSet<DesignerFilePairing>(ReferenceEqualityComparer.Instance) { pairing };
+        var current = pairing;
+
+        while (true)
+        {
+            var candidates = current.BaseTypeNames
+                .SelectMany(name => allPairings.Where(p => p.ClassName == name && p.Kind == pairing.Kind))
+                .Distinct()
+                .ToList();
+
+            // Same simple name in two namespaces: the one beside the derived class is what an
+            // unqualified base name binds to; anything still ambiguous is left alone.
+            if (candidates.Count > 1)
+            {
+                candidates = candidates.Where(c => c.Namespace == current.Namespace).ToList();
+            }
+
+            if (candidates.Count != 1 || !seen.Add(candidates[0]))
+            {
+                break;
+            }
+
+            current = candidates[0];
+            if (current.DesignerFilePath is not null)
+            {
+                chain.Add(current);
+            }
+        }
+
+        chain.Reverse();
+        return chain;
     }
 
     /// <summary>
@@ -1063,6 +1634,17 @@ public sealed class ConversionPipeline
             return new NotifyIconInfo(component.FieldName, null, tooltip, menuItems);
         }
 
+        // No Icon at all - not an unresolved one. WinForms draws nothing in the tray then, and a
+        // TrayIcon without an Icon draws nothing either; it just has no file to go missing.
+        if (!component.Properties.ContainsKey("Icon"))
+        {
+            warnings.Add(
+                $"NotifyIcon '{component.FieldName}' has no Icon in Designer.cs, so WinForms never showed it in the tray. "
+                + "App.axaml's TrayIcon is emitted without one, which shows nothing either - set TrayIcon.Icon once the "
+                + "app has an icon to show.");
+            return new NotifyIconInfo(component.FieldName, null, tooltip, menuItems, DeclaresNoIcon: true);
+        }
+
         warnings.Add(
             $"NotifyIcon '{component.FieldName}': couldn't resolve a literal icon file path from Designer.cs (it is usually a " +
             "resx resource) - App.axaml's TrayIcon is emitted commented out, since referencing an icon file the conversion " +
@@ -1073,6 +1655,15 @@ public sealed class ConversionPipeline
     internal static string GetRelativeFolder(string projectDirectory, string filePath)
     {
         var relativeDirectory = Path.GetDirectoryName(Path.GetRelativePath(projectDirectory, filePath)) ?? "";
-        return relativeDirectory == "." ? "" : relativeDirectory.Replace('\\', '/');
+
+        // A linked file from outside the project (`<Compile Include="..\Other\Form1.cs" />`, a
+        // shared project) sits at the project root, as MSBuild shows it - not under a `../Other`
+        // folder, which became a namespace segment of `..` and a generated project that did not parse.
+        if (relativeDirectory == "." || relativeDirectory.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relativeDirectory))
+        {
+            return "";
+        }
+
+        return relativeDirectory.Replace('\\', '/');
     }
 }

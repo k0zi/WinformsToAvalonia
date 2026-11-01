@@ -68,7 +68,7 @@ public class FormMigrationPlannerTests
         Assert.Equal("button1_Click", handler.MethodName);
         Assert.Equal("RoutedEventArgs", handler.EventArgsTypeName);
         Assert.Equal([("Click", "button1_Click")], plan.XamlEventAttributesFor("button1"));
-        Assert.Contains(plan.Warnings, w => w.Contains("'sender'"));
+        Assert.Contains(plan.CodeBehindNotes, w => w.Contains("'sender'"));
     }
 
     [Fact]
@@ -382,7 +382,7 @@ public class FormMigrationPlannerTests
 
         Assert.Empty(plan.ViewModelCommands);
         Assert.Empty(plan.ViewModelHelpers);
-        Assert.Contains(plan.Warnings, w => w.Contains("treeView1.BeginUpdate"));
+        Assert.Contains(plan.CodeBehindNotes, w => w.Contains("treeView1.BeginUpdate"));
     }
 
     /// <summary>
@@ -420,6 +420,41 @@ public class FormMigrationPlannerTests
         Assert.Equal(["Tag"], plan.PreservedMembers.Select(m => m.Name));
     }
 
+    /// <summary>
+    /// A helper's own-state write blocks its caller too - and the reason names it as state
+    /// rather than as the Form being driven, which sent readers looking for a Close.
+    /// </summary>
+    [Fact]
+    public void Plan_HelperKeepingOwnState_BlocksWithAnHonestReason()
+    {
+        var formModel = FormWith(("startButton", "Button"));
+        Wire(formModel, "startButton", "Click", "startButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private bool isBusy;
+
+                    private void startButton_Click(object sender, EventArgs e)
+                    {
+                        SetBusy(true);
+                    }
+
+                    private void SetBusy(bool busy)
+                    {
+                        this.isBusy = busy;
+                    }
+                }
+            }
+            """);
+
+        Assert.Empty(plan.ViewModelCommands);
+        Assert.Contains(plan.CodeBehindNotes, w => w.Contains("uses state 'Form1' keeps in its own members (isBusy)"));
+        Assert.DoesNotContain(plan.CodeBehindNotes, w => w.Contains("drives the Form itself"));
+    }
+
     /// <summary>A helper driving the Form itself takes its caller down with it.</summary>
     [Fact]
     public void Plan_HelperDrivingTheForm_StillBlocksItsCaller()
@@ -446,7 +481,7 @@ public class FormMigrationPlannerTests
             """);
 
         Assert.Empty(plan.ViewModelCommands);
-        Assert.Contains(plan.Warnings, w => w.Contains("drives the Form itself"));
+        Assert.Contains(plan.CodeBehindNotes, w => w.Contains("drives the Form itself"));
     }
 
     /// <summary>
@@ -578,7 +613,7 @@ public class FormMigrationPlannerTests
 
         Assert.Empty(plan.ViewModelCommands);
         Assert.Empty(plan.BoundProperties);
-        Assert.Contains(plan.Warnings, w => w.Contains("errorProvider1"));
+        Assert.Contains(plan.CodeBehindNotes, w => w.Contains("errorProvider1"));
     }
 
     private static FormMigrationPlan PlanFor(FormModel formModel, string codeBehindSource)
@@ -1022,4 +1057,145 @@ public class FormMigrationPlannerTests
 
     private static void Wire(FormModel formModel, string fieldName, string eventName, string handlerMethodName) =>
         formModel.Controls[fieldName].Events.Add(new EventHandlerBinding(eventName, handlerMethodName, null));
+    /// <summary>
+    /// CheckOnClick: WinForms flips Checked before raising Click; Avalonia's MenuItem flips
+    /// nothing. The View toggles from its constructor and the item's handler is chained after it -
+    /// never left in the AXAML, which would run first - and never promoted, since a bound command
+    /// runs ahead of every Click handler.
+    /// </summary>
+    [Fact]
+    public void Plan_CheckOnClickItem_TogglesFirstAndKeepsItsHandlerInCodeBehind()
+    {
+        var formModel = FormWith(("wrapItem", "ToolStripMenuItem"), ("statusLabel", "Label"));
+        formModel.Controls["wrapItem"].Properties["CheckOnClick"] = new PropertyValue.Literal(true);
+        Wire(formModel, "wrapItem", "Click", "wrapItem_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void wrapItem_Click(object sender, EventArgs e)
+                    {
+                        statusLabel.Text = "wrap";
+                    }
+                }
+            }
+            """);
+
+        Assert.Equal(["wrapItem"], plan.CheckOnClickToggles);
+        Assert.Empty(plan.ViewModelCommands);
+        Assert.Contains(plan.CodeBehindNotes, n => n.Contains("CheckOnClick"));
+        Assert.Empty(plan.XamlEventAttributesFor("wrapItem"));
+        Assert.Contains(("wrapItem", "Click", "wrapItem_Click"), plan.ConstructorEventSubscriptions);
+    }
+    /// <summary>
+    /// A control's KeyDown tunnels, because an Avalonia TextBox handles Back/Delete/arrows itself
+    /// before any attribute-wired handler sees them. The Form's tunnels only with KeyPreview -
+    /// which is exactly what KeyPreview means.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Plan_KeyHandlers_SubscribeInTheTunnellingPhase(bool keyPreview)
+    {
+        var formModel = FormWith(("nameBox", "TextBox"));
+        Wire(formModel, "nameBox", "KeyDown", "nameBox_KeyDown");
+        formModel.FormEvents.Add(new EventHandlerBinding("KeyDown", "Form1_KeyDown", null));
+        if (keyPreview)
+        {
+            formModel.FormProperties["KeyPreview"] = new PropertyValue.Literal(true);
+        }
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void nameBox_KeyDown(object sender, KeyEventArgs e) { }
+                    private void Form1_KeyDown(object sender, KeyEventArgs e) { }
+                }
+            }
+            """);
+
+        Assert.Contains(("nameBox", "InputElement.KeyDownEvent", "nameBox_KeyDown"), plan.TunnelEventSubscriptions);
+        Assert.Empty(plan.XamlEventAttributesFor("nameBox"));
+
+        if (keyPreview)
+        {
+            Assert.Contains((null, "InputElement.KeyDownEvent", "Form1_KeyDown"), plan.TunnelEventSubscriptions);
+            Assert.Empty(plan.XamlEventAttributesFor(null));
+        }
+        else
+        {
+            Assert.Contains(("KeyDown", "Form1_KeyDown"), plan.XamlEventAttributesFor(null));
+        }
+    }
+    /// <summary>
+    /// A key comparison translates only against constants the key table spells; anything else -
+    /// a key it does not know, or KeyCode used as a value - stops the body there.
+    /// </summary>
+    [Theory]
+    [InlineData("if (e.KeyCode == Keys.BrowserBack) { statusLabel.Text = \"x\"; }")]
+    [InlineData("statusLabel.Text = e.KeyCode.ToString();")]
+    [InlineData("if (e.KeyCode == someKey) { statusLabel.Text = \"x\"; }")]
+    public void Plan_KeyComparisonOutsideTheTable_IsNotTranslated(string statement)
+    {
+        var formModel = FormWith(("nameBox", "TextBox"), ("statusLabel", "Label"));
+        Wire(formModel, "nameBox", "KeyDown", "nameBox_KeyDown");
+
+        var plan = PlanFor(formModel, $$"""
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private Keys someKey;
+
+                    private void nameBox_KeyDown(object sender, KeyEventArgs e)
+                    {
+                        {{statement}}
+                    }
+                }
+            }
+            """);
+
+        var handler = Assert.Single(plan.CodeBehindHandlers, h => h.MethodName == "nameBox_KeyDown");
+        Assert.True(handler.IsUnfinished);
+    }
+    /// <summary>
+    /// The compound statements translate whole or not at all, and each refuses what it cannot
+    /// place: an exception type the View could not import, a case label that is not a literal,
+    /// and a `throw new`, since `new` is not something this rewriter translates.
+    /// </summary>
+    [Theory]
+    [InlineData("try { statusLabel.Text = \"a\"; } catch (MyAppException) { statusLabel.Text = \"b\"; }", true)]
+    [InlineData("try { statusLabel.Text = \"a\"; } catch (System.Security.SecurityException) { statusLabel.Text = \"b\"; }", false)]
+    [InlineData("switch (statusLabel.Text) { case \"a\": statusLabel.Text = \"b\"; break; }", false)]
+    [InlineData("switch (statusLabel.Text) { case nameof(Form1): statusLabel.Text = \"b\"; break; }", true)]
+    [InlineData("try { statusLabel.Text = \"a\"; } catch { throw; }", false)]
+    [InlineData("try { statusLabel.Text = \"a\"; } catch { throw new System.InvalidOperationException(); }", true)]
+    [InlineData("do { statusLabel.Text = \"a\"; } while (statusLabel.Text == \"b\");", false)]
+    public void Plan_CompoundStatements_TranslateWholeOrRefuse(string statement, bool unfinished)
+    {
+        var formModel = FormWith(("goButton", "Button"), ("statusLabel", "Label"), ("other", "TextBox"));
+        Wire(formModel, "goButton", "Click", "goButton_Click");
+
+        // `other.Focus()` keeps the handler on the View, so it is the View-side rewrite under test.
+        var plan = PlanFor(formModel, $$"""
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void goButton_Click(object sender, EventArgs e)
+                    {
+                        other.Focus();
+                        {{statement}}
+                    }
+                }
+            }
+            """);
+
+        var handler = Assert.Single(plan.CodeBehindHandlers, h => h.MethodName == "goButton_Click");
+        Assert.Equal(unfinished, handler.IsUnfinished);
+    }
 }

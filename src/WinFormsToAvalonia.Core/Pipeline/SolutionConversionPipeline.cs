@@ -96,7 +96,8 @@ public sealed class SolutionConversionPipeline
             vfs.AddText(solutionFileName, BuildSolution(converted, options.WithWeb));
             vfs.WriteToDisk(
                 options.OutputDirectory,
-                options.OverwriteAll ? ExistingFileStrategy.Overwrite : ExistingFileStrategy.PreserveExisting);
+                options.OverwriteAll ? ExistingFileStrategy.Overwrite : ExistingFileStrategy.PreserveExisting,
+                options.Prune);
         }
 
         return new SolutionConversionResult(solutionFileName, converted, skipped);

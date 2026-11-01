@@ -14,6 +14,61 @@ namespace WinFormsToAvalonia.Core.Parsing;
 /// </summary>
 public static class ExpressionEvaluator
 {
+    /// <summary>
+    /// The four-int <c>decimal(int[] bits)</c> constructor: low, middle and high 32 bits of the
+    /// 96-bit integer, then the flags word carrying sign and scale - exactly what
+    /// <c>decimal.GetBits</c> returns, which is how the designer serialized it.
+    /// </summary>
+    private static bool TryGetDecimalBits(ArgumentListSyntax? arguments, out decimal value)
+    {
+        value = 0;
+        if (arguments?.Arguments is not [{ Expression: var argument }])
+        {
+            return false;
+        }
+
+        var initializer = argument switch
+        {
+            ArrayCreationExpressionSyntax { Initializer: { } explicitArray } => explicitArray,
+            ImplicitArrayCreationExpressionSyntax { Initializer: var implicitArray } => implicitArray,
+            _ => null,
+        };
+
+        if (initializer?.Expressions.Count != 4)
+        {
+            return false;
+        }
+
+        var bits = new int[4];
+        for (var i = 0; i < 4; i++)
+        {
+            // The flags word of a negative number is 0x80000000, which C# can only write as the
+            // negation of a long literal - so a long in Int32 range is accepted too.
+            switch (Evaluate(initializer.Expressions[i]))
+            {
+                case PropertyValue.Literal { Value: int bit }:
+                    bits[i] = bit;
+                    break;
+                case PropertyValue.Literal { Value: long wide } when wide is >= int.MinValue and <= int.MaxValue:
+                    bits[i] = (int)wide;
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        try
+        {
+            value = new decimal(bits);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            // An invalid flags word - not something a designer writes, and not worth guessing at.
+            return false;
+        }
+    }
+
     public static PropertyValue Evaluate(ExpressionSyntax expression)
     {
         expression = Unwrap(expression);
@@ -48,6 +103,14 @@ public static class ExpressionEvaluator
         if (expression is ObjectCreationExpressionSyntax creation)
         {
             var typeName = RoslynTypeNameHelper.GetSimpleTypeName(creation.Type);
+
+            // `new decimal(new int[] { 100, 0, 0, 0 })` - the only form a designer writes a
+            // decimal in, which is every NumericUpDown's Minimum, Maximum, Value and Increment.
+            // Unread, all four were silently dropped and every converted spinner ran 0..100.
+            if (typeName is "decimal" or "Decimal" && TryGetDecimalBits(creation.ArgumentList, out var number))
+            {
+                return new PropertyValue.Literal(number);
+            }
 
             if (typeName == "Point" && TryGetTwoIntArgs(creation.ArgumentList, out var px, out var py))
             {
@@ -99,6 +162,18 @@ public static class ExpressionEvaluator
             return new PropertyValue.ControlReference(refFieldName);
         }
 
+        // Before the enum rule, which would otherwise read `App.Properties.Resources.logo` as an
+        // enum member called "logo" - and a Label would have shown the word.
+        if (TryGetProjectResourceName(expression) is { } projectResource)
+        {
+            return new PropertyValue.ProjectResource(projectResource);
+        }
+
+        if (TryGetProjectSettingName(expression) is { } projectSetting)
+        {
+            return new PropertyValue.ProjectSetting(projectSetting);
+        }
+
         if (CollectEnumMembers(expression, out var members))
         {
             return new PropertyValue.EnumMembers(members);
@@ -106,6 +181,48 @@ public static class ExpressionEvaluator
 
         return new PropertyValue.Unresolved(expression.ToString());
     }
+
+    /// <summary>
+    /// The entry name of <c>[global::][Ns.]Properties.Resources.Name</c>, the member the
+    /// strongly-typed resource class generates for every entry of <c>Properties/Resources.resx</c>.
+    /// The qualifier has to say <c>Properties.Resources</c>: a bare <c>Resources.X</c> is just as
+    /// likely a type of the project's own.
+    /// </summary>
+    public static string? TryGetProjectResourceName(ExpressionSyntax expression) =>
+        Unwrap(expression) is MemberAccessExpressionSyntax { Expression: var owner, Name.Identifier.ValueText: var name }
+        && IsPropertiesClass(owner, "Resources")
+            ? name
+            : null;
+
+    /// <summary>
+    /// The setting named by <c>[global::][Ns.]Properties.Settings.Default.Name</c> - the instance
+    /// Visual Studio generates from <c>Properties/Settings.settings</c>.
+    /// </summary>
+    public static string? TryGetProjectSettingName(ExpressionSyntax expression) =>
+        Unwrap(expression) is MemberAccessExpressionSyntax { Expression: var instance, Name.Identifier.ValueText: var name }
+        && IsProjectSettingsInstance(instance)
+            ? name
+            : null;
+
+    /// <summary><c>[global::][Ns.]Properties.Settings.Default</c> itself.</summary>
+    public static bool IsProjectSettingsInstance(ExpressionSyntax expression) =>
+        Unwrap(expression) is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Default", Expression: var owner }
+        && IsPropertiesClass(owner, "Settings");
+
+    /// <summary>
+    /// <c>[global::][Ns.]Properties.{className}</c>. The qualifier has to say <c>Properties</c>: a
+    /// bare <c>Resources</c> or <c>Settings</c> is just as likely a type of the project's own.
+    /// </summary>
+    private static bool IsPropertiesClass(ExpressionSyntax expression, string className) =>
+        expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var name, Expression: var properties }
+        && name == className
+        && properties switch
+        {
+            IdentifierNameSyntax { Identifier.ValueText: "Properties" } => true,
+            MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Properties" } => true,
+            AliasQualifiedNameSyntax { Name.Identifier.ValueText: "Properties" } => true,
+            _ => false,
+        };
 
     private static ExpressionSyntax Unwrap(ExpressionSyntax expression)
     {
@@ -343,6 +460,10 @@ public static class ExpressionEvaluator
                 double d => -d,
                 float f => -f,
                 long l => -l,
+                // `-2147483648` is the negation of a literal C# types as uint (it does not fit an
+                // int). Falling through to `other` returned it *positive*.
+                uint u => -(long)u,
+                decimal m => -m,
                 var other => other,
             };
             return true;

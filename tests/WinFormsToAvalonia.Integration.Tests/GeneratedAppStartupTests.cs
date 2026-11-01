@@ -72,7 +72,7 @@ public class GeneratedAppStartupTests
     /// Injected only for the printing fixture, because it names the generated document type.
     /// </summary>
     /// <remarks>
-    /// Proves the half that has no other witness: <c>RenderFirstPage</c> creates a
+    /// Proves the half that has no other witness: <c>RenderPages</c> creates a
     /// <c>RenderTargetBitmap</c>, opens a drawing context and raises <c>PrintPage</c> on it. If the
     /// page size were wrong, the context unavailable, or the handler never subscribed, the app
     /// would still start and still build - and no page would ever be drawn.
@@ -96,8 +96,12 @@ public class GeneratedAppStartupTests
                             var drawn = 0;
                             document.PrintPage += (_, _) => drawn++;
 
-                            using var page = document.RenderFirstPage();
-                            Console.WriteLine($"w2a-print:{document.DocumentName}:{drawn}:{page.PixelSize.Width}x{page.PixelSize.Height}");
+                            var pages = document.RenderPages();
+                            Console.WriteLine($"w2a-print:{document.DocumentName}:{drawn}:{pages.Count}:{pages[0].PixelSize.Width}x{pages[0].PixelSize.Height}");
+                            foreach (var page in pages)
+                            {
+                                page.Dispose();
+                            }
                         }
                     }
         """;
@@ -121,6 +125,13 @@ public class GeneratedAppStartupTests
     // An app-level TrayIcon: built by App.axaml during Initialize, before any View exists, and
     // reached from a handler through the accessor the generated App declares for it.
     [InlineData("TrayIconApp")]
+    // Window chrome on the root element (CanResize, WindowStartupLocation, Min sizes) and
+    // IsDefault/IsCancel/TabIndex on the controls - attributes the XAML loader resolves against
+    // the real Window and Button types while the View is constructed.
+    [InlineData("WindowChromeApp")]
+    // A View flattened out of a base Form's designer and its own: the inherited controls, the
+    // base class's handler and the derived overrides all have to meet in one constructed View.
+    [InlineData("VisualInheritanceApp")]
     // Images extracted out of an ImageList and referenced from the AXAML by asset path. Building
     // proves nothing here: an asset the conversion named but never wrote is not a compile error,
     // it is Avalonia failing to load the Image while the View is being constructed.
@@ -133,6 +144,20 @@ public class GeneratedAppStartupTests
     // Literal items inside a bundled template's collection property, as <sys:String> elements.
     // That form compiles and can still fail to *load* - the item type is resolved at run time.
     [InlineData("DomainUpDownApp")]
+    // A drop target: AllowDrop and a hit-testable background, checked by an actual hit test -
+    // without either, the translated drag handlers compile, subscribe and never run.
+    [InlineData("SenderAndDragApp")]
+    // Keyboard handlers subscribed with AddHandler in the tunnelling phase - on a control, and on
+    // the Window itself for KeyPreview - from the constructor, where the AXAML used to wire them.
+    [InlineData("KeyboardApp")]
+    // Handlers lifted out of designer lambdas - including one on the Form's own Load, which
+    // Avalonia raises while the window opens.
+    [InlineData("LambdaApp")]
+    // The project's own subclasses of WinForms controls, emitted as the controls they derive from.
+    [InlineData("CustomControlApp")]
+    // Images and a Window icon loaded from Assets/Resources/ - Avalonia resolves both at run time,
+    // so a wrong path builds and only fails here - plus a handler reading Properties.Resources.
+    [InlineData("ProjectResourcesApp")]
     public Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName) =>
         AssertStarts(
             Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj"),
@@ -272,12 +297,27 @@ public class GeneratedAppStartupTests
             "w2a-region:toolStripContainer1:contentLabel,dockedStrip");
 
     /// <summary>
+    /// The generated <c>Properties.Settings</c>: its static instance loads when the Form's Load
+    /// handler first reads it, during startup.
+    /// </summary>
+    /// <remarks>
+    /// Buttons are not clicked: Save would write a settings file into the test machine's
+    /// application-data folder.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedSettingsApp_StartsAndReadsItsSettings() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "SettingsApp", "SettingsApp.csproj"),
+            "SettingsApp",
+            clickButtons: false);
+
+    /// <summary>
     /// A converted PrintDocument: the page is really drawn.
     /// </summary>
     /// <remarks>
     /// The document is not in the visual tree and nothing on screen shows it, so this is the only
-    /// way to see whether it works. Two counts: the handler ran once, and the page came out the
-    /// size the document says it is.
+    /// way to see whether it works. Three facts: the handler ran twice, two pages came out because
+    /// it set HasMorePages once, and each page is the size the document says it is.
     /// </remarks>
     [Fact]
     public Task ConvertedPrintingApp_ReallyDrawsItsPage() =>
@@ -287,7 +327,7 @@ public class GeneratedAppStartupTests
             clickButtons: false,
             reportPaint: false,
             reportPrint: true,
-            "w2a-print:Sample report:1:816x1056");
+            "w2a-print:Sample report:2:2:816x1056");
 
     private static async Task AssertStarts(
         string sourceProject, string name, bool clickButtons, bool reportPaint = false, bool reportPrint = false,
@@ -349,8 +389,10 @@ public class GeneratedAppStartupTests
             using Avalonia.Controls.ApplicationLifetimes;
             using Avalonia.Controls.Primitives;
             using Avalonia.Headless;
+            using Avalonia.Input;
             using Avalonia.Interactivity;
             using Avalonia.LogicalTree;
+            using Avalonia.Threading;
             using Avalonia.VisualTree;
             using CommunityToolkit.Mvvm.Input;
 
@@ -381,6 +423,7 @@ public class GeneratedAppStartupTests
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
                     AssertEveryControlGotItsTemplate(lifetime.MainWindow);
+                    AssertEveryDropTargetIsHit(lifetime.MainWindow);
                     ExecutePromotedCommands(lifetime.MainWindow?.DataContext);
                     {{(clickButtons ? "ClickEveryButton(lifetime.MainWindow);" : "")}}
                     ReportGrids(lifetime.MainWindow);
@@ -463,6 +506,51 @@ public class GeneratedAppStartupTests
                 /// by now.
                 /// </para>
                 /// </remarks>
+                /// <summary>
+                /// Every drop target must be where the pointer lands. A Panel with no Background is
+                /// not hit-testable in Avalonia, so a converted drop target with handlers that
+                /// compiled and subscribed could still never receive a single drag event.
+                /// </summary>
+                private static void AssertEveryDropTargetIsHit(Window? window)
+                {
+                    if (window is null)
+                    {
+                        return;
+                    }
+
+                    // Hit testing asks the compositor's scene, which only catches up once the
+                    // dispatcher has run the queued work and a render tick has gone through -
+                    // without both, every point hits nothing at all, buttons included.
+                    window.UpdateLayout();
+                    Dispatcher.UIThread.RunJobs();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    Dispatcher.UIThread.RunJobs();
+                    var missed = new List<string>();
+                    foreach (var target in Descendants(window).OfType<Control>()
+                                 .Where(c => c.IsEffectivelyVisible && DragDrop.GetAllowDrop(c)
+                                     && c.Bounds.Width > 0 && c.Bounds.Height > 0))
+                    {
+                        var centre = target.TranslatePoint(
+                            new Point(target.Bounds.Width / 2, target.Bounds.Height / 2), window);
+                        var hit = centre is { } point ? window.InputHitTest(point) as Visual : null;
+                        var landed = hit is not null
+                            && (ReferenceEquals(hit, target) || hit.GetVisualAncestors().Contains(target));
+
+                        Console.WriteLine($"w2a-hit:{target.Name}:{landed}");
+                        if (!landed)
+                        {
+                            missed.Add($"'{target.Name}' (the pointer lands on {hit?.GetType().Name ?? "nothing"} '{(hit as Control)?.Name}')");
+                        }
+                    }
+
+                    if (missed.Count > 0)
+                    {
+                        throw new InvalidOperationException(
+                            "These drop targets are not hit by the pointer, so no drag event can reach them: "
+                            + string.Join(", ", missed) + ". A Panel needs a Background (even Transparent) to be hit.");
+                    }
+                }
+
                 private static void AssertEveryControlGotItsTemplate(Window? window)
                 {
                     if (window is null)

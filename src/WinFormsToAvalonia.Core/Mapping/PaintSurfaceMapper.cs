@@ -54,6 +54,9 @@ public sealed class PaintSurfaceMapper(IControlMapper inner) : IControlMapper
             return inner.Map(control);
         }
 
+        // A surface is a PictureBox without a picture, so how a picture would be sized means nothing.
+        control.Properties.MarkRead("SizeMode");
+
         return new MappedControl(
             control.ClrTypeName,
             MappingStatus.Fallback,

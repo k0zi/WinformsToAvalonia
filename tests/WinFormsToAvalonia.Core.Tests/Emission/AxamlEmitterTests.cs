@@ -310,6 +310,7 @@ public class AxamlEmitterTests
         var column = new ControlModel { FieldName = "actionColumn", ClrTypeName = "DataGridViewButtonColumn" };
         column.Properties["HeaderText"] = new PropertyValue.Literal("Action");
         column.Properties["Text"] = new PropertyValue.Literal("Go");
+        column.Properties["UseColumnTextForButtonValue"] = new PropertyValue.Literal(true);
         grid.Children.Add(column);
         formModel.RootControls.Add(grid);
 
@@ -1009,5 +1010,152 @@ public class AxamlEmitterTests
         richTextBox.Properties["Size"] = new PropertyValue.SizeValue(200, 100);
         formModel.RootControls.Add(richTextBox);
         return formModel;
+    }
+    /// <summary>
+    /// What the pointer needs to reach an element. A WinForms control is hit anywhere in its bounds;
+    /// an Avalonia Panel with no Background is hit nowhere and a TextBlock only on its glyphs - so
+    /// each element something listens on (a handler, a drop, a tooltip, a context menu) gets a
+    /// transparent background, and only those.
+    /// </summary>
+    [Fact]
+    public void EmitView_ElementsThatNeedThePointer_AreMadeHitTestable()
+    {
+        const string designer = """
+            namespace Demo
+            {
+                partial class Form1
+                {
+                    private System.Windows.Forms.Panel dropPanel;
+                    private System.Windows.Forms.Panel clickPanel;
+                    private System.Windows.Forms.Panel plainPanel;
+                    private System.Windows.Forms.Panel coloredPanel;
+                    private System.Windows.Forms.Label hintLabel;
+                    private System.Windows.Forms.ToolTip toolTip1;
+
+                    private void InitializeComponent()
+                    {
+                        this.dropPanel = new System.Windows.Forms.Panel();
+                        this.clickPanel = new System.Windows.Forms.Panel();
+                        this.plainPanel = new System.Windows.Forms.Panel();
+                        this.coloredPanel = new System.Windows.Forms.Panel();
+                        this.hintLabel = new System.Windows.Forms.Label();
+                        this.toolTip1 = new System.Windows.Forms.ToolTip();
+                        this.dropPanel.AllowDrop = true;
+                        this.dropPanel.DragDrop += new System.Windows.Forms.DragEventHandler(this.dropPanel_DragDrop);
+                        this.clickPanel.MouseDown += new System.Windows.Forms.MouseEventHandler(this.clickPanel_MouseDown);
+                        this.coloredPanel.BackColor = System.Drawing.Color.Red;
+                        this.coloredPanel.AllowDrop = true;
+                        this.toolTip1.SetToolTip(this.hintLabel, "Hint");
+                        this.Controls.Add(this.dropPanel);
+                        this.Controls.Add(this.clickPanel);
+                        this.Controls.Add(this.plainPanel);
+                        this.Controls.Add(this.coloredPanel);
+                        this.Controls.Add(this.hintLabel);
+                    }
+                }
+            }
+            """;
+        const string codeBehind = """
+            namespace Demo
+            {
+                public partial class Form1 : System.Windows.Forms.Form
+                {
+                    private void dropPanel_DragDrop(object sender, System.Windows.Forms.DragEventArgs e) { }
+                    private void clickPanel_MouseDown(object sender, System.Windows.Forms.MouseEventArgs e) { }
+                }
+            }
+            """;
+
+        var formModel = new ControlGraphBuilder().Build(new DesignerSyntaxWalker().Walk(designer, "Form1.Designer.cs", "Form1", "Demo"));
+        var plan = new WinFormsToAvalonia.Core.Pipeline.FormMigrationPlanner(new ControlMappingRegistry(), new EventMappingRegistry())
+            .Plan(formModel, new CodeBehindAnalyzer().Analyze(codeBehind, "Form1.cs", formModel));
+
+        var axaml = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel", plan).Axaml;
+
+        string ElementOf(string name) => System.Text.RegularExpressions.Regex.Match(axaml, $"<[^<>]* x:Name=\"{name}\"[^<>]*>").Value;
+
+        Assert.Contains("DragDrop.AllowDrop=\"True\"", ElementOf("dropPanel"));
+        Assert.Contains("Background=\"Transparent\"", ElementOf("dropPanel"));
+        Assert.Contains("Background=\"Transparent\"", ElementOf("clickPanel"));
+        Assert.Contains("Background=\"Transparent\"", ElementOf("hintLabel"));
+
+        // Nothing listens on it, so it is left exactly as before.
+        Assert.DoesNotContain("Background", ElementOf("plainPanel"));
+
+        // A designer colour already makes it hit-testable - and must not be written twice.
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(ElementOf("coloredPanel"), "Background="));
+        Assert.DoesNotContain("Transparent", ElementOf("coloredPanel"));
+    }
+    /// <summary>
+    /// Where the splitter sits: SplitterDistance is Panel1's pixels, and FixedPanel decides which
+    /// side keeps them on a resize - star sizing in the designed proportion when neither does.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "200*,Auto,236*")]
+    [InlineData("Panel1", "200,Auto,*")]
+    [InlineData("Panel2", "*,Auto,236")]
+    public void EmitView_SplitContainer_PlacesTheSplitterWhereTheDesignerDid(string? fixedPanel, string expected)
+    {
+        var fixedLine = fixedPanel is null ? "" : $"this.split1.FixedPanel = System.Windows.Forms.FixedPanel.{fixedPanel};";
+        var designer = $$"""
+            namespace Demo
+            {
+                partial class Form1
+                {
+                    private System.Windows.Forms.SplitContainer split1;
+
+                    private void InitializeComponent()
+                    {
+                        this.split1 = new System.Windows.Forms.SplitContainer();
+                        this.split1.Location = new System.Drawing.Point(0, 0);
+                        this.split1.Size = new System.Drawing.Size(440, 180);
+                        this.split1.SplitterDistance = 200;
+                        {{fixedLine}}
+                        this.Controls.Add(this.split1);
+                    }
+                }
+            }
+            """;
+
+        var formModel = new ControlGraphBuilder().Build(new DesignerSyntaxWalker().Walk(designer, "Form1.Designer.cs", "Form1", "Demo"));
+        var axaml = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel").Axaml;
+
+        Assert.Contains($"ColumnDefinitions=\"{expected}\"", axaml);
+        Assert.Contains("<GridSplitter Grid.Column=\"1\" Width=\"4\"", axaml);
+    }
+
+    /// <summary>
+    /// A WinForms ToolTip's delays belong to the component; Avalonia keeps them per control, so they
+    /// follow each tip onto its target. AutomaticDelay sets the others; an explicit value wins.
+    /// </summary>
+    [Fact]
+    public void EmitView_ToolTipDelays_FollowEachTipOntoItsControl()
+    {
+        const string designer = """
+            namespace Demo
+            {
+                partial class Form1
+                {
+                    private System.Windows.Forms.Button okButton;
+                    private System.Windows.Forms.ToolTip toolTip1;
+
+                    private void InitializeComponent()
+                    {
+                        this.okButton = new System.Windows.Forms.Button();
+                        this.toolTip1 = new System.Windows.Forms.ToolTip();
+                        this.toolTip1.AutomaticDelay = 1000;
+                        this.toolTip1.InitialDelay = 250;
+                        this.toolTip1.SetToolTip(this.okButton, "Save it");
+                        this.Controls.Add(this.okButton);
+                    }
+                }
+            }
+            """;
+
+        var formModel = new ControlGraphBuilder().Build(new DesignerSyntaxWalker().Walk(designer, "Form1.Designer.cs", "Form1", "Demo"));
+        var result = new AxamlEmitter(new ControlMappingRegistry()).EmitView(formModel, "Demo", "MainView", "MainViewModel");
+
+        Assert.Contains("ToolTip.Tip=\"Save it\" ToolTip.ShowDelay=\"250\" ToolTip.BetweenShowDelay=\"200\"", result.Axaml);
+        Assert.Contains(result.Warnings, w => w.Contains("'toolTip1' (ToolTip) hides its tips after 10000ms"));
     }
 }

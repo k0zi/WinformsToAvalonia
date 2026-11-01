@@ -43,6 +43,12 @@ public static class DefaultControlMappers
             ("PasswordChar", "PasswordChar", PropertyValueFormatters.AsChar),
             ("TextAlign", "TextAlignment", PropertyValueFormatters.AsEnumMember),
             ("BorderStyle", "BorderThickness", PropertyValueFormatters.AsBorderThickness),
+            // WordWrap after Multiline, so an explicit WordWrap = false wins over the wrapping a
+            // multi-line box implies.
+            ("Multiline", "TextWrapping", PropertyValueFormatters.AsMultilineWrapping),
+            ("WordWrap", "TextWrapping", PropertyValueFormatters.AsWordWrapping),
+            ("ScrollBars", "ScrollViewer.HorizontalScrollBarVisibility", PropertyValueFormatters.AsHorizontalScrollBar),
+            ("ScrollBars", "ScrollViewer.VerticalScrollBarVisibility", PropertyValueFormatters.AsVerticalScrollBar),
         ]),
         new SimplePropertyMapper("CheckBox", "CheckBox",
         [
@@ -58,7 +64,11 @@ public static class DefaultControlMappers
             ("TextAlign", "HorizontalContentAlignment", PropertyValueFormatters.AsContentAlignmentHorizontal),
             ("TextAlign", "VerticalContentAlignment", PropertyValueFormatters.AsContentAlignmentVertical),
         ]),
-        new SimplePropertyMapper("ComboBox", "ComboBox", []),
+        // WinForms' default DropDownStyle is DropDown - editable - and Avalonia's IsEditable defaults
+        // to false, so the designer writing nothing still means "editable".
+        new SimplePropertyMapper("ComboBox", "ComboBox",
+            [("DropDownStyle", "IsEditable", PropertyValueFormatters.AsComboBoxEditable)],
+            fixedAttributes: [("IsEditable", "True")]),
         // BorderStyle only where the target really has a BorderThickness: Panel and PictureBox
         // become a Canvas and an Image, neither of which draws a border at all.
         new SimplePropertyMapper("ListBox", "ListBox",
@@ -94,10 +104,14 @@ public static class DefaultControlMappers
         ]),
         // Image is only set when ConversionPipeline managed to recover the picture from the
         // form's .resx and copy it into Assets/ - by then the property holds the asset path.
+        // Stretch pinned because the two defaults disagree: WinForms draws a picture unscaled
+        // (SizeMode.Normal) and Avalonia's Image scales it to fit (Stretch.Uniform).
         new PaintSurfaceMapper(new SimplePropertyMapper("PictureBox", "Image",
         [
             ("Image", "Source", PropertyValueFormatters.AsText),
-        ])),
+            ("SizeMode", "Stretch", PropertyValueFormatters.AsImageStretch),
+        ],
+        fixedAttributes: [("Stretch", "None")])),
         new SimplePropertyMapper("MonthCalendar", "Calendar", []),
         // HyperlinkButton (core Avalonia, no extra package) rather than TextBlock: it is the
         // one built-in control that both *looks* like a link and has the real Click/Command
@@ -107,7 +121,10 @@ public static class DefaultControlMappers
         [
             ("Text", "Content", PropertyValueFormatters.AsText),
         ]),
-        new SimplePropertyMapper("TabControl", "TabControl", []),
+        new SimplePropertyMapper("TabControl", "TabControl",
+        [
+            ("SelectedIndex", "SelectedIndex", PropertyValueFormatters.AsNumber),
+        ]),
         new SimplePropertyMapper("TabPage", "TabItem",
         [
             ("Text", "Header", PropertyValueFormatters.AsText),
@@ -118,7 +135,15 @@ public static class DefaultControlMappers
         // `new`'d fields, unlike SplitContainer's Panel1/Panel2 - no synthetic parent id
         // needed), so childWrapperElementNames wraps them in Avalonia's required
         // <DataGrid.Columns> property-element syntax, same mechanism TabPage->TabItem uses.
-        new SimplePropertyMapper("DataGridView", "DataGrid", [],
+        // AutoGenerateColumns: WinForms defaults to true and Avalonia to false (measured), so the
+        // designer's usual `= false` is what Avalonia already does - mapped anyway, so it is
+        // explicit and a `true` is carried too.
+        new SimplePropertyMapper("DataGridView", "DataGrid",
+        [
+            ("AutoGenerateColumns", "AutoGenerateColumns", PropertyValueFormatters.AsBool),
+            ("ReadOnly", "IsReadOnly", PropertyValueFormatters.AsBool),
+            ("MultiSelect", "SelectionMode", PropertyValueFormatters.AsGridSelectionMode),
+        ],
         childWrapperElementNames: ["DataGrid.Columns"],
         requiredNuGetPackage: "Avalonia.Controls.DataGrid"),
         // DataGrid's column types aren't a Visual/StyledElement (they live in DataGrid.Columns
@@ -142,14 +167,10 @@ public static class DefaultControlMappers
         // TemplateColumnMapper, which emits a DataGridTemplateColumn + generated CellTemplate.
         new TemplateColumnMapper("DataGridViewComboBoxColumn", "ComboBox"),
         new TemplateColumnMapper("DataGridViewButtonColumn", "Button",
-        [
-            ("Text", "Content", PropertyValueFormatters.AsText),
-        ]),
+            caption: new TemplateColumnMapper.CellCaption("Content", "UseColumnTextForButtonValue")),
         new TemplateColumnMapper("DataGridViewImageColumn", "Image"),
         new TemplateColumnMapper("DataGridViewLinkColumn", "HyperlinkButton",
-        [
-            ("Text", "Content", PropertyValueFormatters.AsText),
-        ]),
+            caption: new TemplateColumnMapper.CellCaption("Content", "UseColumnTextForLinkValue")),
         // ListView is two controls in one (Details = grid, everything else = flat list), so it
         // needs a per-instance decision - see ListViewMapper. Its ColumnHeaders are parsed by
         // the same generalized `.Columns.Add` handling DataGridView's columns use.
@@ -162,12 +183,17 @@ public static class DefaultControlMappers
         supportsName: false),
         // Per-instance: a Format=Time picker is a clock, not a calendar. See DateTimePickerMapper.
         new DateTimePickerMapper(),
+        // Ticks pinned for the same reason as a PictureBox's Stretch: a WinForms TrackBar draws
+        // them below the track, one per unit, unless told otherwise; an Avalonia Slider draws none.
         new SimplePropertyMapper("TrackBar", "Slider",
         [
             ("Minimum", "Minimum", PropertyValueFormatters.AsNumber),
             ("Maximum", "Maximum", PropertyValueFormatters.AsNumber),
             ("Value", "Value", PropertyValueFormatters.AsNumber),
-        ]),
+            ("TickStyle", "TickPlacement", PropertyValueFormatters.AsTickPlacement),
+            ("TickFrequency", "TickFrequency", PropertyValueFormatters.AsNumber),
+        ],
+        fixedAttributes: [("TickPlacement", "BottomRight"), ("TickFrequency", "1")]),
         new SimplePropertyMapper("HScrollBar", "ScrollBar",
         [
             ("Minimum", "Minimum", PropertyValueFormatters.AsNumber),
@@ -197,9 +223,18 @@ public static class DefaultControlMappers
         // A ToolStripMenuItem's own DropDownItems become nested MenuItem/Separator XAML
         // children automatically, via the same recursive AxamlEmitter.EmitControl
         // children-walk every other control already uses - no special-casing needed.
+        // A checked item needs ToggleType to draw its tick at all; CheckOnClick's toggling itself
+        // is code, emitted by the View (FormMigrationPlan.CheckOnClickToggles). ShortcutKeys is two
+        // attributes because Avalonia splits the job: InputGesture only *shows* the shortcut,
+        // HotKey is what makes pressing it click the item - measured, even with the menu closed.
         new SimplePropertyMapper("ToolStripMenuItem", "MenuItem",
         [
             ("Text", "Header", PropertyValueFormatters.AsText),
+            ("Checked", "IsChecked", PropertyValueFormatters.AsBool),
+            ("Checked", "ToggleType", PropertyValueFormatters.AsCheckToggleType),
+            ("CheckOnClick", "ToggleType", PropertyValueFormatters.AsCheckToggleType),
+            ("ShortcutKeys", "InputGesture", PropertyValueFormatters.AsKeyGesture),
+            ("ShortcutKeys", "HotKey", PropertyValueFormatters.AsKeyGesture),
         ]),
         new SimplePropertyMapper("ToolStripSeparator", "Separator", []),
         new SimplePropertyMapper("ToolStripButton", "Button",
@@ -214,7 +249,9 @@ public static class DefaultControlMappers
         [
             ("Text", "Text", PropertyValueFormatters.AsText),
         ]),
-        new SimplePropertyMapper("ToolStripComboBox", "ComboBox", []),
+        new SimplePropertyMapper("ToolStripComboBox", "ComboBox",
+            [("DropDownStyle", "IsEditable", PropertyValueFormatters.AsComboBoxEditable)],
+            fixedAttributes: [("IsEditable", "True")]),
         new SimplePropertyMapper("ToolStripTextBox", "TextBox",
         [
             ("Text", "Text", PropertyValueFormatters.AsText),
@@ -287,7 +324,10 @@ public static class DefaultControlMappers
             ("ResetOnSpace", "ResetOnSpace", PropertyValueFormatters.AsBool),
             ("ReadOnly", "IsReadOnly", PropertyValueFormatters.AsBool),
         ]),
-        new FallbackControlMapper("RichTextBox", "RichTextBoxFallback"),
+        new FallbackControlMapper("RichTextBox", "RichTextBoxFallback",
+        [
+            ("Text", "Text", PropertyValueFormatters.AsText),
+        ]),
         new FallbackControlMapper("ErrorProvider", "ErrorProviderFallback"),
         new FallbackControlMapper("DomainUpDown", "DomainUpDownFallback",
         [
@@ -348,7 +388,7 @@ public static class DefaultControlMappers
         new UnsupportedControlMapper("PrintDialog", UnsupportedDisposition.FeatureElsewhere, "There is still no printer to choose - Avalonia has no printing API at all. But the shape this dialog appears in does have an answer: `if (printDialog1.ShowDialog(this) == DialogResult.OK) { printDocument1.Print(); }` is translated whole into `await printDocument1.PrintAsync(this)`, which renders the page the PrintPage handler draws and writes it to a file the user picks. The dialog does not vanish - it moves into that destination picker. A branch doing anything other than one Print() call is left alone."),
         new UnsupportedControlMapper("PageSetupDialog", UnsupportedDisposition.FeatureElsewhere, "Paper size, orientation and margins, on the bundled PageSetupDialogFallback - and they now have somewhere to go: they are what the bundled PrintDocumentFallback lays its page out with, so the dialog changes what the export looks like. It was guidance-only for as long as nothing consumed a page setup, which was true while there was no page. The document is resolved from the designer's Document property."),
         new UnsupportedControlMapper("PrintPreviewDialog", UnsupportedDisposition.FeatureElsewhere, "A window showing the page, on the bundled PrintPreviewDialogFallback. This became possible only once the document could be produced: a preview needs no printing API, it needs a rendered page, and the PrintPage handler really draws one now. The document is resolved from the designer's Document property, so nothing is inferred from the handler."),
-        new UnsupportedControlMapper("PrintDocument", UnsupportedDisposition.FeatureElsewhere, "Emitted as a field of the bundled PrintDocumentFallback, with its DocumentName and its PrintPage handler wired. That handler is drawing code, and drawing code translates: e.Graphics calls become real DrawingContext calls, so the page is genuinely drawn. Print() renders it and writes it to a file the user picks. What is still missing is the printer - Avalonia has no printing API at all, so sending that page to one is what a library is for. Only the first page is rendered; HasMorePages is handed to the handler but not looped on."),
+        new UnsupportedControlMapper("PrintDocument", UnsupportedDisposition.FeatureElsewhere, "Emitted as a field of the bundled PrintDocumentFallback, with its DocumentName and its PrintPage handler wired. That handler is drawing code, and drawing code translates: e.Graphics calls become real DrawingContext calls, so the page is genuinely drawn. Print() renders it and writes it to a file the user picks. What is still missing is the printer - Avalonia has no printing API at all, so sending that page to one is what a library is for. Every page is rendered - PrintPage is raised again while the handler sets HasMorePages - and the export writes one PNG per page. BeginPrint/EndPrint have no counterpart, so a page counter the original reset there has to be reset by hand."),
 
         // Non-visual component family.
         new UnsupportedControlMapper("NotifyIcon", UnsupportedDisposition.FeatureElsewhere, "No per-View mapping - Avalonia's tray-icon support is app-level, configured in App.axaml's TrayIcon.Icons (now generated automatically by ConversionPipeline.Run's cross-form aggregation - see AvaloniaProjectScaffolder.BuildTrayIconsSection). A literal icon path that resolves to a real file is copied into the generated project's Assets/ folder; otherwise (the common case - resx/dynamic icons) the TrayIcon block is emitted commented out with a TODO, since Avalonia resolves TrayIcon.Icon at run time and a dangling asset reference would throw out of App.Initialize(). Designer-wired events: Click becomes TrayIcon.Clicked and is subscribed from the generated View's constructor for an icon that resolved; DoubleClick and the mouse/balloon events have no Avalonia counterpart and are reported by name rather than emitted as a handler nothing subscribes."),

@@ -33,6 +33,12 @@ namespace SenderAndDragApp
             Clipboard.SetText(this.statusLabel.Text);
         }
 
+        // Reading the clipboard back: async in Avalonia, awaited where it is called.
+        private void pasteButton_Click(object sender, EventArgs e)
+        {
+            this.statusLabel.Text = "Pasted: " + Clipboard.GetText();
+        }
+
         // The one thing a translated body may ask a drag payload.
         private void dropPanel_DragEnter(object sender, DragEventArgs e)
         {

@@ -1,0 +1,14 @@
+{
+  // Vendor controls this converter cannot know about.
+  "controls": {
+    "TextEdit": {
+      "as": "TextBox",
+      "properties": { "EditValue": "Text" },
+      "events": { "EditValueChanged": "TextChanged" }
+    },
+    "GaugeControl": {
+      "element": "ProgressBar",
+      "properties": { "Value": "Value", "Maximum": "Maximum" }
+    }
+  }
+}

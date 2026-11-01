@@ -15,7 +15,7 @@ public sealed class FormModel
 
     public string? Namespace { get; init; }
 
-    public Dictionary<string, PropertyValue> FormProperties { get; } = new(StringComparer.Ordinal);
+    public PropertyBag FormProperties { get; } = new();
 
     public List<EventHandlerBinding> FormEvents { get; } = [];
 

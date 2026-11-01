@@ -24,4 +24,14 @@ public sealed record ConversionOptions(
     /// split changes the shape of the output directory. Without it the generated files are
     /// byte-for-byte what they have always been.
     /// </remarks>
-    bool WithWeb = false);
+    bool WithWeb = false,
+    /// <summary>
+    /// Delete files an earlier run generated that this one no longer does - a Form removed or
+    /// renamed in the source - as long as nobody edited them since (see VirtualFileSystem's manifest).
+    /// </summary>
+    bool Prune = false,
+    /// <summary>
+    /// A JSON file mapping third-party control types the converter does not know - see
+    /// <c>Mapping/UserMappings</c> for the format.
+    /// </summary>
+    string? MappingsFile = null);

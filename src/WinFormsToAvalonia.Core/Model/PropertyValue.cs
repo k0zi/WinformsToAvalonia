@@ -82,5 +82,21 @@ public abstract record PropertyValue
     /// </summary>
     public sealed record ResourceReference(string ResourceKey) : PropertyValue;
 
+    /// <summary>
+    /// A member of the project's strongly-typed resource class -
+    /// <c>global::App.Properties.Resources.logo</c>, which is how the designer writes an image
+    /// picked from "Project resource file" rather than "Local resource". <see cref="Name"/> is the
+    /// entry in <c>Properties/Resources.resx</c>; ConversionPipeline resolves it into a string or a
+    /// copied Assets/ file, exactly as it does a <see cref="ResourceReference"/>.
+    /// </summary>
+    public sealed record ProjectResource(string Name) : PropertyValue;
+
+    /// <summary>
+    /// <c>global::App.Properties.Settings.Default.UserName</c> - what the designer writes beside a
+    /// property bound to an application setting. ConversionPipeline resolves it to the setting's
+    /// default value.
+    /// </summary>
+    public sealed record ProjectSetting(string Name) : PropertyValue;
+
     public sealed record Unresolved(string RawExpression) : PropertyValue;
 }

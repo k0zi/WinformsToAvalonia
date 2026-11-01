@@ -146,6 +146,38 @@ public class ExpressionEvaluatorTests
         Assert.Equal(new PropertyValue.ResourceReference(expectedKey), Evaluate(expression));
     }
 
+    /// <summary>
+    /// "Project resource file" images and strings. These used to read as an enum member named
+    /// after the resource - so a Label showed the word "Greeting".
+    /// </summary>
+    [Theory]
+    [InlineData("global::App.Properties.Resources.logo", "logo")]
+    [InlineData("((System.Drawing.Image)(global::App.Properties.Resources.logo))", "logo")]
+    [InlineData("App.Properties.Resources.Greeting", "Greeting")]
+    [InlineData("Properties.Resources.Greeting", "Greeting")]
+    [InlineData("global::Properties.Resources.Greeting", "Greeting")]
+    public void Evaluate_ProjectResource_BecomesAProjectResource(string expression, string expectedName)
+    {
+        Assert.Equal(new PropertyValue.ProjectResource(expectedName), Evaluate(expression));
+    }
+
+    [Theory]
+    [InlineData("global::App.Properties.Settings.Default.UserName", "UserName")]
+    [InlineData("Properties.Settings.Default.UserName", "UserName")]
+    public void Evaluate_ProjectSetting_BecomesAProjectSetting(string expression, string expectedName)
+    {
+        Assert.Equal(new PropertyValue.ProjectSetting(expectedName), Evaluate(expression));
+    }
+
+    [Theory]
+    [InlineData("Resources.logo")]
+    [InlineData("App.Resources.logo")]
+    [InlineData("System.Windows.Forms.DockStyle.Fill")]
+    public void Evaluate_NotAProjectResource_IsNotOne(string expression)
+    {
+        Assert.IsNotType<PropertyValue.ProjectResource>(Evaluate(expression));
+    }
+
     [Fact]
     public void Evaluate_ResourceLookupWithoutALiteralKey_StaysUnresolved()
     {
@@ -156,5 +188,31 @@ public class ExpressionEvaluatorTests
     {
         var expression = SyntaxFactory.ParseExpression(expressionText);
         return ExpressionEvaluator.Evaluate(expression);
+    }
+    /// <summary>
+    /// The designer writes every decimal as its four <c>decimal.GetBits</c> words. Unread, every
+    /// NumericUpDown's Minimum/Maximum/Value/Increment was silently dropped.
+    /// </summary>
+    [Theory]
+    [InlineData("new decimal(new int[] { 1000, 0, 0, 0 })", "1000")]
+    [InlineData("new System.Decimal(new int[] { 25, 0, 0, 65536 })", "2.5")]
+    [InlineData("new decimal(new int[] { 5, 0, 0, -2147483648 })", "-5")]
+    public void Evaluate_DesignerDecimal(string expression, string expected)
+    {
+        Assert.Equal(
+            new PropertyValue.Literal(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture)),
+            Evaluate(expression));
+    }
+
+    [Fact]
+    public void Evaluate_DecimalWithANonLiteralWord_IsNotGuessed()
+    {
+        Assert.IsType<PropertyValue.Unresolved>(Evaluate("new decimal(new int[] { x, 0, 0, 0 })"));
+    }
+    /// <summary>`2147483648` does not fit an int, so C# types it uint - and its negation was returned positive.</summary>
+    [Fact]
+    public void Evaluate_NegatedUintLiteral_IsNegative()
+    {
+        Assert.Equal(new PropertyValue.Literal(-2147483648L), Evaluate("-2147483648"));
     }
 }

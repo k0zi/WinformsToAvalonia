@@ -303,6 +303,41 @@ public class DesignerSyntaxWalkerTests
     }
 
     [Fact]
+    public void Walk_ImageListSetKeyName_RecordsEachKeysIndex_AndDataBindingsAreReported()
+    {
+        const string source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.components = new System.ComponentModel.Container();
+                        this.imageList1 = new System.Windows.Forms.ImageList(this.components);
+                        this.textBox1 = new System.Windows.Forms.TextBox();
+                        this.imageList1.Images.SetKeyName(0, "open.png");
+                        this.imageList1.Images.SetKeyName(1, "save.png");
+                        this.imageList1.Images.SetKeyName(2, "open.png");
+                        this.textBox1.DataBindings.Add(new System.Windows.Forms.Binding("Text", this.bindingSource1, "Name", true));
+                    }
+
+                    private System.ComponentModel.IContainer components;
+                    private System.Windows.Forms.ImageList imageList1;
+                    private System.Windows.Forms.TextBox textBox1;
+                }
+            }
+            """;
+
+        var result = new DesignerSyntaxWalker().Walk(source, "test.designer.cs", "TestForm", "Demo");
+
+        // A repeated key keeps its first index, as Images[key] finds the first match.
+        Assert.Equal(
+            new Dictionary<string, int> { ["open.png"] = 0, ["save.png"] = 1 },
+            result.Form.Controls["imageList1"].ImageKeys);
+        Assert.Contains(result.Warnings, w => w.Contains("'textBox1.Text' is data-bound to 'this.bindingSource1.Name'"));
+    }
+
+    [Fact]
     public void Walk_TimerWithTickHandler_CapturesIntervalAndTickBinding()
     {
         var path = Path.Combine(FixturesRoot, "NestedControls.designer.cs");
@@ -489,5 +524,62 @@ public class DesignerSyntaxWalkerTests
 
         Assert.Empty(formModel.Controls);
         Assert.Empty(formModel.FormProperties);
+    }
+    /// <summary>
+    /// A derived Form's walk continues from its base's, as WinForms runs the two
+    /// InitializeComponents back to back on one object: the derived designer reaches a field
+    /// it never declared, its value wins, and its own controls join the base's.
+    /// </summary>
+    [Fact]
+    public void Walk_InheritedFrom_ContinuesOnTheBasesControlsAndOverridesThem()
+    {
+        const string baseDesigner = """
+            namespace Demo
+            {
+                partial class BaseForm
+                {
+                    protected System.Windows.Forms.Button okButton;
+
+                    private void InitializeComponent()
+                    {
+                        this.okButton = new System.Windows.Forms.Button();
+                        this.okButton.Text = "OK";
+                        this.okButton.Click += new System.EventHandler(this.okButton_Click);
+                        this.ClientSize = new System.Drawing.Size(300, 200);
+                        this.Text = "Base";
+                        this.Controls.Add(this.okButton);
+                    }
+                }
+            }
+            """;
+        const string derivedDesigner = """
+            namespace Demo
+            {
+                partial class MainForm
+                {
+                    private System.Windows.Forms.Label label1;
+
+                    private void InitializeComponent()
+                    {
+                        this.label1 = new System.Windows.Forms.Label();
+                        this.okButton.Text = "Go";
+                        this.Text = "Main";
+                        this.Controls.Add(this.label1);
+                    }
+                }
+            }
+            """;
+
+        var walker = new DesignerSyntaxWalker();
+        var inherited = walker.Walk(baseDesigner, "BaseForm.Designer.cs", "BaseForm", "Demo");
+        var result = walker.Walk(derivedDesigner, "MainForm.Designer.cs", "MainForm", "Demo", inheritedFrom: inherited);
+
+        Assert.Equal("MainForm", result.Form.ClassName);
+        Assert.Equal(["label1", "okButton"], result.Form.Controls.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(new PropertyValue.Literal("Go"), result.Form.Controls["okButton"].Properties["Text"]);
+        Assert.Single(result.Form.Controls["okButton"].Events);
+        Assert.Equal(new PropertyValue.Literal("Main"), result.Form.FormProperties["Text"]);
+        Assert.Equal(new PropertyValue.SizeValue(300, 200), result.Form.FormProperties["ClientSize"]);
+        Assert.Equal(2, result.Edges.Count);
     }
 }

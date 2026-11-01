@@ -10,12 +10,16 @@ public partial class MainForm : Form
         InitializeComponent();
     }
 
-    // Drawing code, which is the half that translates - the page is really drawn.
+    private int pagesPrinted;
+
+    // Drawing code, which is the half that translates - the pages are really drawn. Two of them:
+    // the document keeps raising PrintPage while the handler says there are more.
     private void printDocument1_PrintPage(object sender, PrintPageEventArgs e)
     {
         e.Graphics!.DrawRectangle(Pens.Black, 0, 0, 100, 40);
         e.Graphics!.DrawString("printed", this.Font, Brushes.Black, e.MarginBounds);
-        e.HasMorePages = false;
+        pagesPrinted++;
+        e.HasMorePages = pagesPrinted < 2;
     }
 
     // The one shape a PrintDialog appears in: the dialog guards the print.

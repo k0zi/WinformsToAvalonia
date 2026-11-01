@@ -32,13 +32,16 @@ public class ImageListConversionTests
             result.Vfs.TryGetText("Views/MainView.axaml", out var axaml);
 
             // The ImageList lives on the MenuStrip and the ImageIndex on each item, exactly as
-            // WinForms resolves it.
+            // WinForms resolves it. saveMenuItem names its image by key instead, resolved through
+            // the list's Images.SetKeyName calls.
             Assert.Matches(
                 """<MenuItem x:Name="openMenuItem" Header="Open">\s*<MenuItem\.Icon>\s*<Image Source="/Assets/iconList_0\.png" />""",
                 axaml);
             Assert.Matches(
                 """<MenuItem x:Name="saveMenuItem" Header="Save">\s*<MenuItem\.Icon>\s*<Image Source="/Assets/iconList_2\.png" />""",
                 axaml);
+
+            Assert.DoesNotContain(result.Report.Warnings, w => w.Contains("ImageKey", StringComparison.Ordinal));
 
             // A TreeView takes an image in WinForms and has nowhere to put one in Avalonia. The
             // image is still extracted; what the conversion refuses to do is invent a header

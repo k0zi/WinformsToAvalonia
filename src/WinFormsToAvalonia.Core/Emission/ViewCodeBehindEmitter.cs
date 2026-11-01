@@ -150,11 +150,27 @@ public sealed class ViewCodeBehindEmitter
 
         // The Form's own backing fields, carried over so the helpers that maintain them can be
         // real code rather than a comment.
+        // Only part of the code that used them may have come across, so "never used" and "never
+        // assigned" are statements about this conversion, not about the program - and a generated
+        // project has to build warning-free. Found by the real-world corpus, whose forms keep state
+        // in fields their un-migrated handlers maintain.
+        if (plan.PromotedFields.Count > 0)
+        {
+            Line("#pragma warning disable CS0169, CS0414, CS0649 // used by handler code that is not migrated yet");
+        }
+
         foreach (var field in plan.PromotedFields)
         {
             var modifiers = field.ModifiersText.Length > 0 ? field.ModifiersText + " " : "";
-            var initializer = field.InitializerText is { } value ? $" = {value}" : "";
+            var initializer = field.InitializerText is { } value ? $" = {value}"
+                : NeedsNullForgivingDefault(field) ? " = default!"
+                : "";
             Line($"    private {modifiers}{field.TypeText} {field.Name}{initializer};");
+        }
+
+        if (plan.PromotedFields.Count > 0)
+        {
+            Line("#pragma warning restore CS0169, CS0414, CS0649");
         }
 
         // Set by the close-confirmation rewrite before it closes the window itself, and read on
@@ -231,6 +247,24 @@ public sealed class ViewCodeBehindEmitter
         {
             Line();
             Line($"        App.{NamingConventions.Capitalize(fieldName)}.{avaloniaEventName} += {handlerMethodName};");
+        }
+
+        // WinForms' CheckOnClick: the item flips its own tick before raising Click. Avalonia's
+        // MenuItem does not, so the View does - subscribed first, so the item's own Click handlers,
+        // chained just below rather than wired in the AXAML, read the state after the click.
+        foreach (var fieldName in plan.CheckOnClickToggles)
+        {
+            Line();
+            Line($"        {fieldName}.Click += (_, _) => {fieldName}.IsChecked = !{fieldName}.IsChecked;");
+        }
+
+        // Keyboard handlers in the tunnelling phase, so they run before the control acts on the key -
+        // the WinForms order (FormMigrationPlan.TunnelEventSubscriptions).
+        foreach (var (fieldName, routedEventName, handlerMethodName) in plan.TunnelEventSubscriptions)
+        {
+            Line();
+            var receiver = fieldName is null ? "" : $"{fieldName}.";
+            Line($"        {receiver}AddHandler({routedEventName}, {handlerMethodName}, RoutingStrategies.Tunnel);");
         }
 
         // Events the AXAML cannot carry: a bundled template's own CLR event, and the loser of two
@@ -465,7 +499,7 @@ public sealed class ViewCodeBehindEmitter
         line($"    /// <summary>Avalonia replacement for the WinForms '{dialog.FieldName}.ShowDialog()' call. Call this from the handler that used to open it.</summary>");
         line($"    private async Task {dialog.MethodName}()");
         line("    {");
-        line($"        var result = await {storageProvider}.{dialog.PickerMethodName}(new {dialog.OptionsTypeName}());");
+        line($"        var result = await {storageProvider}.{dialog.PickerMethodName}({dialog.OptionsExpression(storageProvider)});");
         line($"        throw new NotImplementedException(\"TODO(Winforms2Avalonia): migrate the logic that used to run after '{dialog.FieldName}.ShowDialog()' here, using 'result'.\");");
         line("    }");
     }
@@ -626,4 +660,23 @@ public sealed class ViewCodeBehindEmitter
         string.Join("\n", text.Replace("\r\n", "\n").Split('\n').Select(l => l.Length == 0 ? l : indent + l));
 
     private static string EscapeForBlockComment(string text) => text.Replace("*/", "* /");
+
+    /// <summary>
+    /// A field with no initializer whose type may be a non-nullable reference type - which the
+    /// generated project's nullable context reports (CS8618) unless it starts as <c>default!</c>.
+    /// The original assigned it in code that may not have come across. Syntax cannot tell a struct
+    /// from a class, so only the types known to be values are spared; on any other struct
+    /// <c>default!</c> is still exactly the default.
+    /// </summary>
+    private static bool NeedsNullForgivingDefault(PromotedFieldPlan field) =>
+        !field.ModifiersText.Split(' ').Contains("const")
+        && !field.TypeText.EndsWith('?')
+        && !KnownValueTypes.Contains(field.TypeText);
+
+    private static readonly HashSet<string> KnownValueTypes = new(StringComparer.Ordinal)
+    {
+        "bool", "byte", "sbyte", "short", "ushort", "int", "uint", "long", "ulong", "nint", "nuint",
+        "float", "double", "decimal", "char",
+        "DateTime", "DateTimeOffset", "TimeSpan", "DateOnly", "TimeOnly", "Guid",
+    };
 }

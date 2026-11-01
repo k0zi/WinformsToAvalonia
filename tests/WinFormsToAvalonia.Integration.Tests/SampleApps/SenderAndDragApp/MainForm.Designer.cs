@@ -19,6 +19,7 @@ namespace SenderAndDragApp
             this.sharedOneButton = new System.Windows.Forms.Button();
             this.sharedTwoButton = new System.Windows.Forms.Button();
             this.copyButton = new System.Windows.Forms.Button();
+            this.pasteButton = new System.Windows.Forms.Button();
             this.dropPanel = new System.Windows.Forms.Panel();
             this.statusLabel = new System.Windows.Forms.Label();
             this.SuspendLayout();
@@ -59,6 +60,15 @@ namespace SenderAndDragApp
             this.copyButton.Text = "Copy";
             this.copyButton.Click += new System.EventHandler(this.copyButton_Click);
             //
+            // pasteButton
+            //
+            this.pasteButton.Location = new System.Drawing.Point(118, 46);
+            this.pasteButton.Name = "pasteButton";
+            this.pasteButton.Size = new System.Drawing.Size(100, 28);
+            this.pasteButton.TabIndex = 6;
+            this.pasteButton.Text = "Paste";
+            this.pasteButton.Click += new System.EventHandler(this.pasteButton_Click);
+            //
             // dropPanel
             //
             this.dropPanel.AllowDrop = true;
@@ -84,6 +94,7 @@ namespace SenderAndDragApp
             this.Controls.Add(this.sharedOneButton);
             this.Controls.Add(this.sharedTwoButton);
             this.Controls.Add(this.copyButton);
+            this.Controls.Add(this.pasteButton);
             this.Controls.Add(this.dropPanel);
             this.Controls.Add(this.statusLabel);
             this.Name = "MainForm";
@@ -95,6 +106,7 @@ namespace SenderAndDragApp
         private System.Windows.Forms.Button sharedOneButton;
         private System.Windows.Forms.Button sharedTwoButton;
         private System.Windows.Forms.Button copyButton;
+        private System.Windows.Forms.Button pasteButton;
         private System.Windows.Forms.Panel dropPanel;
         private System.Windows.Forms.Label statusLabel;
     }

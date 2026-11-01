@@ -90,6 +90,12 @@ public sealed class HandlerBodyRewriter
         _controlMappings = controlMappings;
     }
 
+    /// <summary>The project's string resources a body may read - see <see cref="ProjectStringResources"/>.</summary>
+    public ProjectStringResources ProjectStrings { get; init; } = ProjectStringResources.None;
+
+    /// <summary>The project's settings a body may use - see <see cref="ProjectSettingsAccess"/>.</summary>
+    public ProjectSettingsAccess ProjectSettings { get; init; } = ProjectSettingsAccess.None;
+
     /// <summary>
     /// Rewrites for a View's code-behind, where the controls still exist as fields.
     /// </summary>
@@ -222,7 +228,14 @@ public sealed class HandlerBodyRewriter
             out rewritten);
     }
 
-    private static RewrittenBody Rewrite(string body, IRewriteTarget target)
+    private RewrittenBody Rewrite(string body, IRewriteTarget target)
+    {
+        target.ProjectStrings = ProjectStrings;
+        target.ProjectSettings = ProjectSettings;
+        return RewriteCore(body, target);
+    }
+
+    private static RewrittenBody RewriteCore(string body, IRewriteTarget target)
     {
         if (string.IsNullOrWhiteSpace(body))
         {
@@ -782,6 +795,31 @@ public sealed class HandlerBodyRewriter
             case WhileStatementSyntax whileStatement:
                 return TryRewriteWhile(whileStatement, target, out rewritten);
 
+            case DoStatementSyntax doStatement:
+                return TryRewriteDo(doStatement, target, out rewritten);
+
+            case TryStatementSyntax tryStatement:
+                return TryRewriteTry(tryStatement, target, out rewritten);
+
+            case SwitchStatementSyntax switchStatement:
+                return TryRewriteSwitch(switchStatement, target, out rewritten);
+
+            // Jumps are only legal where the original put them - inside a loop or a switch - and
+            // every compound statement is translated whole, so they land in the same place.
+            case BreakStatementSyntax:
+                rewritten = new RewrittenStatement("break;");
+                return true;
+
+            case ContinueStatementSyntax:
+                rewritten = new RewrittenStatement("continue;");
+                return true;
+
+            // A rethrow inside a catch; `throw new X(...)` is not, because `new` is not something
+            // this rewriter translates.
+            case ThrowStatementSyntax { Expression: null }:
+                rewritten = new RewrittenStatement("throw;");
+                return true;
+
             case LocalDeclarationStatementSyntax declaration:
                 return TryRewriteLocalDeclaration(declaration, target, out rewritten);
 
@@ -928,7 +966,7 @@ public sealed class HandlerBodyRewriter
             selectionKey = $"{dialogField}.{kind.PathMemberName}";
             selectionValue = $"{variableName}.Path.LocalPath";
             opener =
-                $"if (await {target.StorageProviderExpression}.{kind.PickerMethodName}(new {kind.OptionsTypeName}()) is not "
+                $"if (await {target.StorageProviderExpression}.{kind.PickerMethodName}({target.FileDialogOptionsExpression(dialogField, kind)}) is not "
                 + string.Format(kind.SelectionPattern, variableName) + ")";
             target.Requirements.RequiredUsings.Add("Avalonia.Platform.Storage");
         }
@@ -993,7 +1031,7 @@ public sealed class HandlerBodyRewriter
             var parts = new List<RewrittenStatement> { thenBranch };
             var pattern = string.Format(kind.SelectionPattern, variableName);
             var text =
-                $"if (await {target.StorageProviderExpression}.{kind.PickerMethodName}(new {kind.OptionsTypeName}()) is {pattern})"
+                $"if (await {target.StorageProviderExpression}.{kind.PickerMethodName}({target.FileDialogOptionsExpression(dialogField, kind)}) is {pattern})"
                 + $"\n{{\n{Indent(thenBranch.Text)}\n}}";
 
             if (ifStatement.Else is { } elseClause)
@@ -1325,6 +1363,212 @@ public sealed class HandlerBodyRewriter
             && TryRewriteLoopBody($"while ({condition})", whileStatement.Statement, target, [], out rewritten);
     }
 
+    private static bool TryRewriteDo(DoStatementSyntax doStatement, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        // The body runs before the condition is first evaluated, and its locals are out of scope
+        // there - the condition is translated against the enclosing scope, as C# resolves it.
+        if (!TryRewriteLoopBody("do", doStatement.Statement, target, [], out var body)
+            || !TryRewriteExpression(doStatement.Condition, target, out var condition))
+        {
+            return false;
+        }
+
+        rewritten = Merge($"{body.Text}\nwhile ({condition});", [body]);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>try</c>/<c>catch</c>/<c>finally</c>, every block translated whole - the same rule as an
+    /// <c>if</c> branch, for the same reason: a remainder can only be emitted after the statement.
+    /// </summary>
+    /// <remarks>
+    /// A catch may name an exception type and a variable. The type has to be one this rewriter can
+    /// place: a BCL exception from <see cref="KnownExceptions"/> (whose namespace the View then
+    /// imports - the original file's usings do not come across, so an unqualified
+    /// <c>IOException</c> would otherwise be a CS0246 in the generated project), or a name already
+    /// qualified with <c>System.</c>. The variable is an ordinary value local, scoped to its catch
+    /// block; a <c>when</c> filter translates like any condition.
+    /// </remarks>
+    private static bool TryRewriteTry(TryStatementSyntax tryStatement, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+        var parts = new List<RewrittenStatement>();
+
+        if (!TryRewriteBlock(tryStatement.Block, target, out var tryBlock))
+        {
+            return false;
+        }
+
+        parts.Add(tryBlock);
+        var text = new System.Text.StringBuilder($"try\n{{\n{Indent(tryBlock.Text)}\n}}");
+
+        foreach (var catchClause in tryStatement.Catches)
+        {
+            var header = "catch";
+            target.Locals.Push();
+            try
+            {
+                if (catchClause.Declaration is { } declaration)
+                {
+                    var written = declaration.Type.ToString().Replace("global::", "", StringComparison.Ordinal);
+                    if (KnownExceptions.TryGetValue(written, out var exceptionNamespace))
+                    {
+                        target.Requirements.RequiredUsings.Add(exceptionNamespace);
+                    }
+                    else if (!(written.StartsWith("System.", StringComparison.Ordinal)
+                        && written.EndsWith("Exception", StringComparison.Ordinal)))
+                    {
+                        return false;
+                    }
+
+                    var variable = declaration.Identifier.ValueText;
+                    header += variable.Length > 0 ? $" ({declaration.Type} {variable})" : $" ({declaration.Type})";
+                    if (variable.Length > 0)
+                    {
+                        target.Locals.Declare(variable, LocalKind.Value);
+                    }
+                }
+
+                if (catchClause.Filter is { } filter)
+                {
+                    if (!TryRewriteExpression(filter.FilterExpression, target, out var filterText))
+                    {
+                        return false;
+                    }
+
+                    header += $" when ({filterText})";
+                }
+
+                if (!TryRewriteBlock(catchClause.Block, target, out var catchBlock))
+                {
+                    return false;
+                }
+
+                parts.Add(catchBlock);
+                text.Append($"\n{header}\n{{\n{Indent(catchBlock.Text)}\n}}");
+            }
+            finally
+            {
+                target.Locals.Pop();
+            }
+        }
+
+        if (tryStatement.Finally is { } finallyClause)
+        {
+            if (!TryRewriteBlock(finallyClause.Block, target, out var finallyBlock))
+            {
+                return false;
+            }
+
+            parts.Add(finallyBlock);
+            text.Append($"\nfinally\n{{\n{Indent(finallyBlock.Text)}\n}}");
+        }
+
+        rewritten = Merge(text.ToString(), parts);
+        return true;
+    }
+
+    /// <summary>The exceptions a catch may name unqualified, and the namespace each lives in.</summary>
+    private static readonly Dictionary<string, string> KnownExceptions = new(StringComparer.Ordinal)
+    {
+        ["Exception"] = "System",
+        ["ArgumentException"] = "System",
+        ["ArgumentNullException"] = "System",
+        ["ArgumentOutOfRangeException"] = "System",
+        ["InvalidOperationException"] = "System",
+        ["NotSupportedException"] = "System",
+        ["NotImplementedException"] = "System",
+        ["FormatException"] = "System",
+        ["OverflowException"] = "System",
+        ["DivideByZeroException"] = "System",
+        ["NullReferenceException"] = "System",
+        ["IndexOutOfRangeException"] = "System",
+        ["InvalidCastException"] = "System",
+        ["TimeoutException"] = "System",
+        ["UnauthorizedAccessException"] = "System",
+        ["OperationCanceledException"] = "System",
+        ["ObjectDisposedException"] = "System",
+        ["KeyNotFoundException"] = "System.Collections.Generic",
+        ["IOException"] = "System.IO",
+        ["FileNotFoundException"] = "System.IO",
+        ["DirectoryNotFoundException"] = "System.IO",
+        ["PathTooLongException"] = "System.IO",
+        ["EndOfStreamException"] = "System.IO",
+        ["TaskCanceledException"] = "System.Threading.Tasks",
+    };
+
+    /// <summary>
+    /// A <c>switch</c> statement over a translatable value, with literal case labels - every
+    /// section translated whole.
+    /// </summary>
+    /// <remarks>
+    /// Labels are restricted to literals because a label is matched against the governing value's
+    /// own type, and only a literal is certain to mean the same thing on both sides; a pattern, a
+    /// <c>when</c> clause or an enum member from WinForms refuses. A section's statements share one
+    /// scope, as they do in C#.
+    /// </remarks>
+    private static bool TryRewriteSwitch(SwitchStatementSyntax switchStatement, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        // Switching on a YesNoCancel answer: the DialogResult labels become the bool? it now is.
+        var onAnswer = TryRewriteYesNoCancelOperand(switchStatement.Expression, target, out var governing);
+        if (!onAnswer && !TryRewriteExpression(switchStatement.Expression, target, out governing))
+        {
+            return false;
+        }
+
+        var parts = new List<RewrittenStatement>();
+        var text = new System.Text.StringBuilder($"switch ({governing})\n{{");
+
+        target.Locals.Push();
+        try
+        {
+            foreach (var section in switchStatement.Sections)
+            {
+                foreach (var label in section.Labels)
+                {
+                    switch (label)
+                    {
+                        case DefaultSwitchLabelSyntax:
+                            text.Append("\n    default:");
+                            break;
+                        case CaseSwitchLabelSyntax { Value: LiteralExpressionSyntax literal } when !onAnswer:
+                            text.Append($"\n    case {literal}:");
+                            break;
+                        case CaseSwitchLabelSyntax { Value: var answerLabel } when onAnswer
+                            && TryReadYesNoCancelValue(answerLabel, out var answerValue):
+                            text.Append($"\n    case {answerValue}:");
+                            break;
+                        default:
+                            return false;
+                    }
+                }
+
+                foreach (var statement in section.Statements)
+                {
+                    if (!TryRewriteStatement(statement, target, out var part))
+                    {
+                        return false;
+                    }
+
+                    parts.Add(part);
+                    text.Append($"\n{Indent(Indent(part.Text))}");
+                }
+            }
+        }
+        finally
+        {
+            target.Locals.Pop();
+        }
+
+        text.Append("\n}");
+        rewritten = Merge(text.ToString(), parts);
+        return true;
+    }
+
     /// <summary>
     /// The shared tail of every loop: declare the loop variables, translate the body
     /// all-or-nothing (as with an <c>if</c> branch), and brace it.
@@ -1380,7 +1624,7 @@ public sealed class HandlerBodyRewriter
     /// is a different type entirely, so it is refused.
     /// </summary>
     private static string? DeclaredTypeText(TypeSyntax type) =>
-        type.IsVar || type is PredefinedTypeSyntax ? type.ToString() : null;
+        type.IsVar || PlainDotNetTypeCatalog.IsPlain(type) ? type.ToString() : null;
 
     /// <summary>
     /// One branch of an <c>if</c>, or the contents of a block - translated <b>whole or not at
@@ -1457,6 +1701,17 @@ public sealed class HandlerBodyRewriter
 
         var name = variable.Identifier.ValueText;
         var isUsing = !declaration.UsingKeyword.IsKind(SyntaxKind.None);
+
+        // `var answer = MessageBox.Show(..., MessageBoxButtons.YesNoCancel);` - the usual way a
+        // three-way question is asked, because its answer is then compared more than once.
+        if (!isUsing
+            && (declaration.Declaration.Type.IsVar || declaration.Declaration.Type.ToString() is "DialogResult")
+            && TryRewriteYesNoCancelCall(initializer, target, out var question))
+        {
+            target.Locals.Declare(name, LocalKind.YesNoCancelAnswer);
+            rewritten = new RewrittenStatement($"var {name} = {question};");
+            return true;
+        }
 
         // `new SomeForm()` - the only construction this rewriter understands.
         if (initializer is ObjectCreationExpressionSyntax { ArgumentList: null or { Arguments.Count: 0 } } creation
@@ -1688,6 +1943,21 @@ public sealed class HandlerBodyRewriter
         // emitted, and spent as an argument when the ShowAsync call is written.
         if (TryAbsorbDialogSeed(assignment, target, out rewritten))
         {
+            return true;
+        }
+
+        // `Properties.Settings.Default.UserName = nameBox.Text;` - a user-scoped setting, on the
+        // generated class. An application-scoped one has no setter there either, so it stops.
+        if (ExpressionEvaluator.TryGetProjectSettingName(assignment.Left) is { } settingName)
+        {
+            if (!target.ProjectSettings.Writable.Contains(settingName)
+                || !TryRewriteExpression(assignment.Right, target, out var settingValue))
+            {
+                return false;
+            }
+
+            rewritten = new RewrittenStatement(
+                $"{target.ProjectSettings.InstanceExpression}.{settingName} {assignment.OperatorToken} {settingValue};");
             return true;
         }
 
@@ -2454,15 +2724,27 @@ public sealed class HandlerBodyRewriter
             _ => (null, ""),
         };
 
-        if (operand is not IdentifierNameSyntax { Identifier.ValueText: var name }
-            || !target.Locals.TryGet(name, out var kind)
-            || kind != LocalKind.Value)
+        if (operand is IdentifierNameSyntax { Identifier.ValueText: var name }
+            && target.Locals.TryGet(name, out var kind))
         {
-            return false;
+            if (kind != LocalKind.Value)
+            {
+                return false;
+            }
+
+            text = string.Format(format, name);
+            return true;
         }
 
-        text = string.Format(format, name);
-        return true;
+        // `pageNumber++` / `this.pageNumber++` on a Form field this run carries over - the same
+        // rule as an assignment to one (see TryRewriteAssignment). After the locals, which shadow.
+        if (operand is not null && FormFieldNameOf(operand) is { } field && target.IsPromotedField(field))
+        {
+            text = string.Format(format, field);
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryRewriteInvocation(
@@ -2473,6 +2755,20 @@ public sealed class HandlerBodyRewriter
         if (!TrySplitInvocation(invocation, out var receiver, out var methodName))
         {
             return false;
+        }
+
+        // `Properties.Settings.Default.Save();` (and Reload/Reset), on the generated class.
+        if (receiver is not null && ExpressionEvaluator.IsProjectSettingsInstance(receiver))
+        {
+            if (target.ProjectSettings.IsEmpty
+                || !ProjectSettingsAccess.Methods.Contains(methodName)
+                || invocation.ArgumentList.Arguments.Count != 0)
+            {
+                return false;
+            }
+
+            rewritten = new RewrittenStatement($"{target.ProjectSettings.InstanceExpression}.{methodName}();");
+            return true;
         }
 
         // `new SettingsForm().ShowDialog();` / `.Show();` - opening another converted Form.
@@ -2844,6 +3140,45 @@ public sealed class HandlerBodyRewriter
                 when TryRewriteMessageBoxComparison(comparison, target, out text):
                 return true;
 
+            // A YesNoCancel answer compared with a DialogResult member - asked inline or kept in a local.
+            case BinaryExpressionSyntax answerComparison
+                when TryRewriteYesNoCancelComparison(answerComparison, target, out text):
+                return true;
+
+            // `Clipboard.GetText()` - async in Avalonia, and awaited right where it was called, which
+            // C# allows anywhere in an async method's expression and keeps the evaluation order.
+            // WinForms returns "" when the clipboard holds no text; Avalonia returns null, hence `??`.
+            // Not in a Closing handler, where nothing may await (see AllowsAsync).
+            case InvocationExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax
+                {
+                    Expression: IdentifierNameSyntax { Identifier.ValueText: "Clipboard" },
+                    Name.Identifier.ValueText: "GetText",
+                },
+                ArgumentList.Arguments.Count: 0,
+            } when target.AllowsAsync:
+                target.Requirements.RequiresAsync = true;
+                target.Requirements.RequiredUsings.Add("Avalonia.Controls");
+                target.Requirements.RequiredUsings.Add("Avalonia.Input.Platform");
+                text = "(await TopLevel.GetTopLevel(this)!.Clipboard!.TryGetTextAsync() ?? string.Empty)";
+                return true;
+
+            // KeyPress's `char.IsDigit(e.KeyChar)` and `e.KeyChar == 'x'`, over TextInput's string.
+            case InvocationExpressionSyntax charTest
+                when TryRewriteKeyCharTest(charTest, target, out text):
+                return true;
+
+            case BinaryExpressionSyntax charComparison
+                when TryRewriteKeyCharComparison(charComparison, target, out text):
+                return true;
+
+            // `e.KeyCode == Keys.Enter` - two enums that name members differently, so only the
+            // comparison as a whole has an answer.
+            case BinaryExpressionSyntax keyComparison
+                when TryRewriteKeyComparison(keyComparison, target, out text):
+                return true;
+
             case BinaryExpressionSyntax binary:
                 if (!TryRewriteExpression(binary.Left, target, out var binaryLeft)
                     || !TryRewriteExpression(binary.Right, target, out var binaryRight))
@@ -2888,6 +3223,21 @@ public sealed class HandlerBodyRewriter
 
             case InterpolatedStringExpressionSyntax interpolated:
                 return TryRewriteInterpolatedString(interpolated, target, out text);
+
+            // `Properties.Resources.Greeting` - a string entry of the project's resource file, which
+            // the generated project carries as a class of the same shape.
+            case MemberAccessExpressionSyntax resource
+                when ExpressionEvaluator.TryGetProjectResourceName(resource) is { } resourceName
+                    && target.ProjectStrings.Names.Contains(resourceName):
+                text = $"{target.ProjectStrings.ClassExpression}.{resourceName}";
+                return true;
+
+            // `Properties.Settings.Default.UserName` - the generated class has the same member.
+            case MemberAccessExpressionSyntax setting
+                when ExpressionEvaluator.TryGetProjectSettingName(setting) is { } settingName
+                    && target.ProjectSettings.Readable.Contains(settingName):
+                text = $"{target.ProjectSettings.InstanceExpression}.{settingName}";
+                return true;
 
             case MemberAccessExpressionSyntax memberAccess:
                 return TryRewriteMemberAccess(memberAccess, target, out text);
@@ -3601,6 +3951,107 @@ public sealed class HandlerBodyRewriter
     }
 
     /// <summary>The <c>MessageBoxButtons</c> values with a two-valued answer, and nothing else.</summary>
+    /// <summary>The three answers of a <c>YesNoCancel</c> box, as the bundled dialog's <c>bool?</c>.</summary>
+    private static readonly IReadOnlyDictionary<string, string> YesNoCancelValues = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["Yes"] = "true",
+        ["No"] = "false",
+        ["Cancel"] = "null",
+    };
+
+    /// <summary>
+    /// <c>MessageBox.Show(text, caption, MessageBoxButtons.YesNoCancel)</c> (with or without a leading
+    /// <c>this</c> owner) as the awaited bundled dialog.
+    /// </summary>
+    private static bool TryRewriteYesNoCancelCall(ExpressionSyntax expression, IRewriteTarget target, out string text)
+    {
+        text = "";
+        if (!target.AllowsWindowApis
+            || !target.AllowsAsync
+            || expression is not InvocationExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax
+                {
+                    Expression: IdentifierNameSyntax { Identifier.ValueText: "MessageBox" },
+                    Name.Identifier.ValueText: "Show",
+                },
+            } call)
+        {
+            return false;
+        }
+
+        var arguments = call.ArgumentList.Arguments;
+        if (arguments is [{ Expression: ThisExpressionSyntax }, ..])
+        {
+            arguments = SyntaxFactory.SeparatedList(arguments.Skip(1));
+        }
+
+        if (arguments is not [{ Expression: var textArgument }, { Expression: var captionArgument }, { Expression: var buttonsArgument }]
+            || buttonsArgument is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "MessageBoxButtons" },
+                Name.Identifier.ValueText: "YesNoCancel",
+            }
+            || !TryRewriteExpression(textArgument, target, out var messageText)
+            || !TryRewriteExpression(captionArgument, target, out var caption))
+        {
+            return false;
+        }
+
+        target.Requirements.RequiresAsync = true;
+        target.Requirements.RequiredFallbackKeys.Add("MessageBoxFallback");
+        text = $"await MessageBoxFallback.ShowYesNoCancelAsync(this, {messageText}, {caption})";
+        return true;
+    }
+
+    /// <summary>A YesNoCancel answer - asked right here, or kept in an answer local.</summary>
+    private static bool TryRewriteYesNoCancelOperand(ExpressionSyntax expression, IRewriteTarget target, out string text)
+    {
+        if (StripParentheses(expression) is IdentifierNameSyntax { Identifier.ValueText: var name }
+            && target.Locals.TryGet(name, out var kind)
+            && kind == LocalKind.YesNoCancelAnswer)
+        {
+            text = name;
+            return true;
+        }
+
+        return TryRewriteYesNoCancelCall(StripParentheses(expression), target, out text);
+    }
+
+    /// <summary>The <c>bool?</c> a <c>DialogResult.X</c> stands for, when X is one of the three answers.</summary>
+    private static bool TryReadYesNoCancelValue(ExpressionSyntax expression, out string value)
+    {
+        value = "";
+        return StripParentheses(expression) is MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "DialogResult" },
+                Name.Identifier.ValueText: var member,
+            }
+            && YesNoCancelValues.TryGetValue(member, out value!);
+    }
+
+    /// <summary><c>answer == DialogResult.Yes</c> as <c>answer == true</c>, either operand order.</summary>
+    private static bool TryRewriteYesNoCancelComparison(BinaryExpressionSyntax comparison, IRewriteTarget target, out string text)
+    {
+        text = "";
+        if (!comparison.IsKind(SyntaxKind.EqualsExpression) && !comparison.IsKind(SyntaxKind.NotEqualsExpression))
+        {
+            return false;
+        }
+
+        foreach (var (answerSide, constantSide) in new[] { (comparison.Left, comparison.Right), (comparison.Right, comparison.Left) })
+        {
+            if (TryReadYesNoCancelValue(constantSide, out var value)
+                && TryRewriteYesNoCancelOperand(answerSide, target, out var answer))
+            {
+                text = $"{answer} {comparison.OperatorToken} {value}";
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static readonly IReadOnlyDictionary<string, (string MethodName, string AcceptedResult, string RejectedResult)> MessageBoxAnswers =
         new Dictionary<string, (string, string, string)>(StringComparer.Ordinal)
         {
@@ -3869,6 +4320,195 @@ public sealed class HandlerBodyRewriter
             RequiredFallbackKeys: ["ErrorProviderFallback"]);
         return true;
     }
+
+    /// <summary>
+    /// <c>e.KeyCode == Keys.Enter</c>, <c>e.KeyData == (Keys.Control | Keys.S)</c> and
+    /// <c>e.Modifiers == Keys.Control</c>, with <c>!=</c> as their negation.
+    /// </summary>
+    /// <remarks>
+    /// WinForms' <c>Keys</c> is one enum for keys and modifiers alike, and Avalonia splits it in two
+    /// (<c>Key</c> and <c>KeyModifiers</c>) and spells some keys differently (<c>Next</c> is
+    /// <c>PageDown</c>). So <c>e.KeyCode</c> on its own has no translation - <c>.ToString()</c> on
+    /// it would give different text - but compared with a constant it does: the constant is
+    /// translated through the same key table the menu shortcuts use
+    /// (<see cref="PropertyValueFormatters.GestureKeys"/>), and a key outside it refuses.
+    /// <c>KeyData</c> is the key <em>and</em> the exact modifier set, so it compares both.
+    /// </remarks>
+    private static bool TryRewriteKeyComparison(BinaryExpressionSyntax comparison, IRewriteTarget target, out string text)
+    {
+        text = "";
+        if (!comparison.IsKind(SyntaxKind.EqualsExpression) && !comparison.IsKind(SyntaxKind.NotEqualsExpression))
+        {
+            return false;
+        }
+
+        // Either operand order.
+        foreach (var (argsSide, constantSide) in new[] { (comparison.Left, comparison.Right), (comparison.Right, comparison.Left) })
+        {
+            if (StripParentheses(argsSide) is not MemberAccessExpressionSyntax
+                {
+                    Name.Identifier.ValueText: var member and ("KeyCode" or "KeyData" or "Modifiers"),
+                    Expression: var receiver,
+                }
+                || !target.TryResolveEventArgsParameter(receiver, "KeyEventArgs", out var parameter)
+                || !TryReadKeysConstant(constantSide, out var members))
+            {
+                continue;
+            }
+
+            var modifiers = members.Where(KeyModifierNames.ContainsKey).Select(m => KeyModifierNames[m]).ToList();
+            var keys = members.Where(m => !KeyModifierNames.ContainsKey(m)).ToList();
+            var modifierValue = modifiers.Count == 0
+                ? "KeyModifiers.None"
+                : string.Join(" | ", modifiers.Select(m => $"KeyModifiers.{m}"));
+
+            string? test = member switch
+            {
+                "KeyCode" when modifiers.Count == 0 && keys is [var key] && PropertyValueFormatters.GestureKeys.TryGetValue(key, out var avaloniaKey)
+                    => $"{parameter}.Key == Key.{avaloniaKey}",
+                "KeyData" when keys is [var key] && PropertyValueFormatters.GestureKeys.TryGetValue(key, out var avaloniaKey)
+                    => $"({parameter}.Key == Key.{avaloniaKey} && {parameter}.KeyModifiers == {(modifiers.Count > 1 ? $"({modifierValue})" : modifierValue)})",
+                "Modifiers" when keys.Count == 0
+                    => $"{parameter}.KeyModifiers == {(modifiers.Count > 1 ? $"({modifierValue})" : modifierValue)}",
+                _ => null,
+            };
+
+            if (test is null)
+            {
+                return false;
+            }
+
+            text = comparison.IsKind(SyntaxKind.EqualsExpression) ? test : $"!({test})";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The <c>char</c> classification methods a KeyPress filter calls on <c>e.KeyChar</c>.</summary>
+    private static readonly HashSet<string> CharClassifiers = new(StringComparer.Ordinal)
+    {
+        "IsDigit", "IsLetter", "IsLetterOrDigit", "IsNumber", "IsWhiteSpace", "IsPunctuation",
+        "IsSymbol", "IsUpper", "IsLower", "IsControl", "IsSeparator",
+    };
+
+    /// <summary>
+    /// <c>char.IsDigit(e.KeyChar)</c> in a KeyPress handler - the line every WinForms character
+    /// filter is built on - over Avalonia's <c>TextInputEventArgs.Text</c>.
+    /// </summary>
+    /// <remarks>
+    /// A WinForms KeyPress carries one char; a TextInput carries a string, which for a keystroke is
+    /// that same one character - so <c>All</c> is exact for typing, and for a multi-character input
+    /// (an IME committing a word) it is the reading a filter means: every character must pass.
+    /// <c>IsControl</c> translates too, and is always false here, because Avalonia raises no
+    /// TextInput for Backspace or Enter - which is exactly what the common
+    /// <c>!char.IsControl(c) &amp;&amp; !char.IsDigit(c)</c> filter relies on WinForms to let through.
+    /// </remarks>
+    private static bool TryRewriteKeyCharTest(InvocationExpressionSyntax invocation, IRewriteTarget target, out string text)
+    {
+        text = "";
+        if (invocation.Expression is not MemberAccessExpressionSyntax
+            {
+                Expression: var owner,
+                Name.Identifier.ValueText: var method,
+            }
+            || owner.ToString() is not ("char" or "Char" or "System.Char")
+            || !CharClassifiers.Contains(method)
+            || invocation.ArgumentList.Arguments is not [{ Expression: var argument }]
+            || !TryResolveKeyChar(argument, target, out var parameter))
+        {
+            return false;
+        }
+
+        target.Requirements.RequiredUsings.Add("System.Linq");
+        text = $"({parameter}.Text ?? string.Empty).All(char.{method})";
+        return true;
+    }
+
+    /// <summary>
+    /// <c>e.KeyChar == 'a'</c> as <c>e.Text == "a"</c> - for a printable character only.
+    /// </summary>
+    /// <remarks>
+    /// A control character (<c>'\r'</c>, <c>'\b'</c>, <c>(char)Keys.Enter</c>) refuses rather than
+    /// translates: WinForms raises KeyPress for Enter and Backspace, and Avalonia raises no TextInput
+    /// for them at all, so the translated comparison would compile and never be true. Those handlers
+    /// belong on KeyDown, which is the advice the checklist gives when the body stops here.
+    /// </remarks>
+    private static bool TryRewriteKeyCharComparison(BinaryExpressionSyntax comparison, IRewriteTarget target, out string text)
+    {
+        text = "";
+        if (!comparison.IsKind(SyntaxKind.EqualsExpression) && !comparison.IsKind(SyntaxKind.NotEqualsExpression))
+        {
+            return false;
+        }
+
+        foreach (var (argsSide, constantSide) in new[] { (comparison.Left, comparison.Right), (comparison.Right, comparison.Left) })
+        {
+            if (!TryResolveKeyChar(argsSide, target, out var parameter)
+                || StripParentheses(constantSide) is not LiteralExpressionSyntax { Token.Value: char literal }
+                || char.IsControl(literal))
+            {
+                continue;
+            }
+
+            text = $"{parameter}.Text {comparison.OperatorToken} {SymbolDisplay.FormatLiteral(literal.ToString(), quote: true)}";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary><c>e.KeyChar</c>, where <c>e</c> is this handler's TextInput args.</summary>
+    private static bool TryResolveKeyChar(ExpressionSyntax expression, IRewriteTarget target, out string parameter)
+    {
+        parameter = "";
+        return StripParentheses(expression) is MemberAccessExpressionSyntax
+            {
+                Name.Identifier.ValueText: "KeyChar",
+                Expression: var receiver,
+            }
+            && target.TryResolveEventArgsParameter(receiver, "TextInputEventArgs", out parameter);
+    }
+
+    /// <summary>The <c>Keys</c> modifier members and their <c>KeyModifiers</c> spelling.</summary>
+    private static readonly Dictionary<string, string> KeyModifierNames = new(StringComparer.Ordinal)
+    {
+        ["Control"] = "Control",
+        ["Shift"] = "Shift",
+        ["Alt"] = "Alt",
+    };
+
+    /// <summary>
+    /// <c>Keys.X</c> or <c>Keys.A | Keys.B</c> (any qualification of <c>Keys</c>), as its member
+    /// names - and nothing else: a non-constant operand anywhere refuses the whole value.
+    /// </summary>
+    private static bool TryReadKeysConstant(ExpressionSyntax expression, out List<string> members)
+    {
+        members = [];
+        var pending = new Stack<ExpressionSyntax>();
+        pending.Push(expression);
+        while (pending.Count > 0)
+        {
+            switch (StripParentheses(pending.Pop()))
+            {
+                case BinaryExpressionSyntax union when union.IsKind(SyntaxKind.BitwiseOrExpression):
+                    pending.Push(union.Right);
+                    pending.Push(union.Left);
+                    break;
+                case MemberAccessExpressionSyntax { Expression: var owner, Name.Identifier.ValueText: var name }
+                    when owner.ToString() is "Keys" or "System.Windows.Forms.Keys" or "global::System.Windows.Forms.Keys":
+                    members.Add(name);
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        return members.Count > 0;
+    }
+
+    private static ExpressionSyntax StripParentheses(ExpressionSyntax expression) =>
+        expression is ParenthesizedExpressionSyntax parenthesized ? StripParentheses(parenthesized.Expression) : expression;
 
     /// <summary>
     /// <c>e.Data.GetDataPresent(DataFormats.FileDrop)</c> -> <c>e.DataTransfer.Contains(DataFormat.File)</c>,
@@ -4145,6 +4785,12 @@ public sealed class HandlerBodyRewriter
         /// `Nodes.Add`/`Nodes.Clear` go through it - it is a node, not a control.
         /// </summary>
         TreeNode,
+
+        /// <summary>
+        /// A <c>YesNoCancel</c> message box's answer, as the bundled dialog's <c>bool?</c>. Only
+        /// compared with <c>DialogResult</c> members (or switched on) - its WinForms type is gone.
+        /// </summary>
+        YesNoCancelAnswer,
     }
 
     /// <summary>
@@ -4238,6 +4884,12 @@ public sealed class HandlerBodyRewriter
     /// <summary>Where the rewritten body is going to live, and what a control property means there.</summary>
     private interface IRewriteTarget
     {
+        /// <summary>The project's string resources, set by the rewriter for each run.</summary>
+        ProjectStringResources ProjectStrings { get; set; }
+
+        /// <summary>The project's settings, set by the rewriter for each run.</summary>
+        ProjectSettingsAccess ProjectSettings { get; set; }
+
         /// <summary>Locals declared so far. Mutable, and scoped to a single Rewrite call.</summary>
         LocalScope Locals { get; }
 
@@ -4348,6 +5000,12 @@ public sealed class HandlerBodyRewriter
 
         /// <summary>The field's file-dialog kind, when it is one this converter can open inline.</summary>
         bool TryResolveFileDialog(string fieldName, out FileDialogKind kind);
+
+        /// <summary>
+        /// The options a resolved file dialog's picker opens with - its designer Title, Filter and
+        /// the rest (<see cref="FileDialogOptions"/>), the same expression the generated helper uses.
+        /// </summary>
+        string FileDialogOptionsExpression(string fieldName, FileDialogKind kind);
 
         /// <summary>The bundled fallback template a field maps to, when it maps to one.</summary>
         bool TryResolveFallbackTemplate(string fieldName, out string templateKey);
@@ -4461,6 +5119,10 @@ public sealed class HandlerBodyRewriter
         IReadOnlyList<ListViewRowsPlan> listViewRows,
         IReadOnlyList<CheckedListPlan> checkedLists) : IRewriteTarget
     {
+        public ProjectStringResources ProjectStrings { get; set; } = ProjectStringResources.None;
+
+        public ProjectSettingsAccess ProjectSettings { get; set; } = ProjectSettingsAccess.None;
+
         public bool TryResolvePrintDocument(string fieldName, out string documentFieldName)
         {
             documentFieldName = "";
@@ -4689,6 +5351,11 @@ public sealed class HandlerBodyRewriter
             return TryGetControl(fieldName, out var control)
                 && FileDialogCatalog.TryGet(control.ClrTypeName, out kind);
         }
+
+        public string FileDialogOptionsExpression(string fieldName, FileDialogKind kind) =>
+            TryGetControl(fieldName, out var control)
+                ? FileDialogOptions.Build(control, kind, StorageProviderExpression).Expression
+                : $"new {kind.OptionsTypeName}()";
 
         /// <summary>
         /// Only the timers the plan actually emits count. A Timer with no Tick handler never
@@ -4933,6 +5600,10 @@ public sealed class HandlerBodyRewriter
         FormModel formModel,
         IReadOnlyDictionary<string, HelperCallInfo> promotedHelpers) : IRewriteTarget
     {
+        public ProjectStringResources ProjectStrings { get; set; } = ProjectStringResources.None;
+
+        public ProjectSettingsAccess ProjectSettings { get; set; } = ProjectSettingsAccess.None;
+
         public LocalScope Locals { get; } = new();
 
         public RewriteRequirements Requirements { get; } = new();
@@ -5001,6 +5672,9 @@ public sealed class HandlerBodyRewriter
             kind = null!;
             return false;
         }
+
+        /// <summary>Never asked: <see cref="TryResolveFileDialog"/> refuses every dialog here.</summary>
+        public string FileDialogOptionsExpression(string fieldName, FileDialogKind kind) => $"new {kind.OptionsTypeName}()";
 
         /// <summary>The DispatcherTimer field lives on the View; a ViewModel cannot see it.</summary>
         public bool IsDispatcherTimerField(string fieldName) => false;

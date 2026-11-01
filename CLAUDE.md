@@ -23,7 +23,7 @@ dotnet test --filter "DisplayName~ConvertedFixtureProject_BuildsSuccessfullyWith
 
 # run the tool
 # --source takes a .csproj, or a .sln/.slnx to convert every WinForms project in it at once
-dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--with-web|--log-file <p>]
+dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--prune|--mappings <file.json>|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--with-web|--log-file <p>]
 dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source <app.csproj|app.slnx>
 dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
 
@@ -33,6 +33,10 @@ dotnet workload install wasm-tools
 # end-to-end smoke over the real sample app: converts every samples/WinForms/*.csproj into
 # samples/Avalonia/<name>/ and adds each to a generated solution
 ./samples/convert.sh
+
+# the real-world corpus: pinned open-source WinForms projects (samples/corpus/corpus.txt), cloned
+# sparse into samples/corpus/.cache (gitignored), converted and built - fails on any build warning
+./samples/corpus/run.sh [filter]
 
 # pack and install it as the .NET tool it ships as (command: wf2a, package: WinFormsToAvalonia)
 dotnet pack src/WinFormsToAvalonia.Cli -c Release            # -> artifacts/*.nupkg (gitignored)
@@ -66,7 +70,14 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    type from a referenced assembly stays `Other` but is reported, not dropped) →
    `DesignerSyntaxWalker` (Roslyn walk of `InitializeComponent`, also
    capturing `EventHandlerBinding`s) → `ControlGraphBuilder` (flat assignments → parent/child
-   `FormModel`). `CodeBehindExtractor` grabs the raw `.cs` text *verbatim* for the preserved
+   `FormModel`). The project's own subclasses of mapped controls (`MyButton : Button`) - and vendor types a `--mappings` file maps with `"as"` (`UserMappings.Retype`) - are
+   re-typed to their WinForms base right after the walk (`ControlModel.DeclaredClrTypeName` keeps
+   the written name), so every table downstream answers for the real control. `InlineHandlerLifter` turns designer lambdas into named handler methods before
+   the code-behind is analysed, so they are ordinary handlers from then on. Visual inheritance is flattened *here*: `ParseArtifact` walks each base Form's
+   designer first and continues the derived walk from it (`Walk(..., inheritedFrom)`), and folds
+   the base code-behind in (`CodeBehindModel.WithInherited`) - XAML has no inheritance, so the
+   derived View has to carry everything. `StartupFormLocator` reads `Application.Run(...)` to decide which Form is the
+   main window - one decision, used by both the `--with-web` split and `BuildProject`. `CodeBehindExtractor` grabs the raw `.cs` text *verbatim* for the preserved
    comment block; `CodeBehindAnalyzer` builds the `CodeBehindModel` of handlers/helpers.
    Resources join the same path rather than a parallel one: `ResxReader` + `ResxPropertyProvider`
    turn `.resx` entries into the *same* `PropertyValue` shapes `ExpressionEvaluator` produces, so
@@ -77,7 +88,16 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    decodes the whole strip into one PNG per image and lets `ResolveImageListReferences` rewrite
    each `ImageIndex` into the asset path (the list is inherited from the owning control, as
    WinForms resolves it). Only `MenuItem.Icon` can actually show one; everywhere else the file is
-   written and the warning names it.
+   written and the warning names it. The *project-wide* `Properties/Resources.resx` is a separate
+   reader (`ProjectResourcesReader` - bare entry names, `ResXFileRef`s to real files): the
+   designer's `global::App.Properties.Resources.X` evaluates to `PropertyValue.ProjectResource`
+   (it used to read as an enum member), `ResolveProjectResources` turns it into the string or the
+   copied asset, and `ProjectResourcesEmitter` writes a same-shaped `Properties/Resources.cs` into
+   the generated project - its string members are what `HandlerBodyRewriter.ProjectStrings` lets
+   a body name. `Properties/Settings.settings` takes the same route (`ProjectSettingsReader` →
+   `ProjectSettingsEmitter`, a JSON-persisted `Properties/Settings.cs`, `ProjectSettings` on the
+   rewriter). Both emit `App.Properties.X`, **not** `global::App...`: inside an interpolation hole
+   `::` starts a format specifier, which is a CS0103 in the generated project and nowhere else.
 2. **Mapping** (`Core/Mapping`) — `ControlMappingRegistry` is a `WinFormsTypeName → IControlMapper`
    dictionary. `DefaultControlMappers.All` holds the built-in set: `SimplePropertyMapper` (Direct),
    `FallbackControlMapper` (bundled template), `UnsupportedControlMapper` (guidance-only warning),
@@ -124,7 +144,10 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    That is why `SetToolTip` became `ToolTip.Tip` and `SetHelpString` becomes
    `AutomationProperties.HelpText`; a setter on a recognised provider with no row is reported by
    name rather than dropped.
-   `FileDialogCatalog` rounds it out: the three WinForms file dialogs and their `StorageProvider`
+   `FormWindowAttributeCatalog` is the designer-side sibling of `WindowPropertyCatalog`: a
+   Form's `StartPosition`/`FormBorderStyle`/`MaximizeBox`/`MinimumSize`/... decided as a *set*
+   into Window attributes, plus `AcceptButton`/`CancelButton` turned round into
+   `IsDefault`/`IsCancel` on the button. `FileDialogCatalog` rounds it out: the three WinForms file dialogs and their `StorageProvider`
    replacements, used both to emit a picker method and to inline one into a handler. Three
    smaller tables cover what the *conversion itself* creates rather than what it maps:
    `WindowPropertyCatalog` (Form properties a `Window` spells differently - `Text` → `Title`),
@@ -186,6 +209,9 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    `--dry-run` and the tests possible. It defaults to `ExistingFileStrategy.PreserveExisting`:
    a re-run never clobbers a file the user has edited, writing the regenerated version beside it
    as `*.w2a-new` instead (`--overwrite-all` opts out). Keep new write paths going through it.
+   It also writes `.w2a-manifest.json` (every generated path + the SHA-256 of what was generated)
+   on every real run; `--prune` deletes a file the previous manifest lists and this run no longer
+   generates, **only** if its bytes still match that hash - an edited one is reported as orphaned.
    `--with-web` is bolted on as a **post-processing pass** over the finished VFS -
    `AvaloniaProjectScaffolder.SplitIntoHeads` (in the `.WebHeads.cs` partial) re-roots everything
    under `{projectName}/`, rewrites that csproj as a library, moves `Program.cs`/`app.manifest`
@@ -250,6 +276,24 @@ not by building.
   mapping and xmlns prefix. Forms need more than ordering: `BuildFormViews` resolves **every**
   Form to its View in a separate pass before emission, because a handler body that opens another
   Form must name a View whose Form may not be converted yet — ordering alone cannot fix a cycle.
+- **An element the pointer has to reach must be hit-testable.** Avalonia hits only what an element
+  draws: a `Canvas` with no `Background` is hit nowhere, a `TextBlock` only on its glyphs. So an
+  element with a pointer/drag handler, `AllowDrop`, a tooltip or a context menu gets
+  `Background="Transparent"` (`AvaloniaHitTestSupport`) when it has no background of its own. The
+  harness checks this with a real hit test - which only works after `Dispatcher.UIThread.RunJobs()`
+  *and* a render tick; without them every point hits nothing, buttons included.
+- **Keyboard handlers tunnel.** An Avalonia TextBox handles Back/Delete/arrows in its class
+  handler before an attribute-wired `KeyDown` runs, so control-level `KeyDown`/`KeyUp` are
+  `AddHandler(..., RoutingStrategies.Tunnel)` from the constructor (`EventSubscriptionPlan.Tunnel`,
+  `FormMigrationPlan.TunnelEventSubscriptions`); the Form's own only with `KeyPreview`.
+- **A designer property nothing looked up is reported, not dropped.** `ControlModel.Properties`
+  and `FormModel.FormProperties` are a `PropertyBag` that records lookups by name (through the
+  `IReadOnlyDictionary` interface too - it re-implements it on purpose); after each artifact is
+  emitted, `DesignerPropertyCoverage` lists what is still unread, minus
+  `DesignerPropertyCatalog`'s properties that carry nothing. Enumerating does not count as a
+  read, so a pass that sweeps every property *and* accounts for each one (reproduces or reports
+  it) must say so with `MarkRead` - the component-field and unticked-Timer paths do. Reads made
+  while parsing are reset before planning.
 - **Nothing that reports a count or a colour may switch on `MappingStatus` alone.** `Unsupported`
   means "emits no element", which is true of a `Timer` and a `PrintDialog` alike - and for three
   releases every surface that produced a number said "33 unsupported" for a conversion in which 20
@@ -417,6 +461,11 @@ not by building.
 - `Core.Tests` — per-stage unit tests mirroring the `Core` folder layout. `Fixtures/DesignerCs`
   holds inert WinForms designer files read as raw text, `Fixtures/ExpectedAxaml` the golden AXAML
   (`AxamlEmitterTests`). `TestSupport/TempProjectFixture` builds synthetic projects on disk.
+- `samples/corpus/run.sh` is the one check against code nobody here wrote, and it is not part of
+  `dotnet test` (it needs the network). Its first run found five bugs every fixture had missed -
+  two Forms sharing a simple name crashed the run, linked/shared-project/wrong-case source files
+  were not found on Linux, and carried-over fields made the generated build warn. Each now has a
+  miniature in `SampleApps/CorpusShapes`; do the same for the next thing it finds.
 - `Integration.Tests` — `SampleApps/*` are real WinForms fixture projects; each test converts one
   and asserts `dotnet build` on the generated output succeeds. Add a `SampleApps` folder + an
   `[InlineData]` row (in `RealFormConversionBuildTests` or the feature-specific test class) when

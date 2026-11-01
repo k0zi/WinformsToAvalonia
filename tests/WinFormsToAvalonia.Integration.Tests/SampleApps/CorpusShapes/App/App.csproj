@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>CorpusShapes</RootNamespace>
+  </PropertyGroup>
+
+  <!-- A wildcard link to Forms outside the project, as dotnet/samples' helloworld-links does. -->
+  <ItemGroup>
+    <Compile Include="..\LinkedForms\*.cs" />
+  </ItemGroup>
+
+  <!-- A Shared Project, whose item list spells the designer file in the wrong case. -->
+  <Import Project="..\Shared\Shared.projitems" Label="Shared" />
+
+</Project>

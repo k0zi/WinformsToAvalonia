@@ -72,11 +72,23 @@ public sealed class SimplePropertyMapper : IControlMapper
             attributes[avaloniaAttribute] = value;
         }
 
+        // A property the designer set that *every* one of its mappings declined has a value this
+        // target cannot spell - a shortcut on a key outside the gesture table, say. It was looked
+        // up, so the coverage report would not see it; the refusal has to be said here.
+        var spelled = new HashSet<string>(StringComparer.Ordinal);
+        var declined = new SortedSet<string>(StringComparer.Ordinal);
+
         foreach (var (winFormsProperty, avaloniaAttribute, format) in _propertyMappings)
         {
+            if (control.Properties.TryGetValue(winFormsProperty, out var unspelled) && format(unspelled) is null)
+            {
+                declined.Add(winFormsProperty);
+            }
+
             if (control.Properties.TryGetValue(winFormsProperty, out var value)
                 && format(value) is { } formatted)
             {
+                spelled.Add(winFormsProperty);
                 // The one property whose designer value is not the value: a WinForms caption
                 // carries its keyboard mnemonic inline, in a notation Avalonia spells differently
                 // and half the targets cannot render at all.
@@ -86,8 +98,29 @@ public sealed class SimplePropertyMapper : IControlMapper
             }
         }
 
+        var warnings = declined
+            .Where(p => !spelled.Contains(p) && !IsReportedElsewhere(control.Properties[p]))
+            .Select(p => $"'{control.FieldName}' ({control.ClrTypeName}) sets {p} = {Describe(control.Properties[p])}, "
+                + $"which a {_avaloniaElementName} has no spelling for - it is not carried over.")
+            .ToList();
+
         return new MappedControl(
-            control.ClrTypeName, MappingStatus.Direct, _avaloniaElementName, attributes, null, [],
+            control.ClrTypeName, MappingStatus.Direct, _avaloniaElementName, attributes, null, warnings,
             _childWrapperElementNames, _requiredNuGetPackage, _supportsName);
     }
+
+    /// <summary>
+    /// A value whose own resolution already reports - an image the .resx could not yield, a
+    /// location that was not a literal - so saying it again here would only repeat it.
+    /// </summary>
+    private static bool IsReportedElsewhere(PropertyValue value) =>
+        value is PropertyValue.ResourceReference;
+
+    private static string Describe(PropertyValue value) => value switch
+    {
+        PropertyValue.EnumMembers { MemberNames: var members } => string.Join(" | ", members),
+        PropertyValue.Literal { Value: var literal } => literal?.ToString() ?? "null",
+        PropertyValue.Unresolved { RawExpression: var raw } => $"'{raw}' (not a value this converter can read)",
+        _ => value.GetType().Name,
+    };
 }

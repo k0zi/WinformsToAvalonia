@@ -584,9 +584,9 @@ Each dialog finds its document through the designer's `Document` property, so no
 from a handler.
 
 **What is still missing is the printer.** Sending the page to one needs a library, and which one is
-your choice. Only the first page is rendered: WinForms looped while `HasMorePages` stayed true, and
-deciding how several pages become one file is a decision about your document, not about the
-conversion — so the flag is handed to the handler and can be read back, but not looped on.
+your choice. Every page is rendered: the document raises `PrintPage` again for as long as the
+handler sets `HasMorePages`, as WinForms did. The export writes the first page to the file the user
+picks and the rest beside it (`name-2.png`, ...); the preview scrolls through all of them.
 
 ### CheckedListBox
 

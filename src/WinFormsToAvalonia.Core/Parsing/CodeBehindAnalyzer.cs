@@ -47,24 +47,46 @@ public sealed class CodeBehindAnalyzer
         identifier.Parent is not MemberAccessExpressionSyntax memberAccess
         || memberAccess.Expression == identifier;
 
-    public CodeBehindModel Analyze(string? primaryFilePath, FormModel formModel)
+    /// <summary>
+    /// The members of WinForms' <c>DialogResult</c> enum. The enum and the Form property share a
+    /// name, so <c>DialogResult.OK</c> is the receiver half of a member access exactly like
+    /// <c>DialogResult.ToString()</c> would be - and reading it as the property reported every
+    /// <c>if (dlg.ShowDialog() == DialogResult.OK)</c> as "drives the Form itself".
+    /// </summary>
+    private static readonly HashSet<string> DialogResultEnumMembers = new(StringComparer.Ordinal)
+    {
+        "None", "OK", "Cancel", "Abort", "Retry", "Ignore", "Yes", "No", "TryAgain", "Continue",
+    };
+
+    private static bool IsDialogResultEnumValue(IdentifierNameSyntax identifier) =>
+        identifier.Identifier.ValueText == "DialogResult"
+        && identifier.Parent is MemberAccessExpressionSyntax memberAccess
+        && memberAccess.Expression == identifier
+        && DialogResultEnumMembers.Contains(memberAccess.Name.Identifier.ValueText);
+
+    /// <param name="className">
+    /// The class to read, when it is not <paramref name="formModel"/>'s own - a base Form whose
+    /// handlers a derived Form's flattened designer wires up. Null reads the Form's own class.
+    /// </param>
+    public CodeBehindModel Analyze(string? primaryFilePath, FormModel formModel, string? className = null)
     {
         if (primaryFilePath is null || !File.Exists(primaryFilePath))
         {
             return CodeBehindModel.Empty(primaryFilePath ?? "");
         }
 
-        return Analyze(File.ReadAllText(primaryFilePath), primaryFilePath, formModel);
+        return Analyze(File.ReadAllText(primaryFilePath), primaryFilePath, formModel, className);
     }
 
-    public CodeBehindModel Analyze(string sourceText, string filePath, FormModel formModel)
+    public CodeBehindModel Analyze(string sourceText, string filePath, FormModel formModel, string? className = null)
     {
         var tree = CSharpSyntaxTree.ParseText(sourceText, path: filePath);
         var root = tree.GetRoot();
 
+        var targetClassName = className ?? formModel.ClassName;
         var classDeclaration = root.DescendantNodes()
             .OfType<ClassDeclarationSyntax>()
-            .FirstOrDefault(c => c.Identifier.ValueText == formModel.ClassName);
+            .FirstOrDefault(c => c.Identifier.ValueText == targetClassName);
 
         if (classDeclaration is null)
         {
@@ -75,6 +97,16 @@ public sealed class CodeBehindAnalyzer
         var declaredMethodNames = classDeclaration.Members
             .OfType<MethodDeclarationSyntax>()
             .Select(m => m.Identifier.ValueText)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // The class's own state - fields and properties it declares that are not designer
+        // controls. `this.isBusy` is not the Form driving its window, and saying so sent readers
+        // looking for a Close or a DialogResult that was never there.
+        var ownStateNames = classDeclaration.Members
+            .OfType<FieldDeclarationSyntax>()
+            .SelectMany(f => f.Declaration.Variables.Select(v => v.Identifier.ValueText))
+            .Concat(classDeclaration.Members.OfType<PropertyDeclarationSyntax>().Select(p => p.Identifier.ValueText))
+            .Where(name => !controlFields.Contains(name))
             .ToHashSet(StringComparer.Ordinal);
 
         var runtimeSubscriptions = CollectRuntimeSubscriptions(classDeclaration);
@@ -97,7 +129,7 @@ public sealed class CodeBehindAnalyzer
                     break;
 
                 case MethodDeclarationSyntax method when handlerNames.Contains(method.Identifier.ValueText):
-                    handlers.Add(AnalyzeHandler(method, controlFields, declaredMethodNames, handlerNames));
+                    handlers.Add(AnalyzeHandler(method, controlFields, declaredMethodNames, ownStateNames, handlerNames));
                     break;
 
                 case MethodDeclarationSyntax { Identifier.ValueText: "InitializeComponent" or "Dispose" }:
@@ -112,7 +144,7 @@ public sealed class CodeBehindAnalyzer
                         // The same body analysis a handler gets. A handler that calls this helper
                         // has to answer for what the helper touches as if it were inlined - which
                         // is what lets the pair move to a ViewModel together.
-                        Facts: AnalyzeHandler(method, controlFields, declaredMethodNames, handlerNames, hasEventSignature: false)));
+                        Facts: AnalyzeHandler(method, controlFields, declaredMethodNames, ownStateNames, handlerNames, hasEventSignature: false)));
                     break;
 
                 case PropertyDeclarationSyntax property:
@@ -215,6 +247,7 @@ public sealed class CodeBehindAnalyzer
         MethodDeclarationSyntax method,
         HashSet<string> controlFields,
         HashSet<string> declaredMethodNames,
+        HashSet<string> ownStateNames,
         HashSet<string> handlerNames,
         bool hasEventSignature = true)
     {
@@ -240,6 +273,7 @@ public sealed class CodeBehindAnalyzer
         var seenControlFields = new HashSet<string>(StringComparer.Ordinal);
         var controlMemberAccesses = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var touchedFormMembers = new SortedSet<string>(StringComparer.Ordinal);
+        var touchedOwnState = new SortedSet<string>(StringComparer.Ordinal);
         var calledHelperMethods = new SortedSet<string>(StringComparer.Ordinal);
 
         void NoteControlField(string fieldName)
@@ -270,7 +304,8 @@ public sealed class CodeBehindAnalyzer
                         else if (WellKnownFormMembers.Contains(name)
                             && !controlFields.Contains(name)
                             && !declaredMethodNames.Contains(name)
-                            && IsStandaloneReference(identifier))
+                            && IsStandaloneReference(identifier)
+                            && !IsDialogResultEnumValue(identifier))
                         {
                             // The bare `DialogResult = DialogResult.OK;` / `WindowState = ...`
                             // designer-era code writes, which `this.`-qualified code reaches
@@ -312,6 +347,10 @@ public sealed class CodeBehindAnalyzer
                         else if (declaredMethodNames.Contains(thisMember) && !handlerNames.Contains(thisMember))
                         {
                             calledHelperMethods.Add(thisMember);
+                        }
+                        else if (ownStateNames.Contains(thisMember))
+                        {
+                            touchedOwnState.Add(thisMember);
                         }
                         else if (!declaredMethodNames.Contains(thisMember))
                         {
@@ -399,6 +438,7 @@ public sealed class CodeBehindAnalyzer
                 kvp => (IReadOnlyList<string>)kvp.Value,
                 StringComparer.Ordinal),
             TouchedFormMembers = [.. touchedFormMembers],
+            TouchedOwnState = [.. touchedOwnState],
             CalledHelperMethods = [.. calledHelperMethods],
         };
     }

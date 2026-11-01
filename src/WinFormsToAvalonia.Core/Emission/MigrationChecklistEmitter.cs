@@ -34,9 +34,11 @@ public sealed class MigrationChecklistEmitter
         int handlerStatements,
         IReadOnlyList<string> warnings,
         IReadOnlyList<ArtifactMigrationSummary> artifacts,
-        IReadOnlyList<string>? convertedElsewhere = null)
+        IReadOnlyList<string>? convertedElsewhere = null,
+        IReadOnlyList<string>? codeBehindNotes = null)
     {
         convertedElsewhere ??= [];
+        codeBehindNotes ??= [];
 
         var sb = new StringBuilder();
         void Line(string text = "") => sb.Append(text).Append('\n');
@@ -134,6 +136,25 @@ public sealed class MigrationChecklistEmitter
             Line("No action needed - these have no Avalonia element, so here is where each one went.");
             Line();
             foreach (var note in convertedElsewhere)
+            {
+                Line($"- {note}");
+            }
+
+            Line();
+        }
+
+        // Last, and not a to-do: code-behind is the default, so a handler that stayed there is the
+        // conversion working as designed. The reason is still worth having, for whoever later
+        // wants to move one into its ViewModel by hand - which is why it is listed at all.
+        if (codeBehindNotes.Count > 0)
+        {
+            Line($"## Stayed in code-behind ({codeBehindNotes.Count})");
+            Line();
+            Line("No action needed - event handlers stay on the View by default, and only one that is provably");
+            Line("bindable becomes a `[RelayCommand]`. Here is what kept each candidate on the View, should you");
+            Line("want to move it by hand.");
+            Line();
+            foreach (var note in codeBehindNotes)
             {
                 Line($"- {note}");
             }

@@ -211,7 +211,8 @@ public sealed class EventMappingRegistry
         ["KeyDown"] = new("KeyDown", "KeyDown", "KeyEventArgs"),
         ["KeyUp"] = new("KeyUp", "KeyUp", "KeyEventArgs"),
         ["KeyPress"] = new("KeyPress", "TextInput", "TextInputEventArgs",
-            Guidance: "WinForms KeyPress exposed a char; Avalonia's TextInput exposes the whole inserted string via TextInputEventArgs.Text."),
+            Guidance: "WinForms KeyPress carried one char; Avalonia's TextInput carries the inserted string (e.Text), and "
+                + "is raised for no control key - Enter and Backspace never arrive here, so handle those in KeyDown."),
 
         // Focus.
         // Both carry FocusChangedEventArgs in Avalonia 12 - GotFocusEventArgs was its name in 11,

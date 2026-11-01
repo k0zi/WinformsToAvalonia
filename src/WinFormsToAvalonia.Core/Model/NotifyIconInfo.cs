@@ -14,6 +14,12 @@ namespace WinFormsToAvalonia.Core.Model;
 /// Avalonia's TrayIcon resolves its Icon at run time, so emitting a path to a file that was
 /// never produced is a startup FileNotFoundException, not a build error - hence the null.
 /// </param>
+/// <param name="DeclaresNoIcon">
+/// True when the designer never assigned an <c>Icon</c> at all - distinct from one that was
+/// assigned and could not be resolved. WinForms shows no tray icon without one, and an Avalonia
+/// <c>TrayIcon</c> with no <c>Icon</c> shows none either, while referencing no file that could be
+/// missing at startup - so this one is emitted live, and handlers can reach it.
+/// </param>
 /// <param name="MenuItems">
 /// The NotifyIcon's <c>ContextMenuStrip</c>, as Avalonia's <c>TrayIcon.Menu</c> needs it. Empty
 /// when the designer wired none, and empty is what the emitter checks - a <c>NativeMenu</c> with
@@ -23,9 +29,16 @@ public sealed record NotifyIconInfo(
     string FieldName,
     string? IconAssetPath,
     string? TooltipText,
-    IReadOnlyList<TrayMenuItemInfo>? MenuItems = null)
+    IReadOnlyList<TrayMenuItemInfo>? MenuItems = null,
+    bool DeclaresNoIcon = false)
 {
     public IReadOnlyList<TrayMenuItemInfo> MenuItems { get; } = MenuItems ?? [];
+
+    /// <summary>
+    /// Whether App.axaml carries this icon as a real <c>TrayIcon</c> (and App an accessor for it),
+    /// rather than as a commented-out block awaiting a file.
+    /// </summary>
+    public bool IsLive => IconAssetPath is not null || DeclaresNoIcon;
 }
 
 /// <summary>

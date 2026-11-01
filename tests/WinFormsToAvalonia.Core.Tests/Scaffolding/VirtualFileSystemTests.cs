@@ -17,6 +17,72 @@ public class VirtualFileSystemTests
         Assert.Contains("Rooted/Bar.cs", vfs.RelativePaths);
     }
 
+    private static VirtualFileSystem Vfs(params (string Path, string Content)[] files)
+    {
+        var vfs = new VirtualFileSystem();
+        foreach (var (path, content) in files)
+        {
+            vfs.AddText(path, content);
+        }
+
+        return vfs;
+    }
+
+    /// <summary>
+    /// A Form removed from the source: its View was generated last time and is not now. Without
+    /// --prune it is only reported; with it, it goes - folder included once empty.
+    /// </summary>
+    [Fact]
+    public void WriteToDisk_StaleGeneratedFile_IsReportedThenPrunedWithItsEmptyFolder()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "w2a-vfs-prune-" + Guid.NewGuid());
+        try
+        {
+            Vfs(("App.axaml", "<Application/>"), ("Views/Old/OldView.axaml", "<Window/>")).WriteToDisk(tempDir);
+            Assert.True(File.Exists(Path.Combine(tempDir, VirtualFileSystem.ManifestFileName)));
+
+            var reported = Vfs(("App.axaml", "<Application/>")).WriteToDisk(tempDir);
+            Assert.Equal(["Views/Old/OldView.axaml"], reported.Orphaned);
+            Assert.Empty(reported.Pruned);
+            Assert.True(File.Exists(Path.Combine(tempDir, "Views", "Old", "OldView.axaml")));
+
+            // The usual sequence: the run that reported it, then a run with --prune - which still
+            // has to know the file is this tool's own.
+            var pruned = Vfs(("App.axaml", "<Application/>")).WriteToDisk(tempDir, prune: true);
+
+            Assert.Equal(["Views/Old/OldView.axaml"], pruned.Pruned);
+            Assert.Empty(pruned.Orphaned);
+            Assert.False(Directory.Exists(Path.Combine(tempDir, "Views")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "App.axaml")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>An edited stale file is a human's work: --prune never deletes it.</summary>
+    [Fact]
+    public void WriteToDisk_StaleFileEditedSinceGeneration_IsNeverPruned()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "w2a-vfs-prune-" + Guid.NewGuid());
+        try
+        {
+            Vfs(("App.axaml", "<Application/>"), ("Views/OldView.axaml.cs", "// generated")).WriteToDisk(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "Views", "OldView.axaml.cs"), "// migrated by hand");
+
+            var result = Vfs(("App.axaml", "<Application/>")).WriteToDisk(tempDir, prune: true);
+
+            Assert.Empty(result.Pruned);
+            Assert.Equal(["Views/OldView.axaml.cs"], result.Orphaned);
+            Assert.Equal("// migrated by hand", File.ReadAllText(Path.Combine(tempDir, "Views", "OldView.axaml.cs")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public void WriteToDisk_CreatesNestedDirectoriesAndFiles()
     {

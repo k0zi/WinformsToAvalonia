@@ -41,10 +41,18 @@ public sealed class WinFormsProjectLoader
         List<string> compileFiles;
         List<string> resourceFiles;
 
+        // A Shared Project (`<Import Project="..\Shared\Shared.projitems" Label="Shared" />`) is
+        // how one set of Forms is compiled into several apps; its items are this project's too.
+        var shared = ReadSharedProjectItems(root, ns, projectDirectory);
+
         if (isLegacyStyle)
         {
-            compileFiles = ReadItemIncludePaths(root, ns, "Compile", "Include", projectDirectory).ToList();
+            compileFiles = ReadItemIncludePaths(root, ns, "Compile", "Include", projectDirectory)
+                .Concat(shared.Compile)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
             resourceFiles = ReadItemIncludePaths(root, ns, "EmbeddedResource", "Include", projectDirectory)
+                .Concat(shared.Resources)
                 .Where(f => f.EndsWith(".resx", StringComparison.OrdinalIgnoreCase))
                 .ToList();
         }
@@ -56,10 +64,17 @@ public sealed class WinFormsProjectLoader
             compileFiles = GlobFiles(projectDirectory, "*.cs")
                 .Where(f => !removed.Contains(f))
                 .Union(ReadItemIncludePaths(root, ns, "Compile", "Include", projectDirectory), StringComparer.OrdinalIgnoreCase)
+                .Union(shared.Compile, StringComparer.OrdinalIgnoreCase)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            resourceFiles = GlobFiles(projectDirectory, "*.resx").ToList();
+            // A linked .resx beside a linked Form (`<EmbeddedResource Include="..\Other\Form1.resx" />`)
+            // and a shared project's are outside the glob.
+            resourceFiles = GlobFiles(projectDirectory, "*.resx")
+                .Union(ReadItemIncludePaths(root, ns, "EmbeddedResource", "Include", projectDirectory), StringComparer.OrdinalIgnoreCase)
+                .Union(shared.Resources, StringComparer.OrdinalIgnoreCase)
+                .Where(f => f.EndsWith(".resx", StringComparison.OrdinalIgnoreCase) && File.Exists(f))
+                .ToList();
         }
 
         return new WinFormsProjectModel(
@@ -70,7 +85,8 @@ public sealed class WinFormsProjectLoader
             targetFrameworks,
             compileFiles,
             resourceFiles,
-            projectReferences);
+            projectReferences,
+            ReadProperty(root, ns, "OutputType"));
     }
 
     private static IReadOnlyList<string> ReadTargetFrameworks(XElement root, XNamespace ns)
@@ -111,11 +127,153 @@ public sealed class WinFormsProjectLoader
             }
 
             // Old-style csproj items can list multiple files separated by ';'.
-            foreach (var part in include.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var part in include.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                yield return NormalizeToAbsolutePath(projectDirectory, part);
+                foreach (var path in ExpandInclude(projectDirectory, part))
+                {
+                    yield return path;
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// The Compile and EmbeddedResource items of every Shared Project this one imports. Their paths
+    /// are written against <c>$(MSBuildThisFileDirectory)</c> - the .projitems' own folder.
+    /// </summary>
+    private static (List<string> Compile, List<string> Resources) ReadSharedProjectItems(
+        XElement root, XNamespace ns, string projectDirectory)
+    {
+        var compile = new List<string>();
+        var resources = new List<string>();
+        foreach (var import in root.Elements(ns + "Import"))
+        {
+            if (import.Attribute("Project")?.Value is not { } projectAttribute
+                || !projectAttribute.EndsWith(".projitems", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var itemsPath = ExpandInclude(projectDirectory, projectAttribute).FirstOrDefault();
+            if (itemsPath is null || !File.Exists(itemsPath))
+            {
+                continue;
+            }
+
+            XElement? itemsRoot;
+            try
+            {
+                itemsRoot = XDocument.Load(itemsPath).Root;
+            }
+            catch (System.Xml.XmlException)
+            {
+                continue;
+            }
+
+            if (itemsRoot is null)
+            {
+                continue;
+            }
+
+            var itemsDirectory = Path.GetDirectoryName(itemsPath)!;
+            compile.AddRange(ReadItemIncludePaths(itemsRoot, itemsRoot.Name.Namespace, "Compile", "Include", itemsDirectory));
+            resources.AddRange(ReadItemIncludePaths(itemsRoot, itemsRoot.Name.Namespace, "EmbeddedResource", "Include", itemsDirectory));
+        }
+
+        return (compile, resources);
+    }
+
+    /// <summary>
+    /// One item include as the files it names: the two directory properties every linked or shared
+    /// item uses, a wildcard (<c>..\FullFxApp\*.cs</c>, <c>Forms\**\*.cs</c>), and - for a plain
+    /// path - the file as it is really spelled on disk.
+    /// </summary>
+    /// <remarks>
+    /// The last one matters off Windows. A legacy csproj written by Visual Studio says
+    /// <c>Form1.designer.cs</c> while the file is <c>Form1.Designer.cs</c>; Windows never noticed,
+    /// and on Linux the whole conversion failed on "Could not find file".
+    /// </remarks>
+    private static IEnumerable<string> ExpandInclude(string projectDirectory, string include)
+    {
+        var expanded = include
+            .Replace("$(MSBuildThisFileDirectory)", projectDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            .Replace("$(MSBuildProjectDirectory)", projectDirectory, StringComparison.OrdinalIgnoreCase);
+        var full = NormalizeToAbsolutePath(projectDirectory, expanded);
+
+        if (full.IndexOfAny(['*', '?']) < 0)
+        {
+            yield return ResolveCasing(full);
+            yield break;
+        }
+
+        // Everything before the first wildcard segment is a directory; the rest is a pattern.
+        var segments = full.Split(Path.DirectorySeparatorChar);
+        var firstWildcard = Array.FindIndex(segments, segment => segment.IndexOfAny(['*', '?']) >= 0);
+        var baseDirectory = ResolveCasing(string.Join(Path.DirectorySeparatorChar, segments[..firstWildcard]));
+        if (!Directory.Exists(baseDirectory))
+        {
+            yield break;
+        }
+
+        // `dir\*.cs` and `dir\**\*.cs` - the two shapes item includes use. Anything more intricate
+        // (a wildcard in a directory segment) names nothing here, rather than a guess.
+        var rest = segments[firstWildcard..];
+        var recursive = rest is ["**", _];
+        if (rest.Length != 1 && !recursive)
+        {
+            yield break;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(
+                     baseDirectory, rest[^1], recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
+        {
+            if (!IsUnderExcludedDirectory(baseDirectory, file))
+            {
+                yield return Path.GetFullPath(file);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="path"/> as it is spelled on disk, segment by segment, when it does not exist
+    /// as written but exactly one case-insensitive match does. Otherwise unchanged.
+    /// </summary>
+    private static string ResolveCasing(string path)
+    {
+        if (File.Exists(path) || Directory.Exists(path))
+        {
+            return path;
+        }
+
+        var root = Path.GetPathRoot(path) ?? "";
+        var current = root;
+        foreach (var segment in path[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var exact = Path.Combine(current, segment);
+            if (File.Exists(exact) || Directory.Exists(exact))
+            {
+                current = exact;
+                continue;
+            }
+
+            if (!Directory.Exists(current))
+            {
+                return path;
+            }
+
+            var matches = Directory.EnumerateFileSystemEntries(current)
+                .Where(entry => string.Equals(Path.GetFileName(entry), segment, StringComparison.OrdinalIgnoreCase))
+                .Take(2)
+                .ToList();
+            if (matches.Count != 1)
+            {
+                return path;
+            }
+
+            current = matches[0];
+        }
+
+        return current;
     }
 
     private static IEnumerable<string> GlobFiles(string projectDirectory, string searchPattern)

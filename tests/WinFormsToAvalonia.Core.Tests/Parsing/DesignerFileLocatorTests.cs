@@ -215,6 +215,28 @@ public class DesignerFileLocatorTests
         Assert.Equal(WinFormsArtifactKind.Other, a.Kind);
     }
 
+    /// <summary>
+    /// A vendor base Form (MetroFramework's, in the corpus) is invisible to syntax; a mapping says
+    /// what it is - and only fills in what the project itself does not declare.
+    /// </summary>
+    [Fact]
+    public void Locate_ExternalBaseTypeMapping_ClassifiesAFormDerivingFromAVendorBase()
+    {
+        using var fixture = TempProjectFixture.Create();
+        fixture.WriteFile("MainForm.cs", "namespace Demo { public partial class MainForm : MetroForm { } }");
+        fixture.WriteFile("MainForm.Designer.cs", "namespace Demo { partial class MainForm { private void InitializeComponent() { } } }");
+        var project = ProjectOf(fixture, "MainForm.cs", "MainForm.Designer.cs");
+
+        var unmapped = Assert.Single(new DesignerFileLocator().Locate(project), r => r.ClassName == "MainForm");
+        Assert.Equal(WinFormsArtifactKind.Other, unmapped.Kind);
+        Assert.Equal(["MetroForm"], unmapped.UnresolvedBaseTypes);
+
+        var mapped = Assert.Single(
+            new DesignerFileLocator().Locate(project, new Dictionary<string, string> { ["MetroForm"] = "Form" }),
+            r => r.ClassName == "MainForm");
+        Assert.Equal(WinFormsArtifactKind.Form, mapped.Kind);
+    }
+
     private static WinFormsProjectModel ProjectOf(TempProjectFixture fixture, params string[] relativePaths) =>
         new(
             ProjectFilePath: fixture.PathTo("Demo.csproj"),

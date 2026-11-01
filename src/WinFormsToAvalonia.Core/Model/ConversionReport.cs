@@ -33,8 +33,26 @@ public sealed record ConversionReport(
     /// project report dozens of red "unsupported" controls while every one of them worked.
     /// </remarks>
     int ConvertedElsewhereCount = 0,
-    IReadOnlyList<string>? ConvertedElsewhereNotes = null)
+    IReadOnlyList<string>? ConvertedElsewhereNotes = null,
+    /// <summary>
+    /// Why each command-candidate handler stayed in code-behind - informational, not a warning:
+    /// code-behind is this converter's default, and a <c>[RelayCommand]</c> the exception.
+    /// </summary>
+    IReadOnlyList<string>? CodeBehindNotes = null,
+    IReadOnlyList<string>? PrunedFiles = null,
+    IReadOnlyList<string>? OrphanedFiles = null)
 {
+    /// <summary>Stale generated files deleted by <c>--prune</c>.</summary>
+    public IReadOnlyList<string> PrunedFiles { get; } = PrunedFiles ?? [];
+
+    /// <summary>
+    /// Files an earlier run generated that this one no longer does, still on disk - without
+    /// <c>--prune</c>, or because they were edited since.
+    /// </summary>
+    public IReadOnlyList<string> OrphanedFiles { get; } = OrphanedFiles ?? [];
+
+    public IReadOnlyList<string> CodeBehindNotes { get; } = CodeBehindNotes ?? [];
+
     /// <summary>Where each <see cref="ConvertedElsewhereCount"/> feature went, for the checklist.</summary>
     public IReadOnlyList<string> ConvertedElsewhereNotes { get; } = ConvertedElsewhereNotes ?? [];
 

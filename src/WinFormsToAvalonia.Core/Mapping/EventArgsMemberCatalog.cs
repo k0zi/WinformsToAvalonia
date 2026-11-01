@@ -83,6 +83,22 @@ public static class EventArgsMemberCatalog
 
             // Avalonia spells these exactly as WinForms did.
             [("WindowClosingEventArgs", "Cancel")] = new("{0}.Cancel"),
+
+            // Keyboard. The three modifier flags are exact; Handled is the same member - and, with
+            // the handler now subscribed in the tunnelling phase, setting it really does keep the
+            // key from the control, as it did in WinForms. KeyCode/KeyData/Modifiers are matched
+            // only inside a comparison against Keys constants (HandlerBodyRewriter), because the
+            // two key enums name members differently. SuppressKeyPress is not translated: Avalonia
+            // raises TextInput apart from KeyDown, so handling one does not cancel the other.
+            [("KeyEventArgs", "Control")] = new("{0}.KeyModifiers.HasFlag(KeyModifiers.Control)"),
+            [("KeyEventArgs", "Shift")] = new("{0}.KeyModifiers.HasFlag(KeyModifiers.Shift)"),
+            [("KeyEventArgs", "Alt")] = new("{0}.KeyModifiers.HasFlag(KeyModifiers.Alt)"),
+            [("KeyEventArgs", "Handled")] = new("{0}.Handled"),
+
+            // KeyPress arrives as TextInput, tunnelled, so Handled keeps the text out of the box -
+            // which is what a WinForms character filter does with it. KeyChar is matched in shapes
+            // only (HandlerBodyRewriter.TryRewriteKeyChar...), never as a free value.
+            [("TextInputEventArgs", "Handled")] = new("{0}.Handled"),
             [("ScrollEventArgs", "NewValue")] = new("{0}.NewValue"),
             [("RangeBaseValueChangedEventArgs", "NewValue")] = new("{0}.NewValue"),
             [("RangeBaseValueChangedEventArgs", "OldValue")] = new("{0}.OldValue"),

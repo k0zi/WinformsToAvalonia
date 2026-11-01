@@ -29,6 +29,22 @@ public static class SummaryRenderer
                 console.MarkupLine($"  [grey]... {report.Warnings.Count - warningsToShow.Count} more (use --verbose to see all)[/]");
             }
         }
+
+        // Not warnings - code-behind is the default - so not counted among them, but still
+        // reachable: --verbose lists the reasons, MIGRATION.md always does.
+        if (report.CodeBehindNotes.Count > 0)
+        {
+            console.MarkupLine(
+                $"[grey]{report.CodeBehindNotes.Count} command-candidate handler(s) stayed in code-behind "
+                + "(reasons in MIGRATION.md).[/]");
+            if (verbose)
+            {
+                foreach (var note in report.CodeBehindNotes)
+                {
+                    console.MarkupLine($"  [grey]- {Markup.Escape(note)}[/]");
+                }
+            }
+        }
     }
 
     public static void RenderFileTree(IAnsiConsole console, string title, VirtualFileSystem vfs)
@@ -106,6 +122,20 @@ public static class SummaryRenderer
             lines.Add(
                 $"[yellow]{report.PreservedFiles.Count} existing file(s) preserved[/] - your version was kept and the " +
                 "regenerated one written alongside as [grey]*.w2a-new[/]. Pass [grey]--overwrite-all[/] to replace them instead.");
+        }
+
+        if (report.PrunedFiles.Count > 0)
+        {
+            lines.Add($"[green]{report.PrunedFiles.Count} stale generated file(s) removed[/] (--prune).");
+        }
+
+        if (report.OrphanedFiles.Count > 0)
+        {
+            lines.Add(
+                $"[yellow]{report.OrphanedFiles.Count} file(s) from an earlier conversion are no longer generated[/]: " +
+                string.Join(", ", report.OrphanedFiles.Take(5).Select(f => $"[grey]{Markup.Escape(f)}[/]")) +
+                (report.OrphanedFiles.Count > 5 ? ", ..." : "") +
+                " - left in place. [grey]--prune[/] deletes the ones you have not edited; an edited one is never deleted.");
         }
 
         lines.Add($"Elapsed: [bold]{report.Elapsed.TotalMilliseconds:F0} ms[/]");

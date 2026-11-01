@@ -26,7 +26,13 @@ namespace WinFormsToAvalonia.Core.Parsing;
 /// </remarks>
 public sealed class DesignerFileLocator
 {
-    public IReadOnlyList<DesignerFilePairing> Locate(WinFormsProjectModel project)
+    /// <param name="externalBaseTypes">
+    /// Base types from outside the project, by simple name, and the WinForms type each stands for -
+    /// a vendor's <c>MetroForm</c> → <c>Form</c>, from a <c>--mappings</c> file. Syntax cannot follow
+    /// a base class into a referenced assembly, so without this a Form deriving from one is skipped.
+    /// </param>
+    public IReadOnlyList<DesignerFilePairing> Locate(
+        WinFormsProjectModel project, IReadOnlyDictionary<string, string>? externalBaseTypes = null)
     {
         // Parse every compile file exactly once: the same trees back both the per-group
         // classification below and the project-wide base-type map the transitive walk needs.
@@ -40,6 +46,12 @@ public sealed class DesignerFileLocator
         }
 
         var baseTypesByClassName = BuildBaseTypeMap(treesByFile.Values);
+
+        // The project's own classes win: a mapping can only fill in what syntax could not see.
+        foreach (var (external, winFormsBase) in externalBaseTypes ?? new Dictionary<string, string>())
+        {
+            baseTypesByClassName.TryAdd(external, [winFormsBase]);
+        }
 
         var groups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
@@ -184,7 +196,8 @@ public sealed class DesignerFileLocator
             : [];
 
         return new DesignerFilePairing(
-            expectedClassName, @namespace, kind, primaryFile, designerFile, resxFile, reportableUnresolved);
+            expectedClassName, @namespace, kind, primaryFile, designerFile, resxFile, reportableUnresolved,
+            [.. baseIdentifiers.Order(StringComparer.Ordinal)]);
     }
 
     private static WinFormsArtifactKind ClassifyKind(

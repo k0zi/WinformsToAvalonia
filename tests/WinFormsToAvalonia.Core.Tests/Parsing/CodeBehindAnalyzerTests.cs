@@ -228,6 +228,72 @@ public class CodeBehindAnalyzerTests
         Assert.Empty(model.RuntimeEventSubscriptions);
     }
 
+    [Fact]
+    public void Analyze_DialogResultEnumValue_IsNotTheFormsDialogResult()
+    {
+        // `DialogResult` is both the Form property and the enum, and `DialogResult.OK` is the
+        // enum. Reading it as the property reported every dialog check as driving the Form.
+        var formModel = FormWithControls(("openButton", "Button"), ("pathLabel", "Label"));
+        const string source = """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void openButton_Click(object sender, EventArgs e)
+                    {
+                        if (lastResult == DialogResult.OK) { pathLabel.Text = "ok"; }
+                    }
+
+                    private void cancelButton_Click(object sender, EventArgs e)
+                    {
+                        DialogResult = DialogResult.Cancel;
+                    }
+
+                    private DialogResult lastResult;
+                }
+            }
+            """;
+        formModel.Controls["openButton"].Events.Add(new EventHandlerBinding("Click", "openButton_Click", null));
+        formModel.Controls["pathLabel"].Events.Add(new EventHandlerBinding("Click", "cancelButton_Click", null));
+
+        var model = new CodeBehindAnalyzer().Analyze(source, "Form1.cs", formModel);
+
+        Assert.Empty(model.HandlerMethods.Single(h => h.MethodName == "openButton_Click").TouchedFormMembers);
+
+        // The property itself - written bare - still drives the Form.
+        Assert.Equal(["DialogResult"], model.HandlerMethods.Single(h => h.MethodName == "cancelButton_Click").TouchedFormMembers);
+    }
+
+    [Fact]
+    public void Analyze_ThisQualifiedOwnField_IsOwnStateNotAFormMember()
+    {
+        var formModel = FormWithControls(("startButton", "Button"));
+        const string source = """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private bool isBusy;
+
+                    private int Count { get; set; }
+
+                    private void startButton_Click(object sender, EventArgs e)
+                    {
+                        this.isBusy = true;
+                        this.Count++;
+                        this.Text = "busy";
+                    }
+                }
+            }
+            """;
+        formModel.Controls["startButton"].Events.Add(new EventHandlerBinding("Click", "startButton_Click", null));
+
+        var handler = Assert.Single(new CodeBehindAnalyzer().Analyze(source, "Form1.cs", formModel).HandlerMethods);
+
+        Assert.Equal(["Count", "isBusy"], handler.TouchedOwnState);
+        Assert.Equal(["Text"], handler.TouchedFormMembers);
+    }
+
     private static FormModel FormWithControls(params (string FieldName, string TypeName)[] controls)
     {
         var formModel = new FormModel { ClassName = "Form1" };

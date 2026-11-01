@@ -25,7 +25,8 @@ public sealed record EventSubscriptionPlan(
     EventMapping Mapping,
     string HandlerMethodName,
     bool Suppressed = false,
-    bool ChainedInConstructor = false);
+    bool ChainedInConstructor = false,
+    bool Tunnel = false);
 
 /// <summary>
 /// A handler that stays event-driven: emitted as a real method on the generated View, with the
@@ -141,11 +142,26 @@ public sealed record TimerFieldPlan(
 /// TopLevel) - so unlike in earlier revisions this lands in code-behind, with no
 /// Application.Current.MainWindow lookup needed.
 /// </summary>
+/// <param name="OptionsExpressionTemplate">
+/// The options the picker opens with, with <see cref="StorageProviderPlaceholder"/> where the
+/// storage provider goes - that depends on what the View is rooted at, which only the emitter knows.
+/// </param>
 public sealed record FileDialogPlan(
     string FieldName,
     string MethodName,
     string PickerMethodName,
-    string OptionsTypeName);
+    string OptionsTypeName,
+    string OptionsExpressionTemplate)
+{
+    /// <summary>
+    /// A control character: it can never appear in the template's own text, because every designer
+    /// string in it went through a C# literal formatter, which escapes it.
+    /// </summary>
+    public const string StorageProviderPlaceholder = "\u0001";
+
+    public string OptionsExpression(string storageProviderExpression) =>
+        OptionsExpressionTemplate.Replace(StorageProviderPlaceholder, storageProviderExpression, StringComparison.Ordinal);
+}
 
 /// <summary>
 /// A non-visual WinForms component that is really a plain .NET type
@@ -349,8 +365,22 @@ public sealed record FormMigrationPlan(
     /// <summary>
     /// CheckedListBoxes, whose per-item tick becomes a bound CheckBox in an ItemTemplate.
     /// </summary>
-    IReadOnlyList<CheckedListPlan>? CheckedLists = null)
+    IReadOnlyList<CheckedListPlan>? CheckedLists = null,
+    /// <summary>
+    /// Why each command-candidate handler stayed in code-behind instead of becoming a
+    /// <c>[RelayCommand]</c>. Kept apart from <see cref="Warnings"/> on purpose: code-behind is
+    /// the default, not a failure, and listing thirty of these among the real warnings buried
+    /// the handful that needed a human.
+    /// </summary>
+    IReadOnlyList<string>? CodeBehindNotes = null,
+    /// <summary>
+    /// Menu items whose WinForms <c>CheckOnClick</c> the View reproduces: a constructor subscription
+    /// that flips <c>IsChecked</c>, made before the item's own Click handlers are chained after it.
+    /// </summary>
+    IReadOnlyList<string>? CheckOnClickToggles = null)
 {
+    public IReadOnlyList<string> CheckOnClickToggles { get; } = CheckOnClickToggles ?? [];
+
     public IReadOnlyList<DataSourceBindingPlan> DataSourceBindings { get; } = DataSourceBindings ?? [];
 
     public IReadOnlyList<ListViewRowsPlan> ListViewRows { get; } = ListViewRows ?? [];
@@ -358,6 +388,8 @@ public sealed record FormMigrationPlan(
     public IReadOnlyList<BindingNavigatorPlan> BindingNavigators { get; } = BindingNavigators ?? [];
 
     public IReadOnlyList<CheckedListPlan> CheckedLists { get; } = CheckedLists ?? [];
+
+    public IReadOnlyList<string> CodeBehindNotes { get; } = CodeBehindNotes ?? [];
 
     /// <summary>
     /// Whether the generated View needs a typed field for its ViewModel rather than constructing
@@ -440,7 +472,7 @@ public sealed record FormMigrationPlan(
         CodeBehindHandlers
             .SelectMany(h => h.Subscriptions)
             .Where(s => string.Equals(s.ControlFieldName, controlFieldName, StringComparison.Ordinal))
-            .Where(s => !s.Suppressed && !s.ChainedInConstructor && s.Mapping.XamlAttributeName is not null)
+            .Where(s => !s.Suppressed && !s.ChainedInConstructor && !s.Tunnel && s.Mapping.XamlAttributeName is not null)
             .Select(s => (s.Mapping.XamlAttributeName!, s.HandlerMethodName));
 
     /// <summary>
@@ -455,6 +487,22 @@ public sealed record FormMigrationPlan(
     /// Timers, project components and NotifyIcon are excluded because each already has an emission
     /// path of its own, and subscribing twice would run every handler twice.
     /// </remarks>
+    /// <summary>
+    /// Keyboard subscriptions made with <c>AddHandler(..., RoutingStrategies.Tunnel)</c> from the
+    /// constructor rather than as an AXAML attribute - a null field means the View itself.
+    /// </summary>
+    /// <remarks>
+    /// WinForms raises <c>KeyDown</c> before the control acts on the key. An Avalonia TextBox acts
+    /// on Back, Delete, the arrows (and Enter, when multi-line) in its own class handler and marks
+    /// them handled, so a handler wired by attribute never saw them - measured headlessly. The
+    /// tunnelling phase runs before the control does, which is the WinForms order.
+    /// </remarks>
+    public IEnumerable<(string? FieldName, string RoutedEventName, string HandlerMethodName)> TunnelEventSubscriptions =>
+        CodeBehindHandlers
+            .SelectMany(h => h.Subscriptions)
+            .Where(s => !s.Suppressed && s.Tunnel && s.Mapping.AvaloniaEventName is not null)
+            .Select(s => (s.ControlFieldName, $"InputElement.{s.Mapping.AvaloniaEventName}Event", s.HandlerMethodName));
+
     public IEnumerable<(string FieldName, string AvaloniaEventName, string HandlerMethodName)> ConstructorEventSubscriptions
     {
         get
@@ -466,6 +514,7 @@ public sealed record FormMigrationPlan(
             return CodeBehindHandlers
                 .SelectMany(h => h.Subscriptions)
                 .Where(s => !s.Suppressed
+                    && !s.Tunnel
                     && s.ControlFieldName is not null
                     && s.Mapping.AvaloniaEventName is not null
                     && s.ControlClrTypeName != "NotifyIcon"

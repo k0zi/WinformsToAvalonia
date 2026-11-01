@@ -108,9 +108,22 @@ public sealed class AxamlEmitter
             builder.Attribute("Height", FormatInt(formHeight));
         }
 
-        if (root == ViewRootKind.Window)
+        // A Form's window chrome is translated whichever element this document is rooted at, so
+        // its warnings are reported once, here - but the attributes go where the Window is: on
+        // this root, or on the wrapper --with-web generates around a UserControl-rooted View.
+        if (!isUserControl)
         {
-            builder.Attribute("Title", GetFormTitle(formModel, viewClassName));
+            var chrome = TranslateWindowChrome(formModel);
+            state.Warnings.AddRange(chrome.Warnings);
+
+            if (root == ViewRootKind.Window)
+            {
+                builder.Attribute("Title", GetFormTitle(formModel, viewClassName));
+                foreach (var (name, value) in chrome.Attributes)
+                {
+                    builder.Attribute(name, value);
+                }
+            }
         }
 
         // The Form's own BackColor/ForeColor/Font. Worth emitting on the root even though most
@@ -166,6 +179,21 @@ public sealed class AxamlEmitter
             deferredWindowEvents,
             state.ConvertedElsewhereCount,
             state.ConvertedElsewhereNotes);
+    }
+
+    /// <summary>
+    /// The Form's designer-set window chrome (<see cref="FormWindowAttributeCatalog"/>), against
+    /// the ClientSize the root element is sized to. Shared with <see cref="WindowWrapperEmitter"/>
+    /// so the two possible Windows cannot disagree.
+    /// </summary>
+    internal static WindowChromeTranslation TranslateWindowChrome(FormModel formModel)
+    {
+        var hasClientSize = TryGetSize(formModel.FormProperties, "ClientSize", out var width, out var height);
+        return FormWindowAttributeCatalog.Translate(
+            formModel.ClassName,
+            formModel.FormProperties,
+            hasClientSize ? width : null,
+            hasClientSize ? height : null);
     }
 
     /// <summary>
@@ -383,10 +411,19 @@ public sealed class AxamlEmitter
                 && setter.Format(providedValue) is { } providedText)
             {
                 builder.Attribute(setter.AvaloniaAttributeName, providedText);
+                emittedAttributeNames.Add(setter.AvaloniaAttributeName);
+
+                if (setter.AvaloniaAttributeName == "ToolTip.Tip"
+                    && control.ExtenderProviders.TryGetValue(setter.PropertyKey, out var providerField)
+                    && state.FormModel.Controls.TryGetValue(providerField, out var provider))
+                {
+                    EmitToolTipTiming(builder, provider, emittedAttributeNames, state);
+                }
             }
         }
 
         EmitFlowDirection(builder, control, mapped, emittedAttributeNames, state);
+        EmitKeyboardAttributes(builder, control, mapped, elementName, emittedAttributeNames, state);
 
         // Also universal, and for the same reason: BackColor/ForeColor/Font/Padding exist on
         // every WinForms Control, so they belong here rather than in each mapper's property
@@ -399,7 +436,8 @@ public sealed class AxamlEmitter
             ? AvaloniaStylePropertySupport.ForFallbackTemplate(mapped.FallbackTemplateKey)
             : AvaloniaStylePropertySupport.For(elementName);
 
-        EmitVisualStyleAttributes(builder, control.Properties, supportedStyles, emittedAttributeNames);
+        EmitVisualStyleAttributes(builder, control.Properties, supportedStyles, emittedAttributeNames, emittedAttributeNames);
+        EmitPointerInputAttributes(builder, control, mapped, elementName, emittedAttributeNames, state);
 
         // Every attribute is written by now, and that ordering is load-bearing rather than
         // tidy: AxamlDocumentBuilder.Attribute appends to the raw text, so the first child
@@ -694,17 +732,60 @@ public sealed class AxamlEmitter
             && orientation is PropertyValue.EnumMembers { MemberNames: var members }
             && members.Contains("Horizontal");
 
-        builder.Attribute(isHorizontal ? "RowDefinitions" : "ColumnDefinitions", "*,Auto,*");
+        var splitterWidth = control.Properties.TryGetValue("SplitterWidth", out var widthValue)
+            && widthValue is PropertyValue.Literal { Value: int width and > 0 }
+                ? width
+                : 4;
+
+        builder.Attribute(isHorizontal ? "RowDefinitions" : "ColumnDefinitions", SplitDefinitions(control, isHorizontal, splitterWidth));
 
         EmitSplitContainerRegion(builder, control.Panel1Children, isHorizontal, 0, emitFallbackControls, state);
 
         builder.OpenElement("GridSplitter");
         builder.Attribute(isHorizontal ? "Grid.Row" : "Grid.Column", "1");
-        builder.Attribute(isHorizontal ? "Height" : "Width", "4");
+        builder.Attribute(isHorizontal ? "Height" : "Width", FormatInt(splitterWidth));
         builder.Attribute("ResizeDirection", isHorizontal ? "Rows" : "Columns");
         builder.CloseElement();
 
         EmitSplitContainerRegion(builder, control.Panel2Children, isHorizontal, 2, emitFallbackControls, state);
+    }
+
+    /// <summary>
+    /// Where the splitter sits, and which side keeps its size when the window is resized.
+    /// </summary>
+    /// <remarks>
+    /// <c>SplitterDistance</c> is Panel1's size in pixels; what happens on a resize is
+    /// <c>FixedPanel</c>'s business. With <c>None</c> - WinForms' default - both panels scale with
+    /// the container, which is what star sizing in the designed proportion does; with
+    /// <c>Panel1</c>/<c>Panel2</c> that panel keeps its pixels and the other takes the rest. This
+    /// used to be a flat <c>*,Auto,*</c>, so every converted splitter opened in the middle.
+    /// </remarks>
+    private static string SplitDefinitions(ControlModel control, bool isHorizontal, int splitterWidth)
+    {
+        if (!control.Properties.TryGetValue("SplitterDistance", out var distanceValue)
+            || distanceValue is not PropertyValue.Literal { Value: int distance }
+            || !TryGetSize(control.Properties, "Size", out var width, out var height))
+        {
+            return "*,Auto,*";
+        }
+
+        var total = isHorizontal ? height : width;
+        var panel2 = total - distance - splitterWidth;
+        if (distance <= 0 || panel2 <= 0)
+        {
+            return "*,Auto,*";
+        }
+
+        var fixedPanel = control.Properties.TryGetValue("FixedPanel", out var fixedValue)
+            ? PropertyValueFormatters.AsEnumMember(fixedValue)
+            : null;
+
+        return fixedPanel switch
+        {
+            "Panel1" => $"{FormatInt(distance)},Auto,*",
+            "Panel2" => $"*,Auto,{FormatInt(panel2)}",
+            _ => $"{FormatInt(distance)}*,Auto,{FormatInt(panel2)}*",
+        };
     }
 
     private void EmitSplitContainerRegion(
@@ -747,6 +828,9 @@ public sealed class AxamlEmitter
             FormModel = formModel;
             Plan = plan;
         }
+
+        /// <summary>ToolTip providers whose untranslatable AutoPopDelay has been reported already.</summary>
+        public HashSet<string> ReportedToolTipProviders { get; } = new(StringComparer.Ordinal);
 
         public FormModel FormModel { get; }
 
@@ -947,6 +1031,169 @@ public sealed class AxamlEmitter
     }
 
     /// <summary>
+    /// A WinForms ToolTip component's delays, on each control it gives a tip to - Avalonia keeps
+    /// them per control, as the attached <c>ToolTip.ShowDelay</c>/<c>BetweenShowDelay</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>AutomaticDelay</c> sets the other three at once (initial = n, reshow = n/5, autopop = 10n),
+    /// and an explicit value after it wins - computed in that order, as WinForms applies them. Only
+    /// when the provider sets any of them: an untouched ToolTip keeps Avalonia's own defaults, rather
+    /// than every tooltipped control gaining two attributes for a 100ms difference. <c>AutoPopDelay</c>
+    /// - how long the tip stays up - has no Avalonia counterpart, so it is reported, once per provider.
+    /// </remarks>
+    private static void EmitToolTipTiming(
+        AxamlDocumentBuilder builder,
+        ControlModel provider,
+        ISet<string> emittedAttributeNames,
+        EmissionState state)
+    {
+        int? Delay(string name) =>
+            provider.Properties.TryGetValue(name, out var value) && value is PropertyValue.Literal { Value: int ms } ? ms : null;
+
+        var automatic = Delay("AutomaticDelay");
+        var initial = Delay("InitialDelay") ?? (automatic is { } a1 ? a1 : null);
+        var reshow = Delay("ReshowDelay") ?? (automatic is { } a2 ? a2 / 5 : null);
+        var autoPop = Delay("AutoPopDelay") ?? (automatic is { } a3 ? a3 * 10 : null);
+
+        if (initial is { } show && emittedAttributeNames.Add("ToolTip.ShowDelay"))
+        {
+            builder.Attribute("ToolTip.ShowDelay", FormatInt(show));
+        }
+
+        if (reshow is { } between && emittedAttributeNames.Add("ToolTip.BetweenShowDelay"))
+        {
+            builder.Attribute("ToolTip.BetweenShowDelay", FormatInt(between));
+        }
+
+        if (autoPop is { } duration && state.ReportedToolTipProviders.Add(provider.FieldName))
+        {
+            state.Warnings.Add(
+                $"'{provider.FieldName}' (ToolTip) hides its tips after {duration}ms (AutoPopDelay). An Avalonia tooltip "
+                + "stays open while the pointer is over the control, so that limit is not carried over.");
+        }
+    }
+
+    /// <summary>
+    /// What it takes for pointer and drag events to reach the element at all.
+    /// </summary>
+    /// <remarks>
+    /// <c>AllowDrop</c> becomes <c>DragDrop.AllowDrop</c> - without it Avalonia raises none of the
+    /// drag events, so a converted drop target's translated handlers never ran. And an element the
+    /// pointer cannot hit (<see cref="AvaloniaHitTestSupport"/>) gets a transparent background when
+    /// something here needs the pointer - a pointer or drag handler, a tooltip, a context menu -
+    /// unless the designer already gave it one.
+    /// </remarks>
+    private static void EmitPointerInputAttributes(
+        AxamlDocumentBuilder builder,
+        ControlModel control,
+        MappedControl mapped,
+        string elementName,
+        ISet<string> emittedAttributeNames,
+        EmissionState state)
+    {
+        if (!mapped.SupportsName)
+        {
+            return;
+        }
+
+        var allowDrop = control.Properties.TryGetValue("AllowDrop", out var allowDropValue)
+            && allowDropValue is PropertyValue.Literal { Value: true };
+
+        if (allowDrop && emittedAttributeNames.Add(AvaloniaHitTestSupport.AllowDropAttribute))
+        {
+            builder.Attribute(AvaloniaHitTestSupport.AllowDropAttribute, "True");
+        }
+
+        // A tooltip opens on hover and a context menu on right-click: both need the pointer to
+        // land on the element just as much as a handler does.
+        var listensForPointer = allowDrop
+            || emittedAttributeNames.Contains("ToolTip.Tip")
+            || control.Properties.ContainsKey("ContextMenuStrip")
+            || state.Plan.CodeBehindHandlers
+            .SelectMany(h => h.Subscriptions)
+            .Any(s => !s.Suppressed
+                && string.Equals(s.ControlFieldName, control.FieldName, StringComparison.Ordinal)
+                && s.Mapping.AvaloniaEventName is { } avaloniaEvent
+                && AvaloniaHitTestSupport.PointerEvents.Contains(avaloniaEvent));
+
+        if (listensForPointer
+            && AvaloniaHitTestSupport.NeedBackgroundToBeHit.Contains(elementName)
+            && emittedAttributeNames.Add("Background"))
+        {
+            builder.Attribute("Background", "Transparent");
+        }
+    }
+
+    /// <summary>
+    /// Keyboard behaviour WinForms keeps on the control or the Form: tab order, tab stops, and the
+    /// buttons Enter and Escape click.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TabIndex</c> and <c>IsTabStop</c> are declared on <c>InputElement</c>, so - like
+    /// FlowDirection - every element this converter names has them, and <c>SupportsName</c> is the
+    /// gate. Avalonia orders tab navigation by <c>TabIndex</c> within a container exactly as
+    /// WinForms does; without it the order fell back to document order, which for a designer file
+    /// is the order the controls were *added*, not the order the user set.
+    /// </para>
+    /// <para>
+    /// A Form's <c>AcceptButton</c>/<c>CancelButton</c> is a property of the <em>Form</em> naming a
+    /// button, and Avalonia turns it round: the button says <c>IsDefault</c>/<c>IsCancel</c>. Both
+    /// mean the same keypress.
+    /// </para>
+    /// </remarks>
+    private static void EmitKeyboardAttributes(
+        AxamlDocumentBuilder builder,
+        ControlModel control,
+        MappedControl mapped,
+        string elementName,
+        IReadOnlySet<string> emittedAttributeNames,
+        EmissionState state)
+    {
+        if (!mapped.SupportsName)
+        {
+            return;
+        }
+
+        if (!emittedAttributeNames.Contains("TabIndex")
+            && control.Properties.TryGetValue("TabIndex", out var tabIndex)
+            && tabIndex is PropertyValue.Literal { Value: int index })
+        {
+            builder.Attribute("TabIndex", FormatInt(index));
+        }
+
+        if (!emittedAttributeNames.Contains("IsTabStop")
+            && control.Properties.TryGetValue("TabStop", out var tabStop)
+            && tabStop is PropertyValue.Literal { Value: false })
+        {
+            builder.Attribute("IsTabStop", "False");
+        }
+
+        foreach (var (formProperty, buttonAttribute) in FormWindowAttributeCatalog.DialogKeyButtons)
+        {
+            if (!state.FormModel.FormProperties.TryGetValue(formProperty, out var reference)
+                || reference is not PropertyValue.ControlReference { FieldName: var fieldName }
+                || fieldName != control.FieldName
+                || emittedAttributeNames.Contains(buttonAttribute))
+            {
+                continue;
+            }
+
+            if (FormWindowAttributeCatalog.DefaultButtonElements.Contains(elementName))
+            {
+                builder.Attribute(buttonAttribute, "True");
+            }
+            else
+            {
+                state.Warnings.Add(
+                    $"Form '{state.FormModel.ClassName}' names '{control.FieldName}' ({control.ClrTypeName}) as its "
+                    + $"{formProperty}, but it becomes a '{elementName}', which has no {buttonAttribute} - handle the key "
+                    + "in the Window's KeyDown instead.");
+            }
+        }
+    }
+
+    /// <summary>
     /// The xmlns declarations this form's literal item elements need, ordered and de-duplicated.
     /// </summary>
     /// <remarks>
@@ -1047,7 +1294,8 @@ public sealed class AxamlEmitter
         AxamlDocumentBuilder builder,
         IReadOnlyDictionary<string, PropertyValue> properties,
         AvaloniaStyleProperties supported,
-        IReadOnlySet<string> boundAttributeNames)
+        IReadOnlySet<string> boundAttributeNames,
+        ISet<string>? written = null)
     {
         if (supported == AvaloniaStyleProperties.None)
         {
@@ -1059,6 +1307,7 @@ public sealed class AxamlEmitter
             if (value is not null && !boundAttributeNames.Contains(attributeName))
             {
                 builder.Attribute(attributeName, value);
+                written?.Add(attributeName);
             }
         }
 

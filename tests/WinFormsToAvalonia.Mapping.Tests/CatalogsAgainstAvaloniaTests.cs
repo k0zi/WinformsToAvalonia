@@ -422,6 +422,200 @@ public class CatalogsAgainstAvaloniaTests
     }
 
     /// <summary>
+    /// Every attribute the Form's window chrome can become must be a real, non-obsolete property of
+    /// <c>Window</c>. Not obsolete matters as much as present: <c>SystemDecorations</c> exists in
+    /// Avalonia 12 and is <c>[Obsolete]</c>, which in a generated project that must build
+    /// warning-free is as much a failure as a missing property.
+    /// </summary>
+    [Fact]
+    public void FormWindowAttributes_AreLiveWindowProperties()
+    {
+        var window = AvaloniaMetadata.FindElement("Window")!;
+        foreach (var name in FormWindowAttributeCatalog.AttributeNames)
+        {
+            var property = AvaloniaMetadata.FindProperty(window, name);
+            Assert.True(property is not null, $"Window has no '{name}'.");
+            Assert.DoesNotContain(property!.CustomAttributes, a => a.AttributeType.Name == "ObsoleteAttribute");
+        }
+    }
+
+    [Fact]
+    public void FormWindowAttributes_EnumValuesExistInAvalonia()
+    {
+        Assert.Subset(EnumMembers("WindowStartupLocation"), FormWindowAttributeCatalog.StartPositions.Values.ToHashSet());
+        Assert.Contains(FormWindowAttributeCatalog.BorderlessDecorations, EnumMembers("WindowDecorations"));
+
+        // The emitter writes WindowDecorations="None"; make sure that is the property's own type.
+        var window = AvaloniaMetadata.FindElement("Window")!;
+        Assert.Equal("WindowDecorations", AvaloniaMetadata.FindProperty(window, "WindowDecorations")!.PropertyType.Name);
+        Assert.Equal("WindowStartupLocation", AvaloniaMetadata.FindProperty(window, "WindowStartupLocation")!.PropertyType.Name);
+    }
+
+    /// <summary>
+    /// A Form's AcceptButton/CancelButton turn round into a property on the button itself, so every
+    /// element the emitter may write it on must really have both.
+    /// </summary>
+    [Fact]
+    public void DefaultButtonElements_CarryIsDefaultAndIsCancel()
+    {
+        foreach (var elementName in FormWindowAttributeCatalog.DefaultButtonElements)
+        {
+            var element = AvaloniaMetadata.FindElement(elementName);
+            Assert.True(element is not null, $"Avalonia has no '{elementName}'.");
+            foreach (var (_, attribute) in FormWindowAttributeCatalog.DialogKeyButtons)
+            {
+                Assert.True(
+                    AvaloniaMetadata.FindProperty(element!, attribute) is { PropertyType.Name: "Boolean" },
+                    $"'{elementName}' has no bool '{attribute}'.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// TabIndex/IsTabStop are written on every element that has a name, on the grounds that they
+    /// are declared on <c>InputElement</c> - which every such element derives from.
+    /// </summary>
+    [Fact]
+    public void TabNavigation_IsDeclaredOnInputElement()
+    {
+        var inputElement = AvaloniaMetadata.FindElement("InputElement")!;
+        Assert.Equal("Int32", AvaloniaMetadata.FindProperty(inputElement, "TabIndex")!.PropertyType.Name);
+        Assert.Equal("Boolean", AvaloniaMetadata.FindProperty(inputElement, "IsTabStop")!.PropertyType.Name);
+    }
+
+    [Fact]
+    public void HitTestSupport_ElementsHaveABackgroundToSet()
+    {
+        foreach (var elementName in AvaloniaHitTestSupport.NeedBackgroundToBeHit)
+        {
+            var element = AvaloniaMetadata.FindElement(elementName);
+            Assert.True(element is not null, $"Avalonia has no '{elementName}'.");
+            Assert.True(
+                AvaloniaMetadata.FindProperty(element!, "Background") is not null,
+                $"'{elementName}' has no Background, so Background=\"Transparent\" would not compile.");
+        }
+    }
+
+    [Fact]
+    public void HitTestSupport_PointerEventsAndAllowDropAreReal()
+    {
+        var inputElement = AvaloniaMetadata.FindElement("InputElement")!;
+        var dragDrop = AvaloniaMetadata.FindElement("DragDrop")!;
+
+        foreach (var eventName in AvaloniaHitTestSupport.PointerEvents)
+        {
+            Assert.True(
+                AvaloniaMetadata.FindEvent(inputElement, eventName) is not null
+                    || AvaloniaMetadata.FindField(dragDrop, eventName + "Event") is not null,
+                $"'{eventName}' is neither an InputElement event nor a DragDrop attached event.");
+        }
+
+        var (owner, property) = (AvaloniaHitTestSupport.AllowDropAttribute.Split('.')[0], AvaloniaHitTestSupport.AllowDropAttribute.Split('.')[1]);
+        Assert.Equal("DragDrop", owner);
+        Assert.NotNull(AvaloniaMetadata.FindAttachedProperty(dragDrop, property));
+    }
+
+    /// <summary>
+    /// The formatters that translate one WinForms enum into another write their answers as
+    /// literal strings, so each answer is held up against the Avalonia enum it has to parse as -
+    /// every WinForms member each one knows, run through it.
+    /// </summary>
+    [Theory]
+    [InlineData("AsImageStretch", "Stretch", new[] { "Normal", "CenterImage", "AutoSize", "StretchImage", "Zoom" })]
+    [InlineData("AsTickPlacement", "TickPlacement", new[] { "None", "TopLeft", "BottomRight", "Both" })]
+    [InlineData("AsHorizontalScrollBar", "ScrollBarVisibility", new[] { "None", "Horizontal", "Vertical", "Both" })]
+    [InlineData("AsVerticalScrollBar", "ScrollBarVisibility", new[] { "None", "Horizontal", "Vertical", "Both" })]
+    public void EnumFormatters_AnswerWithAvaloniaMembers(string formatterName, string avaloniaEnum, string[] winFormsMembers)
+    {
+        var formatter = typeof(PropertyValueFormatters).GetMethod(formatterName)!;
+        var avaloniaMembers = EnumMembers(avaloniaEnum);
+
+        foreach (var member in winFormsMembers)
+        {
+            var answer = (string?)formatter.Invoke(null, [new PropertyValue.EnumMembers([member])]);
+            Assert.True(answer is not null, $"{formatterName} has no answer for '{member}'.");
+            Assert.Contains(answer!, avaloniaMembers);
+        }
+    }
+
+    [Fact]
+    public void BoolFormatters_AnswerWithAvaloniaMembers()
+    {
+        Assert.Contains(PropertyValueFormatters.AsGridSelectionMode(new PropertyValue.Literal(true))!, EnumMembers("DataGridSelectionMode"));
+        Assert.Contains(PropertyValueFormatters.AsGridSelectionMode(new PropertyValue.Literal(false))!, EnumMembers("DataGridSelectionMode"));
+        Assert.Contains(PropertyValueFormatters.AsCheckToggleType(new PropertyValue.Literal(true))!, EnumMembers("MenuItemToggleType"));
+        Assert.Contains(PropertyValueFormatters.AsMultilineWrapping(new PropertyValue.Literal(true))!, EnumMembers("TextWrapping"));
+        Assert.Contains(PropertyValueFormatters.AsWordWrapping(new PropertyValue.Literal(false))!, EnumMembers("TextWrapping"));
+    }
+
+    /// <summary>A gesture string names its key by Avalonia's <c>Key</c> member name.</summary>
+    [Fact]
+    public void GestureKeys_AreAvaloniaKeys()
+    {
+        var keys = EnumMembers("Key");
+        Assert.All(PropertyValueFormatters.GestureKeys.Values, key => Assert.Contains(key, keys));
+    }
+
+    /// <summary>
+    /// Every options member the file-dialog builder sets has to be a settable property of the
+    /// options type it is set on - a wrong one is a CS0117 in the generated project only.
+    /// </summary>
+    [Fact]
+    public void FileDialogOptions_SetSettableMembersOfTheirOptionsType()
+    {
+        foreach (var (optionsType, members) in FileDialogOptions.EmittedMembers)
+        {
+            var type = AvaloniaMetadata.FindElement(optionsType);
+            Assert.True(type is not null, $"Avalonia has no '{optionsType}'.");
+            foreach (var member in members)
+            {
+                Assert.True(
+                    AvaloniaMetadata.FindProperty(type!, member)?.SetMethod is { IsPublic: true },
+                    $"'{optionsType}.{member}' is not a settable property.");
+            }
+        }
+
+        // `new FilePickerFileType(name) { Patterns = [...] }`, and the awaited start folder.
+        var fileType = AvaloniaMetadata.FindElement("FilePickerFileType")!;
+        Assert.Contains(fileType.GetConstructors(), c => c.GetParameters() is [{ ParameterType.Name: "String" }]);
+        Assert.NotNull(AvaloniaMetadata.FindProperty(fileType, "Patterns")?.SetMethod);
+        Assert.Contains(
+            AvaloniaMetadata.FindElement("StorageProviderExtensions")!.GetMethods(),
+            m => m.Name == "TryGetFolderFromPathAsync" && m.GetParameters() is [_, { ParameterType.Name: "String" }]);
+    }
+
+    /// <summary>A WinForms ToolTip's delays land on each target as these two attached properties.</summary>
+    [Fact]
+    public void ToolTipTiming_IsAttachedToToolTip()
+    {
+        var toolTip = AvaloniaMetadata.FindElement("ToolTip")!;
+        Assert.NotNull(AvaloniaMetadata.FindAttachedProperty(toolTip, "ShowDelay"));
+        Assert.NotNull(AvaloniaMetadata.FindAttachedProperty(toolTip, "BetweenShowDelay"));
+    }
+
+    /// <summary>The modifier names a translated key comparison writes, and the routed event it tunnels.</summary>
+    [Fact]
+    public void KeyTranslation_UsesRealKeyModifiersAndRoutedEvents()
+    {
+        var modifiers = EnumMembers("KeyModifiers");
+        Assert.Contains("Control", modifiers);
+        Assert.Contains("Shift", modifiers);
+        Assert.Contains("Alt", modifiers);
+        Assert.Contains("None", modifiers);
+
+        var inputElement = AvaloniaMetadata.FindElement("InputElement")!;
+        Assert.NotNull(AvaloniaMetadata.FindField(inputElement, "KeyDownEvent"));
+        Assert.NotNull(AvaloniaMetadata.FindField(inputElement, "KeyUpEvent"));
+        Assert.Contains(EnumMembers("RoutingStrategies"), m => m == "Tunnel");
+    }
+
+    private static HashSet<string> EnumMembers(string enumName) =>
+        AvaloniaMetadata.FindElement(enumName)!
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>
     /// <c>FlowDirection</c> is the one styling-ish property the emitter writes with no per-element
     /// table behind it, on the grounds that it is declared on <c>Visual</c> - i.e. on everything.
     /// That grounds is a claim about Avalonia, so it gets checked like every other claim.

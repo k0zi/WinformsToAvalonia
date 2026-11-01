@@ -12,6 +12,111 @@ public class HandlerBodyRewriterTests
     // ---- View target: the control fields still exist -------------------------------------
 
     [Fact]
+    public void RewriteForView_ProjectStringResource_ReadsTheGeneratedClass()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+        var rewriter = new HandlerBodyRewriter(new ControlMappingRegistry())
+        {
+            ProjectStrings = new ProjectStringResources(
+                "Out.Properties.Resources", new HashSet<string>(["Greeting"], StringComparer.Ordinal)),
+        };
+
+        var result = rewriter.RewriteForView(
+            """
+            this.statusLabel.Text = Properties.Resources.Greeting + "!";
+            this.statusLabel.Text = global::App.Properties.Resources.Greeting;
+            this.statusLabel.Text = Properties.Resources.logo.ToString();
+            """,
+            form);
+
+        // An image entry is not a string, so the third statement ends the prefix.
+        Assert.Equal(
+            [
+                "statusLabel.Text = Out.Properties.Resources.Greeting + \"!\";",
+                "statusLabel.Text = Out.Properties.Resources.Greeting;",
+            ],
+            result.MigratedStatements);
+        Assert.False(result.IsComplete);
+    }
+
+    [Fact]
+    public void RewriteForView_ProjectSettings_ReadAssignAndSaveOnTheGeneratedClass()
+    {
+        var form = FormWith(("nameBox", "TextBox"));
+        var rewriter = new HandlerBodyRewriter(new ControlMappingRegistry())
+        {
+            ProjectSettings = new ProjectSettingsAccess(
+                "Out.Properties.Settings.Default",
+                new HashSet<string>(["UserName", "Url"], StringComparer.Ordinal),
+                new HashSet<string>(["UserName"], StringComparer.Ordinal)),
+        };
+
+        var result = rewriter.RewriteForView(
+            """
+            this.nameBox.Text = Properties.Settings.Default.Url;
+            Properties.Settings.Default.UserName = this.nameBox.Text;
+            global::App.Properties.Settings.Default.Save();
+            Properties.Settings.Default.Url = "x";
+            """,
+            form);
+
+        // Url is application-scoped: readable, never assignable.
+        Assert.Equal(
+            [
+                "nameBox.Text = Out.Properties.Settings.Default.Url;",
+                "Out.Properties.Settings.Default.UserName = (nameBox.Text ?? string.Empty);",
+                "Out.Properties.Settings.Default.Save();",
+            ],
+            result.MigratedStatements);
+        Assert.False(result.IsComplete);
+    }
+
+    [Fact]
+    public void RewriteForView_ProjectSettings_UnknownSettingOrMethod_IsNotTranslated()
+    {
+        var form = FormWith(("nameBox", "TextBox"));
+        var rewriter = new HandlerBodyRewriter(new ControlMappingRegistry())
+        {
+            ProjectSettings = new ProjectSettingsAccess(
+                "Out.Properties.Settings.Default",
+                new HashSet<string>(["UserName"], StringComparer.Ordinal),
+                new HashSet<string>(["UserName"], StringComparer.Ordinal)),
+        };
+
+        Assert.Empty(rewriter.RewriteForView("this.nameBox.Text = Properties.Settings.Default.Accent;", form).MigratedStatements);
+        Assert.Empty(rewriter.RewriteForView("Properties.Settings.Default.Upgrade();", form).MigratedStatements);
+    }
+
+    [Fact]
+    public void RewriteForView_IncrementOfACarriedField_IsTranslated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            pageNumber++;
+            --this.pageNumber;
+            otherField++;
+            """,
+            form,
+            promotedFields: new HashSet<string>(["pageNumber"], StringComparer.Ordinal));
+
+        // A field this run does not carry over is not something the View has.
+        Assert.Equal(["pageNumber++;", "--pageNumber;"], result.MigratedStatements);
+        Assert.False(result.IsComplete);
+    }
+
+    [Fact]
+    public void RewriteForView_ProjectStringResource_WithoutTheGeneratedClass_IsNotTranslated()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+
+        var result = Rewriter.RewriteForView("this.statusLabel.Text = Properties.Resources.Greeting;", form);
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    [Fact]
     public void RewriteForView_BindablePropertyAssignment_BecomesTheAvaloniaProperty()
     {
         var form = FormWith(("statusLabel", "Label"));
@@ -1418,9 +1523,24 @@ public class HandlerBodyRewriterTests
     {
         var form = FormWith(("label1", "Label"));
 
-        var result = Rewriter.RewriteForView("label1.Text = Clipboard.GetText();", form);
+        var result = Rewriter.RewriteForView("label1.Text = Screen.PrimaryScreen.DeviceName;", form);
 
         Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Clipboard.GetText is awaited in place - C# allows that anywhere in an async method, in the
+    /// same evaluation order - and WinForms' "" for an empty clipboard is Avalonia's null.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_ClipboardGetText_IsAwaitedWhereItWasCalled()
+    {
+        var result = Rewriter.RewriteForView("label1.Text = \"Got \" + Clipboard.GetText();", FormWith(("label1", "Label")));
+
+        Assert.Equal(
+            ["label1.Text = \"Got \" + (await TopLevel.GetTopLevel(this)!.Clipboard!.TryGetTextAsync() ?? string.Empty);"],
+            result.MigratedStatements);
+        Assert.True(result.RequiresAsync);
     }
 
     [Fact]
@@ -2775,19 +2895,26 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// A three-way answer does not fit in a bool, and widening the result would change what every
-    /// bundled dialog returns.
+    /// YesNoCancel has its own entry point returning bool? - Yes true, No false, Cancel null - so
+    /// the two-button methods keep returning a plain bool. AbortRetryIgnore still maps onto
+    /// nothing this obviously, and refuses.
     /// </summary>
     [Fact]
-    public void RewriteForView_ThreeWayMessageBox_IsNotMigrated()
+    public void RewriteForView_ThreeWayMessageBox_YesNoCancelIsABoolQuestion()
     {
         var form = FormWith(("agreeCheckBox", "CheckBox"));
 
-        var rewritten = Rewriter.RewriteForView(
+        var yesNoCancel = Rewriter.RewriteForView(
             "this.agreeCheckBox.Checked = MessageBox.Show(\"Sure?\", \"Demo\", MessageBoxButtons.YesNoCancel) == DialogResult.Yes;",
             form);
+        Assert.Equal(
+            ["agreeCheckBox.IsChecked = await MessageBoxFallback.ShowYesNoCancelAsync(this, \"Sure?\", \"Demo\") == true;"],
+            yesNoCancel.MigratedStatements);
 
-        Assert.Empty(rewritten.MigratedStatements);
+        var abortRetryIgnore = Rewriter.RewriteForView(
+            "this.agreeCheckBox.Checked = MessageBox.Show(\"Sure?\", \"Demo\", MessageBoxButtons.AbortRetryIgnore) == DialogResult.Retry;",
+            form);
+        Assert.Empty(abortRetryIgnore.MigratedStatements);
     }
 
     /// <summary>

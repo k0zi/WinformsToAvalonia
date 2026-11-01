@@ -10,11 +10,37 @@ public sealed class ControlModel
 {
     public required string FieldName { get; init; }
 
-    public required string ClrTypeName { get; init; }
+    /// <remarks>
+    /// Settable for one reason: a control whose type is the project's own subclass of a WinForms
+    /// control (<c>MyButton : Button</c>) is re-typed to that base right after the designer walk, so
+    /// every table downstream answers for the control it really is. The written name is kept in
+    /// <see cref="DeclaredClrTypeName"/>.
+    /// </remarks>
+    public required string ClrTypeName { get; set; }
 
-    public Dictionary<string, PropertyValue> Properties { get; } = new(StringComparer.Ordinal);
+    /// <summary>
+    /// The type the designer actually wrote, when <see cref="ClrTypeName"/> is the WinForms control
+    /// it derives from rather than itself; null otherwise.
+    /// </summary>
+    public string? DeclaredClrTypeName { get; set; }
+
+    public PropertyBag Properties { get; } = new();
+
+    /// <summary>
+    /// For a value an extender provider set on this control (<c>toolTip1.SetToolTip(this, ...)</c>),
+    /// the provider's field, keyed by the property key the value sits under - so the provider's own
+    /// settings (a ToolTip's delays) can follow its value onto this control.
+    /// </summary>
+    public Dictionary<string, string> ExtenderProviders { get; } = new(StringComparer.Ordinal);
 
     public List<EventHandlerBinding> Events { get; } = [];
+
+    /// <summary>
+    /// ImageList-specific: the key of each image, by index - the designer's
+    /// <c>this.imageList1.Images.SetKeyName(0, "folder.png")</c>. The keys are not in the
+    /// <c>ImageStream</c> payload at all, so this is the only place an <c>ImageKey</c> can be resolved.
+    /// </summary>
+    public Dictionary<string, int> ImageKeys { get; } = new(StringComparer.Ordinal);
 
     public List<ControlModel> Children { get; } = [];
 

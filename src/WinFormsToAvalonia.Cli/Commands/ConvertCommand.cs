@@ -2,6 +2,7 @@ using System.Text.Json;
 using Spectre.Console;
 using Spectre.Console.Cli;
 using WinFormsToAvalonia.Cli.Rendering;
+using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Parsing;
 using WinFormsToAvalonia.Core.Pipeline;
 
@@ -21,7 +22,9 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
             SkipCodeBehindComments: settings.SkipCodeBehindComments,
             LogFile: settings.LogFile,
             OverwriteAll: settings.OverwriteAll,
-            WithWeb: settings.WithWeb);
+            WithWeb: settings.WithWeb,
+            Prune: settings.Prune,
+            MappingsFile: settings.Mappings);
 
         if (SolutionReader.IsSolutionPath(settings.Source))
         {
@@ -35,11 +38,25 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
                 .Spinner(Spinner.Known.Dots)
                 .Start("Converting...", _ => new ConversionPipeline().Run(options));
         }
+        catch (UserMappingsException ex)
+        {
+            return ReportRejectedMappings(ex);
+        }
         catch (NoConvertibleArtifactsException ex)
         {
             AnsiConsole.MarkupLine(
                 $"[yellow]Nothing to convert:[/] [grey]{Markup.Escape(ex.ProjectFilePath)}[/] " +
                 "contains no WinForms Form, UserControl, or Component.");
+            if (ex.UnresolvedBaseTypes.Count > 0)
+            {
+                var example = ex.UnresolvedBaseTypes[0];
+                AnsiConsole.MarkupLine(
+                    $"Its designer classes derive from [bold]{Markup.Escape(string.Join(", ", ex.UnresolvedBaseTypes))}[/], which "
+                    + "could not be traced to WinForms (a base class from a referenced assembly). If those are Forms or "
+                    + "UserControls, say so with [grey]--mappings[/]: "
+                    + Markup.Escape($"{{ \"controls\": {{ \"{example}\": {{ \"as\": \"Form\" }} }} }}"));
+            }
+
             return 1;
         }
 
@@ -66,15 +83,34 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
         return 0;
     }
 
+    private static int ReportRejectedMappings(UserMappingsException ex)
+    {
+        AnsiConsole.MarkupLine($"[red]Mappings file rejected:[/] [grey]{Markup.Escape(ex.FilePath)}[/]");
+        foreach (var error in ex.Errors)
+        {
+            AnsiConsole.MarkupLine($"  - {Markup.Escape(error)}");
+        }
+
+        return 1;
+    }
+
     /// <summary>
     /// Every WinForms project the solution lists, each through the ordinary single-project
     /// pipeline, into one output solution.
     /// </summary>
     private static int ConvertSolution(ConvertCommandSettings settings, ConversionOptions options)
     {
-        var solution = AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .Start("Converting solution...", _ => new SolutionConversionPipeline().Run(options));
+        SolutionConversionResult solution;
+        try
+        {
+            solution = AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .Start("Converting solution...", _ => new SolutionConversionPipeline().Run(options));
+        }
+        catch (UserMappingsException ex)
+        {
+            return ReportRejectedMappings(ex);
+        }
 
         if (solution.Converted.Count == 0)
         {

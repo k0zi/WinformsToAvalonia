@@ -53,6 +53,11 @@ public class SenderAndDragConversionTests
             Assert.Contains("private async void copyButton_Click", codeBehind);
             Assert.Contains("await TopLevel.GetTopLevel(this)!.Clipboard!.SetTextAsync(", codeBehind);
 
+            // And reading it back, awaited in place - "" when the clipboard has no text, as in WinForms.
+            Assert.Contains("private async void pasteButton_Click", codeBehind);
+            Assert.Contains("statusLabel.Text = \"Pasted: \" + (await TopLevel.GetTopLevel(this)!.Clipboard!.TryGetTextAsync() ?? string.Empty);", codeBehind);
+            Assert.DoesNotContain("MigrationTodo.NotMigrated(nameof(pasteButton_Click)", codeBehind);
+
             // Avalonia 12 renamed the property, changed its type and replaced the format
             // constants - so the whole shape is translated at once or not at all.
             Assert.Contains("e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;", codeBehind);

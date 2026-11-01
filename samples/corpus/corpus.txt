@@ -1,0 +1,17 @@
+# Real-world WinForms projects the converter is run against by samples/corpus/run.sh.
+# Nothing here is vendored: run.sh clones each repository at the pinned commit (sparse) into
+# samples/corpus/.cache (gitignored), converts every source below and builds the output.
+#
+# Format, one entry per line:   <repo> <commit> <source path inside the repo> [mappings file]
+# The mappings path is relative to this folder. Bump a commit deliberately, never to "latest":
+# a moving corpus makes a red run mean nothing.
+
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b windowsforms/datagridview/CSWinFormDataGridView/CSWinFormDataGridView.csproj
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b windowsforms/FlexGridShowcaseDemo/cs/FlexGridShowcaseDemo.csproj vendor-bases.json
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b windowsforms/formatting-utility/cs/FormatUtility.csproj
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b windowsforms/graphics/WinFormGraphics/WinFormGraphics.csproj
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b windowsforms/helloworld-links/helloworld-links.sln
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b windowsforms/helloworld-sharedsource/WindowsFormsApp.sln
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b windowsforms/TaskDialogDemo/cs/TaskDialogDemo.csproj
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b upgrades/matching-game-netframework/winforms/cs/MatchingGame.sln vendor-bases.json
+dotnet/samples ab42c8a4251cb90787aa5d3c94b78d28d85bc46b framework/wcf/Scenario/DataBinding/WindowsForms/CS/WindowsForms.sln
