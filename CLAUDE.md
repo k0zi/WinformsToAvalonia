@@ -41,8 +41,13 @@ dotnet workload install wasm-tools
 ./samples/corpus/run.sh [filter]
 
 # pack and install it as the .NET tool it ships as (command: wf2a, package: WinFormsToAvalonia)
-dotnet pack src/WinFormsToAvalonia.Cli -c Release            # -> artifacts/*.nupkg (gitignored)
+dotnet pack src/WinFormsToAvalonia.Cli -c Release            # -> artifacts/*.nupkg + .snupkg (gitignored)
 dotnet tool install --global --add-source ./artifacts WinFormsToAvalonia
+
+# release to nuget.org: the tag (minus "v") is the package version. .github/workflows/build.yml
+# runs Core + Mapping tests, packs, installs the package and converts+builds the sample with it,
+# then pushes via Trusted Publishing (no stored API key; needs the NUGET_USER repo secret)
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 Integration tests shell out to `dotnet build` - and, for the startup smoke tests, `dotnet run` -

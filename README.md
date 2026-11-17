@@ -7,7 +7,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Avalonia](https://img.shields.io/badge/Avalonia-12.1.1-8B44AC)](https://avaloniaui.net/)
 [![MVVM](https://img.shields.io/badge/MVVM-CommunityToolkit-0078D4)](https://learn.microsoft.com/dotnet/communitytoolkit/mvvm/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/k0zi/WinformsToAvalonia/blob/main/LICENSE)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
 [Quick start](#quick-start) · [Usage](#usage) · [Example](#example) · [How it works](#how-it-works) · [Limitations](#limitations) · [Contributing](#contributing)
@@ -38,7 +38,7 @@ source project is never modified.
 |---|---|
 | 🔍 **Roslyn-based** | Parses `InitializeComponent` with the C# compiler API — no regex. |
 | 🌐 **Reads resources** | `Localizable=true` forms, which set every property through `resources.ApplyResources(...)`, convert with their text, geometry and fonts intact; images are recovered from the `.resx` into `Assets/`. |
-| 🧩 **92 control types recognized** | 59 mapped to an element (47 Direct + 12 via bundled fallback controls), 20 converted without one — a `Timer` becomes a `DispatcherTimer` field, a `ToolTip` an attribute on its target — and 13 registered with guidance-only migration notes instead of a silent failure. Run `list-mappings` for the live count. See [`docs/Controls.md`](docs/Controls.md). |
+| 🧩 **92 control types recognized** | 59 mapped to an element (47 Direct + 12 via bundled fallback controls), 20 converted without one — a `Timer` becomes a `DispatcherTimer` field, a `ToolTip` an attribute on its target — and 13 registered with guidance-only migration notes instead of a silent failure. Run `list-mappings` for the live count. See [`docs/Controls.md`](https://github.com/k0zi/WinformsToAvalonia/blob/main/docs/Controls.md). |
 | 📐 **Pixel-accurate layout** | Absolute `Canvas` positioning preserves the original design exactly; `Anchor`/`Dock` are recorded, never guessed at. |
 | ⚡ **Always-compiling output** | `dotnet build && dotnet run` works on the generated project immediately — warning-free. |
 | ✍️ **Handler bodies translated** | Bindable property access, control flow and loops, `Close()`/`Focus()`, window properties, `MessageBox.Show`, opening another Form (with its `DialogResult` contract), file dialogs, the clipboard, `sender`, non-visual .NET components and your own helper methods become real Avalonia code; the report says how much came across. |
@@ -130,8 +130,8 @@ dotnet tool install --global --add-source ./artifacts WinFormsToAvalonia
 
 ## Example
 
-A `UserControl` from [`samples/WinForms`](samples/WinForms), converted into
-[`samples/Avalonia`](samples/Avalonia).
+A `UserControl` from [`samples/WinForms`](https://github.com/k0zi/WinformsToAvalonia/tree/main/samples/WinForms), converted into
+[`samples/Avalonia`](https://github.com/k0zi/WinformsToAvalonia/tree/main/samples/Avalonia).
 
 <table>
 <tr><th>WinForms — <code>DemoUserControl.Designer.cs</code></th><th>Avalonia — <code>DemoUserControlView.axaml</code></th></tr>
@@ -290,7 +290,7 @@ Anything outside that list — control APIs with no Avalonia counterpart (`treeV
 drawing, `switch`/`try`, an un-promotable helper — stops the translation. **Translation stops at the
 first statement it cannot handle**, so the emitted prefix is a faithful partial execution rather
 than a method that silently skips work. The full boundary, including why each exclusion is where it
-is, lives in [`docs/known-limitations.md`](docs/known-limitations.md).
+is, lives in [`docs/known-limitations.md`](https://github.com/k0zi/WinformsToAvalonia/blob/main/docs/known-limitations.md).
 
 A promoted `[RelayCommand]` almost always translates *completely*: promotion already proved every
 member its body touches is bindable, so the same body rewrites cleanly against the ViewModel's own
@@ -336,7 +336,7 @@ Every *other* Form is still a `Window`, and everything reaching the hosting wind
 (`Close`, `Title`, `WindowState`, `ShowDialog`) goes through a generated `ViewWindow.Of(this)`
 that walks up to it. Those work on the desktop head and throw in the browser — the conversion
 reports each one in `MIGRATION.md` rather than pretending otherwise. See
-[known-limitations](docs/known-limitations.md#browser-webassembly-head) for the full list.
+[known-limitations](https://github.com/k0zi/WinformsToAvalonia/blob/main/docs/known-limitations.md#browser-webassembly-head) for the full list.
 
 Without the flag the output is byte-for-byte what it has always been: the split is a
 post-processing pass, not a branch through the converter.
@@ -364,8 +364,8 @@ docs/
 
 This tool gets you a running Avalonia app and a per-method migration list — not a finished port.
 Layout stays absolute, handler bodies stay commented, and some WinForms concepts have no Avalonia
-counterpart at all. [`docs/known-limitations.md`](docs/known-limitations.md) is an honest,
-current-state list; [`docs/Controls.md`](docs/Controls.md) has the per-type status.
+counterpart at all. [`docs/known-limitations.md`](https://github.com/k0zi/WinformsToAvalonia/blob/main/docs/known-limitations.md) is an honest,
+current-state list; [`docs/Controls.md`](https://github.com/k0zi/WinformsToAvalonia/blob/main/docs/Controls.md) has the per-type status.
 
 ## Contributing
 
@@ -392,4 +392,4 @@ A few conventions worth knowing before opening a PR:
 
 ## License
 
-[MIT](LICENSE) © David Kozma
+[MIT](https://github.com/k0zi/WinformsToAvalonia/blob/main/LICENSE) © David Kozma
