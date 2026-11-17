@@ -345,6 +345,132 @@ public class HandlerBodyRewriterTests
         Assert.Equal([expected], result.MigratedStatements);
     }
 
+    /// <summary>
+    /// A container whose Paint moved onto a paint layer: repainting the container itself would
+    /// re-render only its own chrome, so the call follows the drawing - for a control and for the
+    /// Form's own bare <c>Invalidate()</c> alike.
+    /// </summary>
+    [Theory]
+    [InlineData("this.groupBox1.Invalidate();", "groupBox1PaintLayer.InvalidateVisual();")]
+    [InlineData("groupBox1.Refresh();", "groupBox1PaintLayer.InvalidateVisual();")]
+    [InlineData("Invalidate();", "mainFormPaintLayer.InvalidateVisual();")]
+    [InlineData("this.Refresh();", "mainFormPaintLayer.InvalidateVisual();")]
+    public void RewriteForView_InvalidateOnAPaintLayeredContainer_RepaintsTheLayer(string original, string expected)
+    {
+        var form = FormWith(("groupBox1", "GroupBox"), ("groupBox1PaintLayer", "Panel"), ("mainFormPaintLayer", "Panel"));
+        form.PaintLayers["groupBox1"] = "groupBox1PaintLayer";
+        form.PaintLayers[""] = "mainFormPaintLayer";
+
+        var result = Rewriter.RewriteForView(original, form);
+
+        Assert.Equal([expected], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A control the handler creates is the bare Avalonia element; its initializer members are the
+    /// property writes they stand for, and it may be handed to the View's own Canvas.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_RuntimeCreatedButton_IsCreatedPositionedAndAdded()
+    {
+        var result = Rewriter.RewriteForView(
+            "var b = new Button { Text = \"Go\" };\n"
+            + "b.Location = new Point(10, 20);\n"
+            + "b.Size = new System.Drawing.Size(75, 23);\n"
+            + "b.Enabled = false;\n"
+            + "this.Controls.Add(b);",
+            FormWith());
+
+        Assert.True(result.IsComplete, result.RemainingBody);
+        Assert.Equal(
+            [
+                "var b = new Button();\nb.Content = \"Go\";",
+                "Canvas.SetLeft(b, 10);\nCanvas.SetTop(b, 20);",
+                "b.Width = 75;\nb.Height = 23;",
+                "b.IsEnabled = false;",
+                "((Canvas)Content!).Children.Add(b);",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>A Panel that stayed a Canvas takes children; a runtime Panel does too.</summary>
+    [Fact]
+    public void RewriteForView_RuntimeControlAddedToAPanel_GoesIntoItsChildren()
+    {
+        var result = Rewriter.RewriteForView(
+            "var inner = new Panel();\nvar l = new Label();\ninner.Controls.Add(l);\npanel1.Controls.Add(inner);\npanel1.Controls.Remove(inner);",
+            FormWith(("panel1", "Panel")));
+
+        Assert.True(result.IsComplete, result.RemainingBody);
+        Assert.Equal("inner.Children.Add(l);", result.MigratedStatements[2]);
+        Assert.Equal("panel1.Children.Add(inner);", result.MigratedStatements[3]);
+        Assert.Equal("panel1.Children.Remove(inner);", result.MigratedStatements[4]);
+    }
+
+    /// <summary>
+    /// FormatUtility's shape: a status label held in a field, created in Load and added to the
+    /// strip through an array. The field may already have a parent, so it is detached first.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_RuntimeControlFieldAddedToAStatusStrip_IsCreatedAndAdded()
+    {
+        var form = FormWith(("StatusBar", "StatusStrip"));
+        form.RuntimeControls["label"] = new ControlModel { FieldName = "label", ClrTypeName = "ToolStripStatusLabel" };
+
+        var result = Rewriter.RewriteForView(
+            "label = new ToolStripStatusLabel();\nToolStripItem[] items = { label };\nthis.StatusBar.Items.AddRange(items);\nlabel.Text = \"ready\";",
+            form);
+
+        Assert.True(result.IsComplete, result.RemainingBody);
+        Assert.Equal(
+            [
+                "label = new TextBlock();",
+                "Control[] items = { label };",
+                "(label.Parent as Panel)?.Children.Remove(label);\nStatusBar.Children.AddRange(items);",
+                "label.Text = \"ready\";",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A designer control already has a parent - Avalonia throws where WinForms re-parented - and a
+    /// ToolStripItem is not a control a Canvas can hold.
+    /// </summary>
+    [Theory]
+    [InlineData("this.Controls.Add(button1);")]
+    [InlineData("var s = new ToolStripStatusLabel();\nthis.Controls.Add(s);")]
+    [InlineData("var b = new Button();\nStatusBar.Items.Add(b);")]
+    [InlineData("var b = new Button(\"x\");")]
+    [InlineData("var b = new Button { Text = \"x\", Dock = DockStyle.Fill };")]
+    public void RewriteForView_UnprovableRuntimeControlShapes_StopTheHandler(string body)
+    {
+        var form = FormWith(("button1", "Button"), ("StatusBar", "StatusStrip"));
+
+        var result = Rewriter.RewriteForView(body, form);
+
+        Assert.False(result.IsComplete);
+    }
+
+    /// <summary>Moving a designer control on the Canvas it sits on is the Canvas attached properties.</summary>
+    [Fact]
+    public void RewriteForView_DesignerControlLocation_SetsCanvasPosition()
+    {
+        var result = Rewriter.RewriteForView(
+            "button1.Left = 12;\nthis.button1.Top = 5;",
+            FormWith(("button1", "Button")));
+
+        Assert.Equal(["Canvas.SetLeft(button1, 12);", "Canvas.SetTop(button1, 5);"], result.MigratedStatements);
+    }
+
+    /// <summary>Without a paint layer a bare <c>Invalidate()</c> names nothing the View can repaint.</summary>
+    [Fact]
+    public void RewriteForView_BareInvalidateWithoutAPaintLayer_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView("Invalidate();", FormWith());
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     /// <summary>`Clear` is a TextBox method; a Label has no such thing.</summary>
     [Fact]
     public void RewriteForView_TypeSpecificMethodOnTheWrongControl_IsNotMigrated()
@@ -1993,6 +2119,116 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    /// <summary>
+    /// `sender is Label label` - the shared handler's other way of naming the control that raised
+    /// it. Every wired control is a Label, so the test is always true, on the Avalonia sender just
+    /// as on the WinForms one: it stays, against the element type, and the pattern variable is a
+    /// control for the rest of the body.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SenderTypePattern_TestsTheAvaloniaElement_AndNamesTheControl()
+    {
+        var form = FormWith(("card1", "Label"), ("card2", "Label"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (sender is Label label)
+            {
+                label.Text = "open";
+            }
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "PointerPressedEventArgs", ["card1", "card2"]));
+
+        Assert.Equal(
+            ["if (sender is TextBlock label)\n{\n    label.Text = \"open\";\n}"],
+            result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>The guard-clause spelling: the variable is in scope after the `if`, as in C#.</summary>
+    [Fact]
+    public void RewriteForView_NegatedSenderTypePattern_GuardsTheRestOfTheBody()
+    {
+        var form = FormWith(("okButton", "Button"), ("cancelButton", "Button"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (sender is not Button button)
+                return;
+            button.Enabled = false;
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", ["okButton", "cancelButton"]));
+
+        Assert.Equal(
+            ["if (sender is not Button button)\n{\n    return;\n}", "button.IsEnabled = false;"],
+            result.MigratedStatements);
+        Assert.True(result.IsComplete);
+    }
+
+    /// <summary>A type test that could be false - the handler is also on a CheckBox - is what the handler is *for*: refused.</summary>
+    [Fact]
+    public void RewriteForView_SenderTypePatternOverMixedTypes_IsNotMigrated()
+    {
+        var form = FormWith(("okButton", "Button"), ("agreeCheckBox", "CheckBox"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (sender is Button button)
+            {
+                button.Text = "x";
+            }
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", ["okButton", "agreeCheckBox"]));
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>`as` says what the cast says wherever the cast is admissible - it never yields null there.</summary>
+    [Fact]
+    public void RewriteForView_SenderAsCast_IsTheSameAliasAsTheCast()
+    {
+        var form = FormWith(("okButton", "Button"));
+
+        var result = Rewriter.RewriteForView(
+            """
+            var button = sender as Button;
+            button.Text = "Clicked";
+            """,
+            form,
+            Navigation(),
+            new HandlerSignature("e", "RoutedEventArgs", ["okButton"]));
+
+        Assert.Equal(["okButton.Content = \"Clicked\";"], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The cast used in place, on a single-control handler, is that control's field. A cast to a
+    /// type the control is not stays refused.
+    /// </summary>
+    [Theory]
+    [InlineData("((Button)sender).Text = \"Clicked\";", true)]
+    [InlineData("(sender as Button).Enabled = false;", true)]
+    [InlineData("((Label)sender).Text = \"Clicked\";", false)]
+    public void RewriteForView_InlineSenderCast_OnASingleControlHandler_IsItsField(string body, bool migrates)
+    {
+        var form = FormWith(("okButton", "Button"));
+
+        var result = Rewriter.RewriteForView(
+            body, form, Navigation(), new HandlerSignature("e", "RoutedEventArgs", ["okButton"]));
+
+        Assert.Equal(migrates, result.MigratedStatements.Count == 1);
+        if (migrates)
+        {
+            Assert.StartsWith("okButton.", result.MigratedStatements[0]);
+        }
+    }
+
     [Fact]
     public void RewriteForView_ClipboardSetText_GoesThroughTheTopLevelAndTurnsTheHandlerAsync()
     {
@@ -2597,9 +2833,23 @@ public class HandlerBodyRewriterTests
     {
         var form = FormWith(("panel1", "Panel"), ("other", "Panel"));
 
-        var result = Rewriter.RewriteForView("this.panel1.BackColor = this.other.BackColor;", form);
+        var result = Rewriter.RewriteForView("this.panel1.BackColor = Color.FromName(this.other.Name);", form);
 
         Assert.Empty(result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// Another control's colour is read where it means the same: WinForms' BackColor is ambient,
+    /// so it goes through the helper that walks up to the colour that shows.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_AnotherControlsBackColor_IsTheAmbientColour()
+    {
+        var form = FormWith(("panel1", "Panel"), ("other", "Panel"));
+
+        var result = Rewriter.RewriteForView("this.panel1.BackColor = this.other.BackColor;", form);
+
+        Assert.Equal(["panel1.Background = AmbientBackColorFallback.Of(other);"], result.MigratedStatements);
     }
 
     // ---- The dialogs Avalonia has nothing for ------------------------------------------------
@@ -3161,16 +3411,118 @@ public class HandlerBodyRewriterTests
     }
 
     /// <summary>
-    /// A compound operator reads the property as well as writing it, and reading is the other half
-    /// of the same conversion - which cannot be spliced into a left-hand side. So it refuses.
+    /// A compound operator reads the property as well as writing it. It used to refuse, because the
+    /// read half cannot be spliced into a left-hand side - but it does not have to be: <c>a op= b</c>
+    /// is <c>a = a op b</c>, and both halves translate on their own, the read converting back to
+    /// the WinForms type and the write converting it on again.
     /// </summary>
     [Fact]
-    public void RewriteForView_CompoundAssignmentToAConvertedValue_IsNotMigrated()
+    public void RewriteForView_CompoundAssignmentToAConvertedValue_ExpandsIntoReadAndWrite()
     {
         var result = Rewriter.RewriteForView(
             "this.notesTextBox.WordWrap |= true;", FormWith(("notesTextBox", "TextBox")));
 
+        Assert.Equal(
+            ["notesTextBox.TextWrapping = (((notesTextBox.TextWrapping == TextWrapping.Wrap) | true)) ? TextWrapping.Wrap : TextWrapping.NoWrap;"],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// The cross-thread idiom: ask whether marshalling is needed, then hand a delegate to the UI
+    /// thread. Both halves have a one-to-one Dispatcher counterpart.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_InvokeRequiredAndInvoke_MarshalThroughTheDispatcher()
+    {
+        var form = FormWith(("statusLabel", "Label"));
+        var helpers = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal)
+        {
+            ["ShowStatus"] = new(ParameterCount: 1, IsAsync: false),
+        };
+
+        var result = Rewriter.RewriteForView(
+            """
+            if (this.statusLabel.InvokeRequired)
+            {
+                this.Invoke(new Action(() => { this.statusLabel.Text = "busy"; }));
+            }
+            BeginInvoke((MethodInvoker)delegate { statusLabel.Text = "done"; });
+            this.Invoke(new Action<string>(ShowStatus), new object[] { "x" });
+            this.BeginInvoke(new Action(() => this.statusLabel.Text = "y"));
+            """,
+            form,
+            Navigation(),
+            promotedHelpers: helpers);
+
+        Assert.Equal(
+            [
+                "if ((!Dispatcher.UIThread.CheckAccess()))\n{\n    Dispatcher.UIThread.Invoke(() =>\n    {\n        statusLabel.Text = \"busy\";\n    });\n}",
+                "Dispatcher.UIThread.Post(() =>\n{\n    statusLabel.Text = \"done\";\n});",
+                "Dispatcher.UIThread.Invoke(() => ShowStatus(\"x\"));",
+                "Dispatcher.UIThread.Post(() =>\n{\n    statusLabel.Text = \"y\";\n});",
+            ],
+            result.MigratedStatements);
+        Assert.Contains("Avalonia.Threading", result.RequiredUsings);
+    }
+
+    /// <summary>
+    /// A delegate body runs on its own, so it translates whole or not at all - and a delegate
+    /// that is not one of the recognised shapes (held in a local first) is not guessed at.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_InvokeWithAnUntranslatableBody_IsNotMigrated()
+    {
+        var result = Rewriter.RewriteForView(
+            """
+            this.Invoke(new Action(() => { this.statusLabel.Text = "a"; this.statusLabel.Image = null; }));
+            """,
+            FormWith(("statusLabel", "Label")));
+
         Assert.Empty(result.MigratedStatements);
+
+        var viaLocal = Rewriter.RewriteForView(
+            "MethodInvoker d = Refresh; this.Invoke(d);", FormWith(("statusLabel", "Label")));
+        Assert.Empty(viaLocal.MigratedStatements);
+    }
+
+    /// <summary>The busy-cursor idiom, on the View and on a control.</summary>
+    [Fact]
+    public void RewriteForView_StockCursor_IsConstructedTheAvaloniaWay()
+    {
+        var result = Rewriter.RewriteForView(
+            """
+            this.Cursor = Cursors.WaitCursor;
+            this.okButton.Cursor = Cursors.Hand;
+            Cursor = Cursors.Default;
+            """,
+            FormWith(("okButton", "Button")));
+
+        Assert.Equal(
+            [
+                "Cursor = new Cursor(StandardCursorType.Wait);",
+                "okButton.Cursor = new Cursor(StandardCursorType.Hand);",
+                "Cursor = Cursor.Default;",
+            ],
+            result.MigratedStatements);
+
+        // No exact counterpart: refused rather than approximated.
+        Assert.Empty(Rewriter.RewriteForView("this.Cursor = Cursors.VSplit;", FormWith()).MigratedStatements);
+    }
+
+    /// <summary><c>label1.Text += x</c> - the read null-guarded, the operand parenthesized.</summary>
+    [Fact]
+    public void RewriteForView_CompoundAssignmentToText_AppendsToTheTranslatedRead()
+    {
+        var result = Rewriter.RewriteForView(
+            "this.statusLabel.Text += \" - \" + string.Empty;\nthis.okButton.Text += \"!\";",
+            FormWith(("statusLabel", "Label"), ("okButton", "Button")));
+
+        Assert.Equal(
+            [
+                "statusLabel.Text = (statusLabel.Text ?? string.Empty) + (\" - \" + string.Empty);",
+                "okButton.Content = (okButton.Content as string ?? string.Empty) + \"!\";",
+            ],
+            result.MigratedStatements);
     }
 
     /// <summary>
@@ -3585,6 +3937,106 @@ public class HandlerBodyRewriterTests
         Assert.Empty(result.MigratedStatements);
     }
 
+    // ---- TableLayoutPanel cells ---------------------------------------------------------------
+
+    /// <summary>A 2x1 panel of two labels in cells (0,0) and (1,0), and a button outside it.</summary>
+    private static FormModel TableForm(Action<FormModel>? adjust = null)
+    {
+        var form = FormWith(("tableLayoutPanel1", "TableLayoutPanel"), ("label1", "Label"), ("label2", "Label"), ("button1", "Button"));
+        var panel = form.Controls["tableLayoutPanel1"];
+        panel.Children.Add(form.Controls["label1"]);
+        panel.Children.Add(form.Controls["label2"]);
+        form.Controls["label1"].DesignerTableCell = new TableCellPosition(0, 0);
+        form.Controls["label2"].DesignerTableCell = new TableCellPosition(1, 0);
+        adjust?.Invoke(form);
+        return form;
+    }
+
+    private static RewrittenBody RewriteTable(string body, FormModel? form = null, string[]? senders = null) =>
+        Rewriter.RewriteForView(
+            body,
+            form ?? TableForm(),
+            signature: new HandlerSignature("e", "PointerPressedEventArgs", senders ?? ["label1", "label2"]));
+
+    [Fact]
+    public void RewriteForView_TableCells_ReadTheDesignersCell()
+    {
+        var result = RewriteTable("""
+            var label = (Label)sender;
+            var column = tableLayoutPanel1.GetColumn(label);
+            this.label1.Text = tableLayoutPanel1.GetRow(this.label2).ToString();
+            for (var i = 0; i < tableLayoutPanel1.Controls.Count; i++)
+            {
+                var cell = (Label)tableLayoutPanel1.Controls[i];
+                cell.ForeColor = cell.BackColor;
+            }
+            """);
+
+        Assert.Equal(
+            [
+                "var label = (TextBlock)sender!;",
+                "var column = Grid.GetColumn(label);",
+                "label1.Text = Grid.GetRow(label2).ToString();",
+                "for (var i = 0; i < tableLayoutPanel1.Children.Count; i++)\n{\n    var cell = (TextBlock)tableLayoutPanel1.Children[i];\n    cell.Foreground = AmbientBackColorFallback.Of(cell);\n}",
+            ],
+            result.MigratedStatements.Select(s => s.ReplaceLineEndings("\n")));
+    }
+
+    /// <summary>
+    /// Each refusal is a way the Avalonia answer could differ: a child the designer did not put in
+    /// a cell (it reads 0, WinForms -1), a span or a later SetColumn, two children of different
+    /// types (the cast could fail on one side only), a control outside the panel, and a position
+    /// argument the lookup would evaluate once per child.
+    /// </summary>
+    [Theory]
+    [InlineData("noCell", "var column = tableLayoutPanel1.GetColumn(this.label1);")]
+    [InlineData("overridden", "var column = tableLayoutPanel1.GetColumn(this.label1);")]
+    [InlineData("sameCell", "var label = tableLayoutPanel1.GetControlFromPosition(0, 0);")]
+    [InlineData("mixed", "var label = (Label)tableLayoutPanel1.Controls[0];")]
+    [InlineData("", "var column = tableLayoutPanel1.GetColumn(this.button1);")]
+    [InlineData("", "var label = tableLayoutPanel1.GetControlFromPosition(i++, 0);")]
+    [InlineData("", "var label = (Button)tableLayoutPanel1.Controls[0];")]
+    public void RewriteForView_TableCells_RefuseWhatCouldDiffer(string variant, string statement)
+    {
+        var form = TableForm(form =>
+        {
+            var label1 = form.Controls["label1"];
+            switch (variant)
+            {
+                case "noCell":
+                    label1.DesignerTableCell = null;
+                    break;
+                case "overridden":
+                    label1.TableCellOverridden = true;
+                    break;
+                case "sameCell":
+                    form.Controls["label2"].DesignerTableCell = label1.DesignerTableCell;
+                    break;
+                case "mixed":
+                    form.Controls["tableLayoutPanel1"].Children.Add(form.Controls["button1"]);
+                    form.Controls["button1"].DesignerTableCell = new TableCellPosition(0, 1);
+                    break;
+            }
+        });
+
+        var result = RewriteTable("int i = 0;\nthis.label1.Text = \"x\";\n" + statement + "\nthis.label2.Text = \"y\";", form);
+
+        Assert.Equal(["int i = 0;", "label1.Text = \"x\";"], result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// A colour read off a brush-local is a SolidColorBrush the body may write to later; a control's
+    /// brush is only an IBrush, shared with the control - so a SolidBrush local takes a colour, never
+    /// another control's.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_SolidBrushFromAControlsColour_IsNotMigrated()
+    {
+        var result = RewritePaint("var b = new SolidBrush(this.canvasPanel.BackColor);\ne.Graphics.FillRectangle(b, 0, 0, 1, 1);");
+
+        Assert.Empty(result.MigratedStatements);
+    }
+
     // ---- Paint handlers: Graphics -> DrawingContext ------------------------------------------
 
     private static RewrittenBody RewritePaint(string body) =>
@@ -3620,6 +4072,76 @@ public class HandlerBodyRewriterTests
 
         Assert.Equal([expected], result.MigratedStatements);
         Assert.Contains("Avalonia.Media", result.RequiredUsings);
+    }
+
+    /// <summary>
+    /// A pen the handler builds itself is built as the Avalonia object straight away: the
+    /// <c>using</c> goes (Avalonia's Pen is not IDisposable - a CS1674 otherwise) but its scope stays,
+    /// the width becomes the thickness, and GDI+'s dash pattern is spelled out in pen widths.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_PenLocalInAUsing_BecomesAnAvaloniaPenInABlock()
+    {
+        var result = RewritePaint("""
+            using (var p = new Pen(Color.Black, 2))
+            {
+                e.Graphics.DrawLine(p, 1, 2, 3, 4);
+                p.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
+                p.Width = 3;
+                e.Graphics.DrawLine(p, 1, 2, 3, 4);
+                p.DashStyle = DashStyle.Solid;
+            }
+            """);
+
+        var statement = Assert.Single(result.MigratedStatements);
+        Assert.Equal(
+            """
+            {
+                var p = new Pen(new SolidColorBrush(Color.Parse("#FF000000")), 2);
+                e.Context.DrawLine(p, new Point(1, 2), new Point(3, 4));
+                p.DashStyle = new DashStyle(new double[] { 3, 1 }, 0);
+                p.Thickness = 3;
+                e.Context.DrawLine(p, new Point(1, 2), new Point(3, 4));
+                p.DashStyle = null;
+            }
+            """.ReplaceLineEndings("\n"),
+            statement);
+        Assert.Empty(result.RemainingBody.Trim());
+    }
+
+    /// <summary>A brush local fills, and is accepted by DrawString too - but never where a pen is wanted.</summary>
+    [Fact]
+    public void RewriteForView_BrushLocal_FillsButIsNoPen()
+    {
+        var result = RewritePaint("""
+            var br = new SolidBrush(Color.Red);
+            e.Graphics.FillEllipse(br, 1, 2, 3, 4);
+            e.Graphics.DrawLine(br, 1, 2, 3, 4);
+            """);
+
+        Assert.Equal(
+            [
+                "var br = new SolidColorBrush(Color.Parse(\"#FFFF0000\"));",
+                "e.Context.DrawEllipse(br, null, new Rect(1, 2, 3, 4));",
+            ],
+            result.MigratedStatements);
+    }
+
+    /// <summary>
+    /// What Avalonia's pen cannot say stops the handler: GDI+ caps each end separately and has
+    /// arrow anchors, and a custom dash pattern is an array this does not read.
+    /// </summary>
+    [Theory]
+    [InlineData("p.EndCap = LineCap.ArrowAnchor;")]
+    [InlineData("p.DashStyle = DashStyle.Custom;")]
+    [InlineData("p.DashPattern = new float[] { 2, 1 };")]
+    public void RewriteForView_PenMemberAvaloniaCannotSay_IsNotMigrated(string statement)
+    {
+        // A draw call between, or the declaration would be trimmed as a local nothing translated uses.
+        var result = RewritePaint("var p = new Pen(Color.Black);\ne.Graphics.DrawLine(p, 1, 2, 3, 4);\n" + statement);
+
+        Assert.Equal(2, result.MigratedStatements.Count);
+        Assert.StartsWith(statement, result.RemainingBody.Trim());
     }
 
     /// <summary>

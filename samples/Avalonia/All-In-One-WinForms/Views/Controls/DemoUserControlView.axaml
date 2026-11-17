@@ -12,8 +12,8 @@
         <vm:DemoUserControlViewModel />
     </Design.DataContext>
     <Canvas>
-        <Button x:Name="incrementButton" Canvas.Left="74" Canvas.Top="30" Width="96" Height="26" Content="Increment" Command="{Binding IncrementButtonCommand}" />
-        <TextBlock x:Name="counterLabel" Canvas.Left="8" Canvas.Top="34" Width="60" Height="20" Text="{Binding CounterLabelText, Mode=TwoWay}" />
-        <TextBlock x:Name="captionLabel" Canvas.Left="8" Canvas.Top="8" Width="180" Height="20" Text="Demo user control" />
+        <Button x:Name="incrementButton" Canvas.Left="74" Canvas.Top="30" Width="96" Height="26" Content="Increment" Command="{Binding IncrementButtonCommand}" TabIndex="2" />
+        <TextBlock x:Name="counterLabel" Canvas.Left="8" Canvas.Top="34" Width="60" Height="20" Text="{Binding CounterLabelText, Mode=TwoWay}" TabIndex="1" />
+        <TextBlock x:Name="captionLabel" Canvas.Left="8" Canvas.Top="8" Width="180" Height="20" Text="Demo user control" TabIndex="0" />
     </Canvas>
 </UserControl>

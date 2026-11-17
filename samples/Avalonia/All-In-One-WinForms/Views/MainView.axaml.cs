@@ -42,7 +42,9 @@ public partial class MainView : Window
     private PerformanceCounter? _performanceCounter1;
     private ServiceController? _serviceController1;
     private SoundPlayer? _soundPlayer1;
+#pragma warning disable CS0169, CS0414, CS0649 // used by handler code that is not migrated yet
     private bool isBusy;
+#pragma warning restore CS0169, CS0414, CS0649
     private bool w2aForceClose;
     private bool w2aInitialized;
     private readonly MainViewModel w2aViewModel = new();
@@ -73,6 +75,14 @@ public partial class MainView : Window
 
         clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         clockTimer.Tick += clockTimer_Tick;
+
+        showStatusStripMenuItem.Click += (_, _) => showStatusStripMenuItem.IsChecked = !showStatusStripMenuItem.IsChecked;
+
+        showToolStripMenuItem.Click += (_, _) => showToolStripMenuItem.IsChecked = !showToolStripMenuItem.IsChecked;
+
+        wordWrapMenuItem.Click += (_, _) => wordWrapMenuItem.IsChecked = !wordWrapMenuItem.IsChecked;
+
+        wordWrapMenuItem.Click += wordWrapMenuItem_Click;
 
         pictureBox1.PointerPressed += pictureBox1_Click;
 
@@ -175,7 +185,7 @@ public partial class MainView : Window
         {
             e.Cancel = true;
             var w2aClosing = await MessageBoxFallback.ShowYesNoAsync(this, "A background operation is still running. Close anyway?", "All-In-One");
-            w2aRemaining();
+            App.NotifyIcon1.IsVisible = false;
             if (w2aClosing)
             {
                 w2aForceClose = true;
@@ -185,15 +195,7 @@ public partial class MainView : Window
             return;
         }
 
-        w2aRemaining();
-
-        void w2aRemaining()
-        {
-            /* REMAINING WINFORMS BODY of 'MainForm_FormClosing' - TODO(Winforms2Avalonia): migrate it into this method.
-            this.notifyIcon1.Visible = false;
-            */
-            MigrationTodo.NotMigrated(nameof(MainForm_FormClosing), "MainForm_FormClosing");
-        }
+        App.NotifyIcon1.IsVisible = false;
     }
 
     private void newMenuItem_Click(object? sender, RoutedEventArgs e)
@@ -205,7 +207,7 @@ public partial class MainView : Window
 
     private async void openMenuItem_Click(object? sender, RoutedEventArgs e)
     {
-        if (await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions()) is [var openFileDialog1File, ..])
+        if (await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Pick a file", FileTypeFilter = [new FilePickerFileType("All files (*.*)") { Patterns = ["*.*"] }] }) is [var openFileDialog1File, ..])
         {
             notesRichTextBox.Text = File.ReadAllText(openFileDialog1File.Path.LocalPath);
             statusLabel.Text = openFileDialog1File.Path.LocalPath;
@@ -333,7 +335,7 @@ public partial class MainView : Window
 
     private async void openFileButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions()) is [var openFileDialog1File, ..])
+        if (await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Pick a file", FileTypeFilter = [new FilePickerFileType("All files (*.*)") { Patterns = ["*.*"] }] }) is [var openFileDialog1File, ..])
         {
             selectedPathLabel.Text = openFileDialog1File.Path.LocalPath;
         }
@@ -341,7 +343,7 @@ public partial class MainView : Window
 
     private async void saveFileButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions()) is { } saveFileDialog1File)
+        if (await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = "Save as", FileTypeChoices = [new FilePickerFileType("Text files (*.txt)") { Patterns = ["*.txt"] }] }) is { } saveFileDialog1File)
         {
             selectedPathLabel.Text = saveFileDialog1File.Path.LocalPath;
         }
@@ -349,7 +351,7 @@ public partial class MainView : Window
 
     private async void folderBrowserButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions()) is [var folderBrowserDialog1Folder, ..])
+        if (await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Pick a folder" }) is [var folderBrowserDialog1Folder, ..])
         {
             selectedPathLabel.Text = folderBrowserDialog1Folder.Path.LocalPath;
         }

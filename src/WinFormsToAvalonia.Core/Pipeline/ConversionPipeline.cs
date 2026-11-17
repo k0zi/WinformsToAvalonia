@@ -6,6 +6,7 @@ using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 using WinFormsToAvalonia.Core.Parsing;
 using WinFormsToAvalonia.Core.Scaffolding;
+using WinFormsToAvalonia.Core.Semantics;
 using WinFormsToAvalonia.FallbackControls;
 
 namespace WinFormsToAvalonia.Core.Pipeline;
@@ -67,6 +68,20 @@ public sealed class ConversionPipeline
             .ToList();
 
         var allWarnings = new List<string>();
+
+        // The project compiled against the base class library alone. What binds there without
+        // WinForms is provably the same code in the generated project - its plain source files
+        // come across whole, and a handler statement that touches no control translates verbatim.
+        var semantics = SemanticProjectContext.Build(
+            project,
+            projectName,
+            // Discovery lists every class; only the ones it converts (or saw a designer for) are
+            // never copied. A plain class it classified as Other is exactly what may come across.
+            allPairings
+                .Where(p => p.Kind is not WinFormsArtifactKind.Other || p.DesignerFilePath is not null)
+                .Select(p => p.FullyQualifiedName)
+                .ToHashSet(StringComparer.Ordinal),
+            NuGetPackageStore.Default(allowDownload: !options.Offline));
 
         // The main window is the Form `Application.Run` starts, not whichever Form discovery
         // happened to list first. Decided once, here, because two places act on it: the
@@ -184,6 +199,9 @@ public sealed class ConversionPipeline
         var fallbackCount = 0;
         var unsupportedCount = 0;
         var allMigratedStatements = 0;
+        // The first statement each unfinished handler stopped at, bucketed - see MigrationBlockerClassifier.
+        var migrationBlockers = new List<string>();
+        var mappableTypeNames = mappingRegistry.Mappers.Keys.ToHashSet(StringComparer.Ordinal);
         var allHandlerStatements = 0;
 
         // Every artifact parsed before any of them is planned. A handler that says
@@ -288,7 +306,8 @@ public sealed class ConversionPipeline
                     .Select(i => i.FieldName)
                     .ToHashSet(StringComparer.Ordinal),
                 rootKind,
-                modelTypes.Context);
+                modelTypes.Context,
+                semantics.ForClass(pairing.FullyQualifiedName));
             allWarnings.AddRange(migrationPlan.Warnings);
             codeBehindNotes.AddRange(migrationPlan.CodeBehindNotes);
 
@@ -311,6 +330,9 @@ public sealed class ConversionPipeline
             var (migratedStatements, totalStatements) = migrationPlan.StatementMigration;
             allMigratedStatements += migratedStatements;
             allHandlerStatements += totalStatements;
+            migrationBlockers.AddRange(migrationPlan.HandlerRemainders
+                .Select(remainder => MigrationBlockerClassifier.Classify(remainder, formModel.Controls, mappableTypeNames))
+                .OfType<string>());
 
             var axamlResult = axamlEmitter.EmitView(
                 formModel, projectName, viewClassName, viewModelClassName, migrationPlan, relativeFolder,
@@ -378,13 +400,35 @@ public sealed class ConversionPipeline
         var vfs = _scaffolder.BuildProject(
             projectName, convertedForms, allRequiredNuGetPackages, project.IsLibrary ? [] : notifyIcons,
             solutionContext?.ProjectReferences ?? [], project.IsLibrary ? null : startupOutput,
-            asLibrary: project.IsLibrary);
+            asLibrary: project.IsLibrary,
+            carriedPackages: semantics.CarriedPackages);
         _fallbackControlResolver.CopyResolvedTemplates(vfs, projectName, allUsedFallbackKeys);
 
         foreach (var (relativePath, text) in carriedComponents.SelectMany(c => c.Files))
         {
             vfs.AddText(relativePath, text);
         }
+
+        // The project's own UI-neutral source - models, services, helpers - unchanged. Never over
+        // a file the conversion generated itself.
+        foreach (var carried in semantics.CarriedFiles)
+        {
+            if (vfs.TryGetText(carried.RelativePath, out _))
+            {
+                allWarnings.Add(
+                    $"'{carried.RelativePath}' was not carried over: the conversion generates a file at that path itself.");
+                continue;
+            }
+
+            vfs.AddText(carried.RelativePath, carried.Text);
+        }
+
+        // A package the conversion references itself - a component's, at the version it pins - is
+        // not "left behind", whatever the semantic check thought of it.
+        allWarnings.AddRange(semantics.NotCarriedPackages
+            .Where(p => !allRequiredNuGetPackages.Contains(p.Id))
+            .Select(p => p.Message));
+        allWarnings.AddRange(semantics.Warnings);
 
         allWarnings.AddRange(modelTypes.Warnings);
 
@@ -453,7 +497,7 @@ public sealed class ConversionPipeline
         if (withWeb)
         {
             vfs = _scaffolder.SplitIntoHeads(
-                vfs, projectName, allRequiredNuGetPackages, solutionContext?.ProjectReferences ?? []);
+                vfs, projectName, allRequiredNuGetPackages, solutionContext?.ProjectReferences ?? [], semantics.CarriedPackages);
         }
 
         var preservedFiles = new List<string>();
@@ -488,7 +532,8 @@ public sealed class ConversionPipeline
             convertedElsewhereNotes,
             codeBehindNotes,
             writeResult?.Pruned,
-            writeResult?.Orphaned);
+            writeResult?.Orphaned,
+            MigrationBlockerClassifier.Histogram(migrationBlockers));
 
         return new ConversionRunResult(vfs, report);
     }
@@ -1179,13 +1224,35 @@ public sealed class ConversionPipeline
         var primarySource = pairing.PrimaryFilePath is { } primaryPath && File.Exists(primaryPath)
             ? File.ReadAllText(primaryPath)
             : null;
-        var lifted = InlineHandlerLifter.Lift(formModel, DeclaredMemberNames(primarySource, pairing.ClassName));
-        var codeBehind = lifted.Count == 0
+        var declaredMembers = DeclaredMemberNames(primarySource, pairing.ClassName);
+
+        // `override void OnLoad(EventArgs e)` is a Load handler in all but name - and the View's
+        // Avalonia base has no OnLoad to override - so it becomes one before anything reads the
+        // bindings. Before the paint layers, because an OnPaint override is a Paint binding.
+        var overrides = OverrideHandlerLifter.Lift(
+            primarySource, pairing.ClassName, formModel, declaredMembers, OverrideEventMappings);
+        if (overrides is not null)
+        {
+            primarySource = overrides.Source;
+            declaredMembers = DeclaredMemberNames(primarySource, pairing.ClassName);
+        }
+
+        var paintLayerNotes = PaintLayerInserter.Insert(
+            formModel, declaredMembers, pairing.Kind == WinFormsArtifactKind.UserControl);
+
+        var lifted = InlineHandlerLifter.Lift(formModel, declaredMembers);
+        var codeBehind = lifted.Count == 0 && overrides is null
             ? _codeBehindAnalyzer.Analyze(pairing.PrimaryFilePath, formModel)
             : _codeBehindAnalyzer.Analyze(
-                InlineHandlerLifter.InjectInto(primarySource, pairing.ClassName, pairing.Namespace, lifted),
+                lifted.Count == 0
+                    ? primarySource!
+                    : InlineHandlerLifter.InjectInto(primarySource, pairing.ClassName, pairing.Namespace, lifted),
                 pairing.PrimaryFilePath ?? pairing.DesignerFilePath!,
                 formModel);
+        if (overrides is not null)
+        {
+            codeBehind = codeBehind with { LiftedOverrides = overrides.LiftedFrom };
+        }
 
         // The base classes' handlers too: the flattened designer wires the base's own events,
         // and their bodies live in the base's code-behind. Nearest base first, so a member a
@@ -1212,7 +1279,7 @@ public sealed class ConversionPipeline
             formModel,
             codeBehind,
             resx,
-            [.. inheritanceWarnings, .. customControlWarnings, .. walkResult.Warnings, .. graphWarnings]);
+            [.. inheritanceWarnings, .. customControlWarnings, .. walkResult.Warnings, .. graphWarnings, .. paintLayerNotes]);
     }
 
     /// <summary>
@@ -1268,6 +1335,9 @@ public sealed class ConversionPipeline
     }
 
     /// <summary>Every member name the class's hand-written half declares - what a lifted handler must not collide with.</summary>
+    /// <summary>Only the static tables matter for which overrides lift, so one registry serves every run.</summary>
+    private static readonly EventMappingRegistry OverrideEventMappings = new();
+
     private static HashSet<string> DeclaredMemberNames(string? source, string className)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>SemanticApp</RootNamespace>
+    <AssemblyName>SemanticApp</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lib\Lib.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Carried over: the code uses it, and it has a net6.0 library. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Dropped without a word: .NET itself ships Microsoft.CSharp now. -->
+    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+  </ItemGroup>
+
+</Project>

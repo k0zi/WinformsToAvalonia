@@ -23,7 +23,7 @@ dotnet test --filter "DisplayName~ConvertedFixtureProject_BuildsSuccessfullyWith
 
 # run the tool
 # --source takes a .csproj, or a .sln/.slnx to convert every WinForms project in it at once
-dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--prune|--mappings <file.json>|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--with-web|--log-file <p>]
+dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--prune|--mappings <file.json>|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--with-web|--offline|--log-file <p>]
 dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source <app.csproj|app.slnx>
 dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
 
@@ -35,7 +35,9 @@ dotnet workload install wasm-tools
 ./samples/convert.sh
 
 # the real-world corpus: pinned open-source WinForms projects (samples/corpus/corpus.txt), cloned
-# sparse into samples/corpus/.cache (gitignored), converted and built - fails on any build warning
+# sparse into samples/corpus/.cache (gitignored), converted and built - fails on any build warning.
+# Ends with the handler-statement migration rate and a histogram of where unfinished handlers
+# stopped (MigrationBlockerClassifier buckets each remainder's first statement): what to translate next
 ./samples/corpus/run.sh [filter]
 
 # pack and install it as the .NET tool it ships as (command: wf2a, package: WinFormsToAvalonia)
@@ -164,6 +166,25 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    attributes, property types, events and their args types, control methods, style groups,
    fallback-template members). Adding a table entry means it will be checked; if it fails there,
    the table is wrong, not the test.
+   **Semantics** (`Core/Semantics`) runs beside parsing, once per project:
+   `SemanticProjectContext.Build` compiles every source file (plus the non-WinForms class
+   libraries it `ProjectReference`s) against the .NET 10 **reference pack and nothing else** -
+   WinForms is deliberately absent, so every WinForms name binds to an error type and "does this
+   touch UI?" becomes "does everything bind?". `NeutralityChecker` is that test (plus: no
+   `System.Drawing`, no `[Obsolete]`/`[SupportedOSPlatform]`/`[Experimental]`, a project type only if
+   its file is carried, a Form member only if the View declares it) and also *renders* a node, with
+   every type outside `System` + the implicit usings written namespace-qualified. It carries the
+   project's UI-neutral files over whole (`CarriedFiles`, a fixed point - dropping one can strand
+   another), and `ForClass(fqn)` gives the planner a `SemanticClassScope`: fields and helper
+   signatures of named types, and `BindBody`, which binds the rewriter's *freshly parsed* body copy
+   speculatively at the original method's position so every node of it can be asked what it means.
+   The project's NuGet packages join that compilation too (`NuGetPackageResolver` over a
+   `NuGetPackageStore`: global packages folder, `packages/`, else a download unless `--offline`),
+   refused when they are .NET Framework/`-windows`-only, reference WinForms/WPF or are
+   `[SupportedOSPlatform]`; `CarriedPackages` is the subset some code really *names* - computed by
+   walking simple names, because Roslyn's `GetUsedAssemblyReferences` reports everything as used in a
+   compilation with errors, and every WinForms name is one. Those go into the generated csproj at the
+   original's version, beside (never instead of) `ExtraPackageVersions`.
 3. **Planning** — `FormMigrationPlanner.Plan(formModel, codeBehind)` produces one
    `FormMigrationPlan` per Form, and all three emitters consume that same plan so they cannot
    disagree about where a handler landed. It runs *after* a discovery pass over every artifact:
@@ -238,6 +259,23 @@ not by building.
 
 ## Invariants worth not breaking
 
+- **Semantic pass-through is the *last* resort, and only ever proves.** `HandlerBodyRewriter`
+  tries every shape-specific translation first and falls back to `TryPassThroughStatement` /
+  the pass-through branch of `TryRewriteExpression` only when they refuse - so a WinForms idiom
+  with a real Avalonia translation is never copied verbatim. The proof comes from compiling
+  *without* WinForms; adding a WinForms reference to `ReferenceAssemblies` would make every
+  control access "neutral" and silently copy it. A lone `this` is refused (the View is a
+  different object - `this.GetType()` was the bug), and so are a handler's own `sender`/`e`.
+  The one value the model is *told* about is a **vouched local** (`LocalBinding.VouchedType`): a
+  local the rewriter declared from a WinForms call it translated (`var column =
+  tableLayoutPanel1.GetColumn(label)` is an `int` that binds to an error type here). It is accepted
+  only as a whole positional argument of a call with exactly one candidate of that arity whose
+  parameter the real type converts to (`NeutralityChecker.ResolveCallWithVouchedArguments`) -
+  never in an operator, a member access or anything else whose meaning its type would decide.
+  Anything carried that the un-migrated constructor remainder still mentions is dropped again
+  (`FormMigrationPlanner.Plan`'s settle loop): a carried-but-uninitialized field turns a TODO
+  into a `NullReferenceException`.
+
 - **Canvas-everywhere layout.** Every container emits a `Canvas`; children carry absolute
   `Canvas.Left`/`Top`/`Width`/`Height` - *except* where the parent holds items rather than
   positioned children (`AxamlEmitter.HostsItems`: TabControl, Menu/MenuItem/ContextMenu,
@@ -307,7 +345,9 @@ not by building.
   `UnsupportedDisposition` - `FeatureElsewhere`, `Unreachable`, `NoAvaloniaApi` - so a new entry
   cannot be added without saying which. `docs/Controls.md` carries it as a fourth column and
   `ControlsDocumentationTests` checks every cell against the registry, in both directions.
-- **Extra NuGet packages are allowlisted three times.** A mapper declares `RequiredNuGetPackage` (e.g.
+- **Extra NuGet packages are allowlisted three times** - the ones the *conversion* adds. The
+  original project's own packages are a separate path (`SemanticProjectContext.CarriedPackages`,
+  see Semantics above) with a proof instead of a list. A mapper declares `RequiredNuGetPackage` (e.g.
   `Avalonia.Controls.DataGrid`) and `ComponentFieldCatalog` names one per component; both flow
   through the pipeline into `BuildProject`, but the csproj writer emits *only* packages present in
   `AvaloniaProjectScaffolder.ExtraPackageVersions`. Adding a
@@ -389,7 +429,13 @@ not by building.
   and raises the override back as an event; `PaintSurfaceMapper` retargets a `Panel`/`PictureBox`
   onto it, and `FormMigrationPlanner.SuppressPaintOnNonSurfaces` asks the *same* predicate before
   subscribing, so the mapper and the planner cannot disagree. It derives from `Control`, not
-  `Canvas`, because **`Panel.Render` is `sealed`** - hence the "no children" rule. `Render` is only
+  `Canvas`, because **`Panel.Render` is `sealed`** - hence the "no children" rule. A *container*
+  that paints (a Panel/GroupBox with children, the Form itself) gets a synthetic childless
+  `<field>PaintLayer` inserted first among its children by `PaintLayerInserter` at parse time - a
+  model rewrite, so the mapper, planner and rewriter need nothing new; `FormModel.PaintLayers` is
+  what redirects `Invalidate()` onto it. `OverrideHandlerLifter` runs just before it and turns
+  `override OnX(e) { base.OnX(e); … }` into an `X` binding (base call first/last only); the
+  semantic stage still binds the body under the override's name (`CodeBehindModel.LiftedOverrides`). `Render` is only
   reached on a real render pass, which the default headless platform does not do: the proof test
   asks for Skia and `CaptureRenderedFrame`, and with the no-op drawing backend it reported zero.
 - **Only the *attribute* is exclusive, not the event.** Two WinForms events mapping onto one
@@ -397,6 +443,14 @@ not by building.
   attribute fails to parse, but an event takes any number of handlers - so the loser goes in the
   constructor (`ChainedInConstructor`, distinct from `Suppressed`, which still means "there is
   nothing to subscribe to at all").
+- **A runtime-control field exists on the View only if every assignment to it was translated.**
+  `FormMigrationPlanner.Plan` offers each `private ToolStripStatusLabel label;`-shaped field to the
+  bodies through `FormModel.RuntimeControls` (planner-owned, read by the rewriter's `TryGetControl`),
+  runs the whole plan, and drops any field an un-migrated remainder still assigns, then plans again.
+  A `default!` field whose `new` stayed a comment is a `NullReferenceException` where the original
+  had a TODO. Which types may be created at all is `RuntimeControlSupport` - read off the registry
+  (an undecorated Direct mapping), never a list - and only a control the body created may be given
+  a parent (`HandlerBodyRewriter.RuntimeControls.cs`).
 - **`FallbackControlMemberSupport` answers two different questions, and the second one bites.**
   It gates what a handler *body* may name — and it is also what `AxamlEmitter.FilterBindableForTarget`
   asks before writing a planned binding onto a fallback element. An unlisted property is dropped
@@ -466,6 +520,10 @@ not by building.
   two Forms sharing a simple name crashed the run, linked/shared-project/wrong-case source files
   were not found on Linux, and carried-over fields made the generated build warn. Each now has a
   miniature in `SampleApps/CorpusShapes`; do the same for the next thing it finds.
+- `SampleApps/SemanticApp` is the semantic stage end to end: an app plus a .NET Framework class
+  library it references, a carried and a left-behind plain file, named-type fields, a constructor
+  statement, a ComboBox filled from Load - `SemanticConversionTests` asserts the text and the build,
+  and `GeneratedAppStartupTests` runs it and clicks, which is what proves the order is still right.
 - `Integration.Tests` — `SampleApps/*` are real WinForms fixture projects; each test converts one
   and asserts `dotnet build` on the generated output succeeds. Add a `SampleApps` folder + an
   `[InlineData]` row (in `RealFormConversionBuildTests` or the feature-specific test class) when

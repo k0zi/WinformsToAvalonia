@@ -13,8 +13,13 @@ public sealed record WinFormsProjectModel(
     IReadOnlyList<string> CompileFiles,
     IReadOnlyList<string> ResourceFiles,
     IReadOnlyList<string> ProjectReferences,
-    string? OutputType = null)
+    string? OutputType = null,
+    bool NullableEnabled = false,
+    IReadOnlyList<NuGetPackageReference>? PackageReferences = null)
 {
+    /// <summary>The NuGet packages the project declares itself (not the ones they bring along).</summary>
+    public IReadOnlyList<NuGetPackageReference> Packages => PackageReferences ?? [];
+
     public string ProjectDirectory => Path.GetDirectoryName(ProjectFilePath)!;
 
     /// <summary>

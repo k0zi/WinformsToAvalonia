@@ -6,6 +6,7 @@ using WinFormsToAvalonia.Core.Emission;
 using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 using WinFormsToAvalonia.Core.Parsing;
+using WinFormsToAvalonia.Core.Semantics;
 
 namespace WinFormsToAvalonia.Core.Pipeline;
 
@@ -33,7 +34,7 @@ namespace WinFormsToAvalonia.Core.Pipeline;
 /// the generated [ObservableProperty] the plan bound to it.
 /// </para>
 /// </remarks>
-public sealed class HandlerBodyRewriter
+public sealed partial class HandlerBodyRewriter
 {
     /// <summary>
     /// Types whose static members are plain .NET and compile unchanged in an Avalonia project.
@@ -112,7 +113,9 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string>? trayIconFields = null,
         IReadOnlyList<DataSourceBindingPlan>? dataSourceBindings = null,
         IReadOnlyList<ListViewRowsPlan>? listViewRows = null,
-        IReadOnlyList<CheckedListPlan>? checkedLists = null) =>
+        IReadOnlyList<CheckedListPlan>? checkedLists = null,
+        SemanticClassScope? semantics = null,
+        string? methodName = null) =>
         Rewrite(
             body,
             new ViewTarget(
@@ -128,7 +131,8 @@ public sealed class HandlerBodyRewriter
                 trayIconFields ?? new HashSet<string>(StringComparer.Ordinal),
                 dataSourceBindings ?? [],
                 listViewRows ?? [],
-                checkedLists ?? []));
+                checkedLists ?? []),
+            semantics is not null && methodName is not null ? new SemanticRequest(semantics, methodName, IsHandler: true) : null);
 
     /// <summary>
     /// Rewrites the body of a code-behind <em>helper</em> method, against the same View the
@@ -153,7 +157,9 @@ public sealed class HandlerBodyRewriter
         IReadOnlySet<string>? trayIconFields = null,
         IReadOnlyList<DataSourceBindingPlan>? dataSourceBindings = null,
         IReadOnlyList<ListViewRowsPlan>? listViewRows = null,
-        IReadOnlyList<CheckedListPlan>? checkedLists = null)
+        IReadOnlyList<CheckedListPlan>? checkedLists = null,
+        SemanticClassScope? semantics = null,
+        string? methodName = null)
     {
         var target = new ViewTarget(
             formModel, _controlMappings, navigation, HandlerSignature.None,
@@ -169,7 +175,10 @@ public sealed class HandlerBodyRewriter
             target.Locals.Declare(parameterName, LocalKind.Value);
         }
 
-        return Rewrite(signature.BodyText, target);
+        return Rewrite(
+            signature.BodyText,
+            target,
+            semantics is not null && methodName is not null ? new SemanticRequest(semantics, methodName, IsHandler: false) : null);
     }
 
     /// <summary>
@@ -228,14 +237,17 @@ public sealed class HandlerBodyRewriter
             out rewritten);
     }
 
-    private RewrittenBody Rewrite(string body, IRewriteTarget target)
+    /// <summary>Which method a body belongs to, so it can be bound - see <see cref="SemanticClassScope.BindBody"/>.</summary>
+    private sealed record SemanticRequest(SemanticClassScope Scope, string MethodName, bool IsHandler);
+
+    private RewrittenBody Rewrite(string body, IRewriteTarget target, SemanticRequest? semantics = null)
     {
         target.ProjectStrings = ProjectStrings;
         target.ProjectSettings = ProjectSettings;
-        return RewriteCore(body, target);
+        return RewriteCore(body, target, semantics);
     }
 
-    private static RewrittenBody RewriteCore(string body, IRewriteTarget target)
+    private static RewrittenBody RewriteCore(string body, IRewriteTarget target, SemanticRequest? semantics = null)
     {
         if (string.IsNullOrWhiteSpace(body))
         {
@@ -247,6 +259,15 @@ public sealed class HandlerBodyRewriter
             || block.ContainsDiagnostics)
         {
             return RewrittenBody.NothingMigrated(body);
+        }
+
+        // Bound in the original method's context, the copy can be asked what its code *means* -
+        // which is what lets a statement that touches no WinForms API come across verbatim
+        // instead of being refused for the names it uses (see TryPassThroughStatement).
+        if (semantics?.Scope.BindBody(semantics.MethodName, block, semantics.IsHandler) is { } bound)
+        {
+            block = bound.Block;
+            target.Semantics = bound;
         }
 
         var statements = block.Statements;
@@ -347,7 +368,10 @@ public sealed class HandlerBodyRewriter
             // statements (the trailing-local trim above indexes into both), and dropped here.
             [.. migrated.Where(text => text.Length > 0)],
             remaining, statements.Count, usings, fallbackKeys, requiresAsync,
-            target.Requirements.InlinedDialogFields);
+            target.Requirements.InlinedDialogFields)
+        {
+            UsesSemanticPassThrough = target.Requirements.UsedPassThrough,
+        };
     }
 
     /// <summary>The field name the close-confirmation template declares and reads.</summary>
@@ -752,14 +776,102 @@ public sealed class HandlerBodyRewriter
     private static string RemainingText(string body, BlockSyntax block, StatementSyntax firstRemaining)
     {
         // ParseStatement was handed "{\n" + body + "\n}", so a span offset in the block maps back
-        // to the body by subtracting that two-character prefix.
+        // to the body by subtracting that two-character prefix - measured from the block's own
+        // start, since a bound block sits inside a replica of the whole method.
         const int prefixLength = 2;
-        var start = firstRemaining.SpanStart - prefixLength;
+        var start = firstRemaining.SpanStart - block.SpanStart - prefixLength;
 
         return start >= 0 && start < body.Length ? body[start..].TrimEnd() : body;
     }
 
     private static bool TryRewriteStatement(StatementSyntax statement, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        var snapshot = target.Requirements.Snapshot();
+        if (TryRewriteStatementCore(statement, target, out rewritten))
+        {
+            return true;
+        }
+
+        target.Requirements.Restore(snapshot);
+        return TryPassThroughStatement(statement, target, out rewritten);
+    }
+
+    /// <summary>
+    /// A statement that touches no WinForms API at all, emitted as written - the last resort, after
+    /// every translation that knows a WinForms shape has had its chance.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Proof, not hope: the statement is bound against the base class library <em>without</em>
+    /// WinForms (see <see cref="SemanticProjectContext"/>), so a single control, Form member or
+    /// System.Drawing value anywhere in it fails the check. What passes is code that compiles to the
+    /// same thing in the generated project - <c>_game.CloseCards();</c>, <c>string[] months = { ... };</c>,
+    /// <c>if (CurrentPageIndex &lt; TotalPage)</c> - which the syntactic rules had to refuse only
+    /// because they could not see what the names meant.
+    /// </para>
+    /// <para>
+    /// The Form's own members it names must exist on the generated View: a carried field, or a
+    /// helper that became real code and does not need awaiting. Non-implicit types are written
+    /// namespace-qualified, so nothing can bind to an Avalonia type of the same name.
+    /// </para>
+    /// </remarks>
+    private static bool TryPassThroughStatement(StatementSyntax statement, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!TryPassThrough(statement, target, out var text, out var usesAwait))
+        {
+            return false;
+        }
+
+        foreach (var name in BoundMethodBody.DeclaredNames(statement))
+        {
+            target.Locals.Declare(name, LocalKind.Value);
+        }
+
+        rewritten = new RewrittenStatement(text, RequiresAsync: usesAwait);
+        return true;
+    }
+
+    private static bool TryPassThrough(SyntaxNode node, IRewriteTarget target, out string text, out bool usesAwait)
+    {
+        text = "";
+        usesAwait = false;
+
+        // A node the rewriter built itself (a parsed condition, a synthesized expression) has no
+        // meaning the model could report.
+        if (target.Semantics is not { } semantics || node.SyntaxTree != semantics.Block.SyntaxTree)
+        {
+            return false;
+        }
+
+        if (!semantics.TryPassThrough(
+                node,
+                symbol => IsOwnMemberAvailable(symbol, target),
+                out text,
+                out usesAwait,
+                local => target.Locals.TryGetBinding(local.Name, out var binding) && binding.Kind == LocalKind.Value
+                    ? binding.VouchedType
+                    : SpecialType.None))
+        {
+            return false;
+        }
+
+        target.Requirements.UsedPassThrough = true;
+        return true;
+    }
+
+    /// <summary>A member of the Form that the generated View declares under the same name.</summary>
+    private static bool IsOwnMemberAvailable(ISymbol symbol, IRewriteTarget target) => symbol switch
+    {
+        IFieldSymbol field => target.IsPromotedField(field.Name),
+        // Awaiting it would need the call to be a statement of its own - see TryRewriteCallExpression.
+        IMethodSymbol { MethodKind: MethodKind.Ordinary } method =>
+            target.TryResolveHelperCall(method.Name, method.Parameters.Length, out var helper) && !helper.IsAsync,
+        _ => false,
+    };
+
+    private static bool TryRewriteStatementCore(StatementSyntax statement, IRewriteTarget target, out RewrittenStatement rewritten)
     {
         rewritten = default;
 
@@ -785,6 +897,9 @@ public sealed class HandlerBodyRewriter
 
             case BlockSyntax block:
                 return TryRewriteBlock(block, target, out rewritten);
+
+            case UsingStatementSyntax usingStatement:
+                return TryRewriteDrawingToolUsing(usingStatement, target, out rewritten);
 
             case ForEachStatementSyntax forEachStatement:
                 return TryRewriteForEach(forEachStatement, target, out rewritten);
@@ -1748,14 +1863,40 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `var column = tableLayoutPanel1.GetColumn(label);`, `var label = (Label)tableLayoutPanel1.Controls[i];`,
+        // `var label = tableLayoutPanel1.GetControlFromPosition(c, r);` - see HandlerBodyRewriter.TableLayout.cs.
+        if (!isUsing && TryRewriteTableLayoutDeclaration(declaration.Declaration.Type, name, initializer, target, out rewritten))
+        {
+            return true;
+        }
+
+        // `var button = sender as Button;` says the same as the cast wherever the cast is admissible:
+        // every control the handler is wired to *is* a Button, so `as` never yields null.
         if (!isUsing
-            && StripSuppression(initializer) is CastExpressionSyntax cast
-            && StripSuppression(cast.Expression) is IdentifierNameSyntax { Identifier.ValueText: var castOperand }
-            && castOperand == "sender"
-            && target.TryResolveSenderCast(cast.Type, name, out var senderField, out var senderStatement))
+            && StripSuppression(initializer) switch
+            {
+                CastExpressionSyntax c => (c.Type, (ExpressionSyntax?)c.Expression),
+                BinaryExpressionSyntax { RawKind: (int)SyntaxKind.AsExpression, Right: TypeSyntax asType } a => (asType, a.Left),
+                _ => ((TypeSyntax?)null, (ExpressionSyntax?)null),
+            } is ({ } senderCastType, { } senderOperand)
+            && StripSuppression(senderOperand) is IdentifierNameSyntax { Identifier.ValueText: "sender" }
+            && target.TryResolveSenderCast(senderCastType, name, out var senderField, out var senderStatement))
         {
             target.Locals.Declare(name, LocalKind.Control, senderField);
             rewritten = new RewrittenStatement(senderStatement);
+            return true;
+        }
+
+        // `var button = new Button { Text = "Go" };` / `ToolStripItem[] items = { label };` -
+        // a control the body creates itself. See HandlerBodyRewriter.RuntimeControls.cs.
+        // `var p = new Pen(Color.Black, 2);` - also `using var`, which Avalonia's Pen cannot take.
+        if (TryRewriteDrawingToolDeclaration(declaration.Declaration.Type, name, initializer, target, out rewritten))
+        {
+            return true;
+        }
+
+        if (!isUsing && TryRewriteRuntimeControlDeclaration(declaration.Declaration.Type, name, initializer, target, out rewritten))
+        {
             return true;
         }
 
@@ -1969,6 +2110,32 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `label = new ToolStripStatusLabel();` into a runtime-control field, and a control's
+        // `Location`/`Size`/`Left`/`Top` - see HandlerBodyRewriter.RuntimeControls.cs.
+        if (TryRewriteRuntimeControlAssignment(assignment, target, out rewritten)
+            || TryRewriteLayoutAssignment(assignment, target, out rewritten))
+        {
+            return true;
+        }
+
+        // `dataGridView1.DataSource = orders;` - a plain list of rows, the grid's ItemsSource.
+        if (TryRewriteGridDataSource(assignment, target, out rewritten))
+        {
+            return true;
+        }
+
+        // `p.DashStyle = DashStyle.Dash;` on a pen the body built.
+        if (TryRewriteDrawingToolAssignment(assignment, target, out rewritten))
+        {
+            return true;
+        }
+
+        // `this.Cursor = Cursors.WaitCursor;` - a stock cursor, which Avalonia constructs.
+        if (TryRewriteCursorAssignment(assignment, target, out rewritten))
+        {
+            return true;
+        }
+
         // `this.notesRichTextBox.Font = fontDialog1.Font;` - one WinForms value, four Avalonia
         // properties.
         if (TryRewriteFontAssignment(assignment, target, out rewritten))
@@ -2015,6 +2182,14 @@ public sealed class HandlerBodyRewriter
         if (FormFieldNameOf(assignment.Left) is { } assignedField && target.IsPromotedField(assignedField))
         {
             rewritten = new RewrittenStatement($"{assignedField} {assignment.OperatorToken} {right};");
+            return true;
+        }
+
+        // `label1.Text += x;` - a compound assignment to a control property is the read and the
+        // write it abbreviates, and both halves translate on their own: the read through the
+        // null-guarding path, the write through the plain one.
+        if (TryRewriteCompoundControlAssignment(assignment, right, target, out rewritten))
+        {
             return true;
         }
 
@@ -2079,6 +2254,60 @@ public sealed class HandlerBodyRewriter
         }
 
         rewritten = new RewrittenStatement($"{left} = {right};");
+        return true;
+    }
+
+    /// <summary>
+    /// <c>label1.Text += suffix;</c> as <c>label1.Text = (label1.Text ?? string.Empty) + suffix;</c>.
+    /// </summary>
+    /// <remarks>
+    /// C# defines <c>a op= b</c> as <c>a = a op b</c> (with <c>a</c> evaluated once, which a
+    /// control field's property path makes no difference to), so expanding it is exact. The read
+    /// half is the same expression a plain read of the property produces - converted back to the
+    /// WinForms type, so <c>+</c> still means what it meant (string concatenation on a
+    /// <c>Text</c>, arithmetic on a <c>Value</c>). A property whose value has to be rewritten on
+    /// the way in (<see cref="BindableValueShape"/>) goes through the same write conversion a plain
+    /// assignment does.
+    /// </remarks>
+    private static bool TryRewriteCompoundControlAssignment(
+        AssignmentExpressionSyntax assignment, string right, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        var binaryOperator = assignment.Kind() switch
+        {
+            SyntaxKind.AddAssignmentExpression => "+",
+            SyntaxKind.SubtractAssignmentExpression => "-",
+            SyntaxKind.MultiplyAssignmentExpression => "*",
+            SyntaxKind.DivideAssignmentExpression => "/",
+            SyntaxKind.ModuloAssignmentExpression => "%",
+            SyntaxKind.AndAssignmentExpression => "&",
+            SyntaxKind.OrAssignmentExpression => "|",
+            SyntaxKind.ExclusiveOrAssignmentExpression => "^",
+            _ => null,
+        };
+
+        if (binaryOperator is null
+            || assignment.Left is not MemberAccessExpressionSyntax
+            || !TryResolveControlProperty(assignment.Left, target, forWrite: false, out var current)
+            || !TryResolveControlProperty(assignment.Left, target, forWrite: true, out var left))
+        {
+            return false;
+        }
+
+        var operand = IsSingleTerm(assignment.Right) ? right : $"({right})";
+        var value = $"{current} {binaryOperator} {operand}";
+
+        if (target.TryResolveWrittenProperty(assignment.Left, out var writtenProperty)
+            && writtenProperty.ValueShape != BindableValueShape.Same)
+        {
+            rewritten = new RewrittenStatement(
+                $"{left} = {BindablePropertyCatalog.WriteExpression($"({value})", writtenProperty)};",
+                RequiredUsings: ["Avalonia.Media"]);
+            return true;
+        }
+
+        rewritten = new RewrittenStatement($"{left} = {value};");
         return true;
     }
 
@@ -2265,7 +2494,7 @@ public sealed class HandlerBodyRewriter
         // Everything after the brush is the placement, and optionally a StringFormat.
         if (!TryRewriteExpression(arguments[0].Expression, target, out var text)
             || !TryResolveTypeface(arguments[1].Expression, target, out var typeface, out var emSize)
-            || !TryRewriteColorExpression(arguments[2].Expression, target, out var brush)
+            || !TryRewriteStroke(arguments[2].Expression, GraphicsStrokeKind.Brush, target, out var brush)
             || !TryResolveTextLayout([.. arguments.Skip(3)], target, out var origin, out var bounded, out var format)
             || !TryResolveStringFormat(format, bounded, out var settings))
         {
@@ -2551,6 +2780,12 @@ public sealed class HandlerBodyRewriter
     {
         text = "";
 
+        // A pen or brush local the body built - already the Avalonia object.
+        if (TryRewriteDrawingToolLocal(expression, kind == GraphicsStrokeKind.Pen, target, out text))
+        {
+            return true;
+        }
+
         if (!TryRewriteColorExpression(expression, target, out var brush))
         {
             return false;
@@ -2591,7 +2826,41 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
-        return false;
+        switch (StripSuppression(expression))
+        {
+            // `open ? Color.Black : label.BackColor` - a choice between two colours is a choice
+            // between the two brushes.
+            case ConditionalExpressionSyntax conditional:
+                if (!TryRewriteExpression(conditional.Condition, target, out var condition)
+                    || !TryRewriteColorExpression(conditional.WhenTrue, target, out var whenTrue)
+                    || !TryRewriteColorExpression(conditional.WhenFalse, target, out var whenFalse))
+                {
+                    return false;
+                }
+
+                // Typed as the interface, so two different brush classes still have a common type.
+                brush = $"({condition} ? (IBrush?){whenTrue} : {whenFalse})";
+                return true;
+
+            // `label.BackColor`: WinForms answers the ambient colour - the label's own, else its
+            // parent's - and an unset Avalonia Background answers null, so the walk is a helper.
+            case MemberAccessExpressionSyntax { Name.Identifier.ValueText: "BackColor" } back
+                when target.TryResolveControlCandidates(back.Expression, out var owner, out _):
+                target.Requirements.RequiredFallbackKeys.Add("AmbientBackColorFallback");
+                brush = $"AmbientBackColorFallback.Of({owner})";
+                return true;
+
+            // `label.ForeColor`: Foreground *is* inherited in Avalonia, so reading it already
+            // answers what WinForms' ambient ForeColor does.
+            case MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ForeColor" } fore
+                when target.TryResolveControlCandidates(fore.Expression, out var owner, out _)
+                    && target.SupportsStyleProperty(owner, AvaloniaStyleProperties.Foreground):
+                brush = $"{owner}.Foreground";
+                return true;
+
+            default:
+                return false;
+        }
     }
 
     /// <summary>
@@ -2771,6 +3040,12 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        // `this.Invoke(...)` / `BeginInvoke(...)` - back onto the UI thread.
+        if (TryRewriteUiThreadMarshal(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
+        }
+
         // `new SettingsForm().ShowDialog();` / `.Show();` - opening another converted Form.
         if (receiver is ObjectCreationExpressionSyntax creation)
         {
@@ -2784,6 +3059,13 @@ public sealed class HandlerBodyRewriter
             && dialogKind == LocalKind.FormView)
         {
             return TryRewriteViewNavigationCall(dialogLocal, methodName, invocation, target, out rewritten);
+        }
+
+        // `panel1.Controls.Add(button);` / `statusStrip1.Items.Add(label);` - a control the body
+        // created, given a parent. See HandlerBodyRewriter.RuntimeControls.cs.
+        if (TryRewriteChildCollectionCall(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
         }
 
         // `itemsTreeView.Nodes.Add("Documents");` / `.Nodes.Clear();` - building a tree at run
@@ -2827,6 +3109,12 @@ public sealed class HandlerBodyRewriter
         }
 
         if (TryRewriteListViewItemCall(receiver, methodName, invocation, target, out rewritten))
+        {
+            return true;
+        }
+
+        // `comboBox1.Items.Clear();` / `.Add(x)` / `.AddRange(array)` - a list filled from code.
+        if (TryRewriteListItemsCall(receiver, methodName, invocation, target, out rewritten))
         {
             return true;
         }
@@ -2911,6 +3199,11 @@ public sealed class HandlerBodyRewriter
 
             switch (methodName)
             {
+                // The Form's drawing lives on its paint layer, and repainting has to follow it.
+                case "Invalidate" or "Refresh" when target.TryResolveFormPaintLayer(out var paintLayer):
+                    rewritten = new RewrittenStatement($"{paintLayer}.InvalidateVisual();");
+                    return true;
+
                 // Only a Window has these. A converted UserControl is not one and cannot reach
                 // one - Avalonia's UserControl has no Close/Show/Activate at all - so emitting
                 // them there would not compile.
@@ -3098,7 +3391,97 @@ public sealed class HandlerBodyRewriter
     /// </summary>
     private static bool TryRewriteExpression(ExpressionSyntax expression, IRewriteTarget target, out string text)
     {
+        var snapshot = target.Requirements.Snapshot();
+        if (TryRewriteExpressionCore(expression, target, out text))
+        {
+            return true;
+        }
+
+        target.Requirements.Restore(snapshot);
+
+        // An expression has no channel for "this needs awaiting" other than the requirements, and
+        // an await inside a larger expression is exactly what this rewriter avoids reasoning about.
+        if (TryPassThrough(expression, target, out text, out var usesAwait) && !usesAwait)
+        {
+            return true;
+        }
+
         text = "";
+        return false;
+    }
+
+    /// <summary>
+    /// <c>sender is Label label</c> / <c>sender is not Label label</c> / <c>sender is Label</c> - the
+    /// shared handler's way of naming the control that raised it. See
+    /// <see cref="IRewriteTarget.TryResolveSenderType"/> for when it is admissible.
+    /// </summary>
+    private static bool TryRewriteSenderTypeTest(ExpressionSyntax expression, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        static bool IsSender(ExpressionSyntax operand) =>
+            StripSuppression(operand) is IdentifierNameSyntax { Identifier.ValueText: "sender" };
+
+        switch (expression)
+        {
+            case BinaryExpressionSyntax { RawKind: (int)SyntaxKind.IsExpression, Right: TypeSyntax isType } isExpression
+                when IsSender(isExpression.Left):
+                if (!target.TryResolveSenderType(isType, null, out var isElement))
+                {
+                    return false;
+                }
+
+                text = $"sender is {isElement}";
+                return true;
+
+            case IsPatternExpressionSyntax pattern when IsSender(pattern.Expression):
+                var negated = false;
+                var inner = pattern.Pattern;
+                if (inner is UnaryPatternSyntax { OperatorToken.RawKind: (int)SyntaxKind.NotKeyword } not)
+                {
+                    negated = true;
+                    inner = not.Pattern;
+                }
+
+                var (type, local) = inner switch
+                {
+                    DeclarationPatternSyntax { Designation: SingleVariableDesignationSyntax designation } declaration =>
+                        (declaration.Type, designation.Identifier.ValueText),
+                    TypePatternSyntax typePattern => (typePattern.Type, (string?)null),
+                    _ => ((TypeSyntax?)null, (string?)null),
+                };
+
+                if (type is null || !target.TryResolveSenderType(type, local, out var element))
+                {
+                    return false;
+                }
+
+                text = $"sender is {(negated ? "not " : "")}{element}{(local is null ? "" : " " + local)}";
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryRewriteExpressionCore(ExpressionSyntax expression, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (TryRewriteInvokeRequired(expression, target, out text))
+        {
+            return true;
+        }
+
+        if (TryRewriteSenderTypeTest(expression, target, out text))
+        {
+            return true;
+        }
+
+        if (TryRewriteTableLayoutExpression(expression, target, out text))
+        {
+            return true;
+        }
 
         switch (expression)
         {
@@ -3251,6 +3634,22 @@ public sealed class HandlerBodyRewriter
                 when TryRewriteDragPayloadRead(payloadCast, target, out text):
                 return true;
 
+            // `(string)comboBox1.Items[i]` - a cast to a type that is the same type on both sides,
+            // of a value that translates. Parenthesized where the operand came out as more than a
+            // single term, so the cast cannot bind tighter than it did in the original.
+            case CastExpressionSyntax { Type: var castType } plainCast
+                when PlainDotNetTypeCatalog.IsPlain(castType)
+                    && TryRewriteExpression(plainCast.Expression, target, out var castOperand):
+                text = IsSingleTerm(plainCast.Expression)
+                    ? $"({castType}){castOperand}"
+                    : $"({castType})({castOperand})";
+                return true;
+
+            // `comboBox1.Items[i]` - see TryRewriteListItemRead.
+            case ElementAccessExpressionSyntax itemAccess
+                when TryRewriteListItemRead(itemAccess, target, out text):
+                return true;
+
             default:
                 return false;
         }
@@ -3386,6 +3785,332 @@ public sealed class HandlerBodyRewriter
             + $"    {fieldName}.ExpandSubTree(w2aNode);\n"
             + "}",
             RequiredUsings: ["System.Linq"]);
+        return true;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="receiver"/> names something that owns the UI thread in the View:
+    /// the View itself (<c>this</c>, or nothing), or one of its controls.
+    /// </summary>
+    private static bool IsUiThreadOwner(ExpressionSyntax? receiver, IRewriteTarget target) =>
+        target.IsView
+        && (receiver is null or ThisExpressionSyntax
+            || (target.TryResolveControlField(receiver, out var field) && target.IsMappedElement(field)));
+
+    /// <summary>
+    /// <c>InvokeRequired</c> / <c>this.InvokeRequired</c> / <c>control.InvokeRequired</c> as
+    /// <c>(!Dispatcher.UIThread.CheckAccess())</c>.
+    /// </summary>
+    /// <remarks>
+    /// Every control of a WinForms form shares its thread, and every Avalonia control shares the
+    /// one UI dispatcher - so whichever control the original asked, the question is the same.
+    /// </remarks>
+    private static bool TryRewriteInvokeRequired(ExpressionSyntax expression, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        var isInvokeRequired = expression switch
+        {
+            IdentifierNameSyntax { Identifier.ValueText: "InvokeRequired" } =>
+                !target.Locals.TryGet("InvokeRequired", out _) && IsUiThreadOwner(null, target),
+            MemberAccessExpressionSyntax { Name.Identifier.ValueText: "InvokeRequired" } access =>
+                IsUiThreadOwner(access.Expression, target),
+            _ => false,
+        };
+
+        if (!isInvokeRequired)
+        {
+            return false;
+        }
+
+        target.Requirements.RequiredUsings.Add("Avalonia.Threading");
+        text = "(!Dispatcher.UIThread.CheckAccess())";
+        return true;
+    }
+
+    /// <summary>
+    /// <c>this.Invoke(...)</c> / <c>BeginInvoke(...)</c> on the View or one of its controls, as
+    /// <c>Dispatcher.UIThread.Invoke(...)</c> / <c>Post(...)</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same contract on both sides: <c>Invoke</c> runs the delegate on the UI thread and waits
+    /// (synchronously, when already on it), <c>BeginInvoke</c> queues it and returns. The delegate
+    /// is rebuilt as a lambda, because WinForms took any <c>Delegate</c> while Avalonia takes an
+    /// <c>Action</c>: the shapes accepted are a parameterless lambda or anonymous method (bare,
+    /// cast, or wrapped in <c>new MethodInvoker(...)</c>/<c>new Action(...)</c>), whose body must
+    /// translate <em>whole</em> - it runs somewhere else, so there is no place for a remainder -
+    /// and a helper method that became real code, with the arguments WinForms passed after it
+    /// (bare, or as the <c>new object[] { ... }</c> the <c>params</c> parameter collects).
+    /// </para>
+    /// <para>
+    /// Not accepted: a delegate held in a local first, a lambda with parameters, and a body that
+    /// would have to await - none of which has a translation as direct as these.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteUiThreadMarshal(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (methodName is not ("Invoke" or "BeginInvoke")
+            || !IsUiThreadOwner(receiver, target)
+            // A method of the Form's own by that name is the one being called.
+            || (receiver is null && target.TryResolveHelperCall(methodName, invocation.ArgumentList.Arguments.Count, out _))
+            || invocation.ArgumentList.Arguments.Count == 0
+            || invocation.ArgumentList.Arguments.Any(a => a.NameColon is not null || !a.RefKindKeyword.IsKind(SyntaxKind.None)))
+        {
+            return false;
+        }
+
+        // `Invoke(d, new object[] { a, b })` passes the arguments the params array collected.
+        var extra = invocation.ArgumentList.Arguments.Skip(1).Select(a => a.Expression).ToList();
+        var packed = extra switch
+        {
+            [ArrayCreationExpressionSyntax { Initializer.Expressions: var explicitItems }] => explicitItems,
+            [ImplicitArrayCreationExpressionSyntax { Initializer.Expressions: var implicitItems }] => implicitItems,
+            _ => (SeparatedSyntaxList<ExpressionSyntax>?)null,
+        };
+        if (packed is { } items)
+        {
+            extra = [.. items];
+        }
+
+        if (!TryRewriteMarshalledDelegate(invocation.ArgumentList.Arguments[0].Expression, extra, target, out var lambda))
+        {
+            return false;
+        }
+
+        var dispatcherMethod = methodName == "Invoke" ? "Invoke" : "Post";
+        rewritten = new RewrittenStatement(
+            $"Dispatcher.UIThread.{dispatcherMethod}({lambda});", RequiredUsings: ["Avalonia.Threading"]);
+        return true;
+    }
+
+    private static bool TryRewriteMarshalledDelegate(
+        ExpressionSyntax expression, IReadOnlyList<ExpressionSyntax> arguments, IRewriteTarget target, out string lambda)
+    {
+        lambda = "";
+
+        // `(MethodInvoker)X`, `new MethodInvoker(X)`, `new Action<string>(X)` - the delegate type
+        // only ever said what X's signature was; the lambda built below says it again.
+        while (true)
+        {
+            switch (expression)
+            {
+                case CastExpressionSyntax cast:
+                    expression = cast.Expression;
+                    continue;
+                case ParenthesizedExpressionSyntax parenthesized:
+                    expression = parenthesized.Expression;
+                    continue;
+                case ObjectCreationExpressionSyntax { ArgumentList.Arguments: [{ Expression: var wrapped }], Initializer: null }:
+                    expression = wrapped;
+                    continue;
+            }
+
+            break;
+        }
+
+        // A helper that became real code, called with the arguments WinForms forwarded to it.
+        if (expression is IdentifierNameSyntax or MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax }
+            && FormMemberName(expression) is { } helperName
+            && target.TryResolveHelperCall(helperName, arguments.Count, out var helper)
+            && !helper.IsAsync)
+        {
+            var argumentTexts = new List<string>();
+            foreach (var argument in arguments)
+            {
+                if (!TryRewriteExpression(argument, target, out var argumentText))
+                {
+                    return false;
+                }
+
+                argumentTexts.Add(argumentText);
+            }
+
+            lambda = $"() => {helperName}({string.Join(", ", argumentTexts)})";
+            return true;
+        }
+
+        if (arguments.Count > 0)
+        {
+            return false;
+        }
+
+        CSharpSyntaxNode? body = expression switch
+        {
+            ParenthesizedLambdaExpressionSyntax { ParameterList.Parameters.Count: 0, AsyncKeyword.RawKind: 0 } parenthesizedLambda =>
+                parenthesizedLambda.Body,
+            AnonymousMethodExpressionSyntax { ParameterList: null or { Parameters.Count: 0 }, AsyncKeyword.RawKind: 0 } anonymous =>
+                anonymous.Body,
+            _ => null,
+        };
+
+        var snapshot = target.Requirements.Snapshot();
+        RewrittenStatement translated;
+        var ok = body switch
+        {
+            BlockSyntax block => TryRewriteBlock(block, target, out translated),
+            AssignmentExpressionSyntax assignment => TryRewriteAssignment(assignment, target, out translated),
+            InvocationExpressionSyntax call => TryRewriteInvocation(call, target, out translated),
+            _ => Refuse(out translated),
+        };
+
+        // The delegate runs on its own: nothing in it can be awaited by the method around it.
+        if (!ok || translated.RequiresAsync || (target.Requirements.RequiresAsync && !snapshot.Async))
+        {
+            target.Requirements.Restore(snapshot);
+            return false;
+        }
+
+        var indented = string.Join("\n", translated.Text.Split('\n').Select(line => line.Length == 0 ? line : "    " + line));
+        lambda = $"() =>\n{{\n{indented}\n}}";
+        return true;
+    }
+
+    private static bool Refuse(out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+        return false;
+    }
+
+    private static string? FormMemberName(ExpressionSyntax expression) => expression switch
+    {
+        IdentifierNameSyntax { Identifier.ValueText: var name } => name,
+        MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var name } => name,
+        _ => null,
+    };
+
+    /// <summary>
+    /// <c>this.Cursor = Cursors.WaitCursor;</c> / <c>control.Cursor = Cursors.Hand;</c> - see
+    /// <see cref="CursorCatalog"/>. Only a stock cursor: anything computed is a WinForms
+    /// <c>Cursor</c> object, which Avalonia's is not.
+    /// </summary>
+    private static bool TryRewriteCursorAssignment(
+        AssignmentExpressionSyntax assignment, IRewriteTarget target, out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (!assignment.OperatorToken.IsKind(SyntaxKind.EqualsToken)
+            || assignment.Right is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "Cursors" }, Name.Identifier.ValueText: var cursorName,
+            }
+            || !CursorCatalog.TryGetExpression(cursorName, out var cursor))
+        {
+            return false;
+        }
+
+        string? owner = assignment.Left switch
+        {
+            IdentifierNameSyntax { Identifier.ValueText: "Cursor" } when target.IsView => "",
+            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: "Cursor" } when target.IsView => "",
+            MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Cursor" } access
+                when target.TryResolveControlField(access.Expression, out var field) && target.IsMappedElement(field) => $"{field}.",
+            _ => null,
+        };
+
+        if (owner is null)
+        {
+            return false;
+        }
+
+        rewritten = new RewrittenStatement($"{owner}Cursor = {cursor};", RequiredUsings: ["Avalonia.Input"]);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>comboBox1.Items[i]</c>, read - on a list whose items are the objects code put there.
+    /// </summary>
+    /// <remarks>
+    /// Where the AXAML declares item elements, those come back as <c>ComboBoxItem</c>s rather than
+    /// the strings WinForms held, so it is refused there. Avalonia types the indexer
+    /// <c>object?</c>; the cast the original wrote (<c>(string)...</c>) is then a nullable
+    /// conversion WinForms code never annotated, which is why the file disables those warnings.
+    /// </remarks>
+    private static bool TryRewriteListItemRead(ElementAccessExpressionSyntax access, IRewriteTarget target, out string text)
+    {
+        text = "";
+
+        if (access is not { Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Items" } items, ArgumentList.Arguments: [{ NameColon: null } index] }
+            || !index.RefKindKeyword.IsKind(SyntaxKind.None)
+            || !target.TryResolveControlField(items.Expression, out var fieldName)
+            || !target.TryResolveListItems(fieldName, out var hasDesignerItems)
+            || hasDesignerItems
+            || !TryRewriteExpression(index.Expression, target, out var indexText))
+        {
+            return false;
+        }
+
+        target.Requirements.UsedPassThrough = true;
+        text = $"{fieldName}.Items[{indexText}]";
+        return true;
+    }
+
+    /// <summary>An operand that a prefix cast cannot split: a name, a member, a call, an index, a literal, parentheses.</summary>
+    private static bool IsSingleTerm(ExpressionSyntax expression) =>
+        expression is IdentifierNameSyntax or MemberAccessExpressionSyntax or InvocationExpressionSyntax
+            or ElementAccessExpressionSyntax or LiteralExpressionSyntax or ParenthesizedExpressionSyntax
+            or ThisExpressionSyntax;
+
+    /// <summary>
+    /// <c>comboBox1.Items.Clear()</c>, <c>.Add(x)</c>, <c>.AddRange(array)</c>, <c>.Insert(i, x)</c>,
+    /// <c>.Remove(x)</c>, <c>.RemoveAt(i)</c> - on a ComboBox or ListBox that kept its own items.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Avalonia's <c>ItemsControl.Items</c> is a plain list of objects, as WinForms' was, so these
+    /// are the same calls - except <c>AddRange</c>, which it does not have, and which becomes the
+    /// loop it always stood for. The items are whatever the original added (usually strings); an
+    /// <c>ItemsControl</c> shows a non-control item by its <c>ToString()</c>, which is also what
+    /// WinForms showed without a <c>DisplayMember</c>.
+    /// </para>
+    /// <para>
+    /// <c>Remove(x)</c> finds an item by value, so it is refused where the AXAML declares item
+    /// elements - those are <c>ComboBoxItem</c>s now, and <c>Remove("A")</c> would quietly find
+    /// nothing. A bound list (<c>ItemsSource</c>) refuses everything: Avalonia throws on a write
+    /// to <c>Items</c> while one is set.
+    /// </para>
+    /// </remarks>
+    private static bool TryRewriteListItemsCall(
+        ExpressionSyntax? receiver,
+        string methodName,
+        InvocationExpressionSyntax invocation,
+        IRewriteTarget target,
+        out RewrittenStatement rewritten)
+    {
+        rewritten = default;
+
+        if (receiver is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Items" } items
+            || !target.TryResolveControlField(items.Expression, out var fieldName)
+            || !target.TryResolveListItems(fieldName, out var hasDesignerItems)
+            || !TryRewriteArguments(invocation, target, out var arguments))
+        {
+            return false;
+        }
+
+        var statement = (methodName, arguments.Count) switch
+        {
+            ("Clear", 0) => $"{fieldName}.Items.Clear();",
+            ("Add", 1) => $"{fieldName}.Items.Add({arguments[0]});",
+            ("Insert", 2) => $"{fieldName}.Items.Insert({arguments[0]}, {arguments[1]});",
+            ("RemoveAt", 1) => $"{fieldName}.Items.RemoveAt({arguments[0]});",
+            ("Remove", 1) when !hasDesignerItems => $"{fieldName}.Items.Remove({arguments[0]});",
+            ("AddRange", 1) => $"foreach (var w2aItem in {arguments[0]})\n{{\n    {fieldName}.Items.Add(w2aItem);\n}}",
+            _ => null,
+        };
+
+        if (statement is null)
+        {
+            return false;
+        }
+
+        rewritten = new RewrittenStatement(statement);
         return true;
     }
 
@@ -4095,6 +4820,15 @@ public sealed class HandlerBodyRewriter
 
     private static bool TryRewriteMemberAccess(MemberAccessExpressionSyntax memberAccess, IRewriteTarget target, out string text)
     {
+        // `comboBox1.Items.Count` - the same count on the same kind of list.
+        if (memberAccess is { Name.Identifier.ValueText: "Count", Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Items" } countedItems }
+            && target.TryResolveControlField(countedItems.Expression, out var countedField)
+            && target.TryResolveListItems(countedField, out _))
+        {
+            text = $"{countedField}.Items.Count";
+            return true;
+        }
+
         // `this.isBusy` on a carried-over Form field.
         if (memberAccess is { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var ownFieldName }
             && target.IsPromotedField(ownFieldName))
@@ -4224,6 +4958,21 @@ public sealed class HandlerBodyRewriter
         if (TrySplitInvocation(invocation, out var checkedReceiver, out var checkedMethod)
             && TryRewriteCheckedListItem(checkedReceiver, checkedMethod, invocation, target, out text))
         {
+            return true;
+        }
+
+        // `comboBox1.Items.IndexOf(x)` / `.Contains(x)` - by value, so only on a list whose items
+        // are the objects code put there.
+        if (TrySplitInvocation(invocation, out var listReceiver, out var listMethod)
+            && listMethod is "IndexOf" or "Contains"
+            && listReceiver is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Items" } searchedItems
+            && target.TryResolveControlField(searchedItems.Expression, out var searchedField)
+            && target.TryResolveListItems(searchedField, out var searchedHasDesignerItems)
+            && !searchedHasDesignerItems
+            && TryRewriteArguments(invocation, target, out var searchArguments)
+            && searchArguments.Count == 1)
+        {
+            text = $"{searchedField}.Items.{listMethod}({searchArguments[0]})";
             return true;
         }
 
@@ -4791,6 +5540,21 @@ public sealed class HandlerBodyRewriter
         /// compared with <c>DialogResult</c> members (or switched on) - its WinForms type is gone.
         /// </summary>
         YesNoCancelAnswer,
+
+        /// <summary>
+        /// An array of controls this body created (<c>ToolStripItem[] items = { label };</c>),
+        /// emitted as <c>Control[]</c>. Only a child collection's <c>AddRange</c> accepts it.
+        /// </summary>
+        ControlArray,
+
+        /// <summary>
+        /// A GDI+ <c>Pen</c> the body built, emitted as an Avalonia <c>Pen</c>. Only a drawing call's
+        /// pen argument and the members HandlerBodyRewriter.DrawingTools.cs lists accept it.
+        /// </summary>
+        Pen,
+
+        /// <summary>A GDI+ <c>SolidBrush</c> the body built, emitted as a <c>SolidColorBrush</c>; the fill-side twin of <see cref="Pen"/>.</summary>
+        Brush,
     }
 
     /// <summary>
@@ -4798,8 +5562,12 @@ public sealed class HandlerBodyRewriter
     /// WinForms type it was constructed from when it is a <see cref="LocalKind.FormView"/> - which
     /// is what says whose public surface `dialog.EnteredText` is asking about.
     /// </summary>
+    /// <param name="VouchedType">
+    /// For a <see cref="LocalKind.Value"/> built from a WinForms call the rewriter translated, the
+    /// type it really has - which the semantic model, compiling without WinForms, cannot know.
+    /// </param>
     private readonly record struct LocalBinding(
-        LocalKind Kind, string? ControlFieldName = null, string? WinFormsTypeName = null);
+        LocalKind Kind, string? ControlFieldName = null, string? WinFormsTypeName = null, SpecialType VouchedType = SpecialType.None);
 
     /// <summary>
     /// The locals in scope while one body is translated. Block-scoped, so a declaration inside an
@@ -4815,8 +5583,12 @@ public sealed class HandlerBodyRewriter
         public void Pop() => _scopes.RemoveAt(_scopes.Count - 1);
 
         public void Declare(
-            string name, LocalKind kind, string? controlFieldName = null, string? winFormsTypeName = null) =>
-            _scopes[^1][name] = new LocalBinding(kind, controlFieldName, winFormsTypeName);
+            string name,
+            LocalKind kind,
+            string? controlFieldName = null,
+            string? winFormsTypeName = null,
+            SpecialType vouchedType = SpecialType.None) =>
+            _scopes[^1][name] = new LocalBinding(kind, controlFieldName, winFormsTypeName, vouchedType);
 
         public bool TryGet(string name, out LocalKind kind)
         {
@@ -4855,6 +5627,13 @@ public sealed class HandlerBodyRewriter
     {
         public bool RequiresAsync { get; set; }
 
+        /// <summary>
+        /// Whether any code came across verbatim through the semantic check. Not part of the
+        /// snapshot: it only decides a <c>#nullable disable warnings</c>, which is harmless where
+        /// it turns out not to be needed.
+        /// </summary>
+        public bool UsedPassThrough { get; set; }
+
         public HashSet<string> RequiredUsings { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
@@ -4892,6 +5671,15 @@ public sealed class HandlerBodyRewriter
 
         /// <summary>Locals declared so far. Mutable, and scoped to a single Rewrite call.</summary>
         LocalScope Locals { get; }
+
+        /// <summary>The body bound to the semantic model, when the project could be compiled - null otherwise.</summary>
+        BoundMethodBody? Semantics { get; set; }
+
+        /// <summary>
+        /// True for a View's code-behind, where <c>this</c> is a control with a dispatcher, a
+        /// cursor and a visual tree - false in a ViewModel, which has none of them.
+        /// </summary>
+        bool IsView => false;
 
         /// <summary>What expression-level translations have obliged the method to do.</summary>
         RewriteRequirements Requirements { get; }
@@ -4972,6 +5760,19 @@ public sealed class HandlerBodyRewriter
         bool TryResolveMappedElementName(string fieldName, out string avaloniaElementName);
 
         /// <summary>
+        /// A ComboBox or ListBox that stayed one, with its own <c>Items</c> - not a bound
+        /// <c>ItemsSource</c>, whose collection Avalonia will not let code add to.
+        /// <paramref name="hasDesignerItems"/> says whether the AXAML declares item elements: those
+        /// are <c>ComboBoxItem</c>s rather than the strings WinForms held, so reading an item back
+        /// or looking one up by value would mean something else.
+        /// </summary>
+        bool TryResolveListItems(string fieldName, out bool hasDesignerItems)
+        {
+            hasDesignerItems = false;
+            return false;
+        }
+
+        /// <summary>
         /// A NotifyIcon this run emitted into App.axaml, reached through the accessor the
         /// generated App declares for it.
         /// </summary>
@@ -5036,6 +5837,104 @@ public sealed class HandlerBodyRewriter
         /// `(Button)sender` in a handler wired to exactly one control - which control that is.
         /// </summary>
         bool TryResolveSenderCast(TypeSyntax castType, string localName, out string fieldName, out string statement);
+
+        /// <summary>
+        /// `sender is Label label` - the Avalonia element every control the handler is wired to
+        /// becomes, when they are all of that WinForms type; the pattern variable, when there is one,
+        /// becomes a name for the control.
+        /// </summary>
+        bool TryResolveSenderType(TypeSyntax type, string? localName, out string elementName);
+
+        /// <summary>
+        /// `((Button)sender).Text` in a handler wired to exactly one control - that control's field.
+        /// </summary>
+        bool TryResolveSenderControl(ExpressionSyntax expression, out string fieldName);
+
+        /// <summary>
+        /// The paint surface a Form's own Paint handler was moved onto (<c>PaintLayerInserter</c>) -
+        /// what a bare <c>Invalidate()</c> has to re-render.
+        /// </summary>
+        bool TryResolveFormPaintLayer(out string fieldName);
+
+        /// <summary>
+        /// The Avalonia element a <c>new T()</c> of this WinForms control becomes, when the body may
+        /// create one at all (<see cref="RuntimeControlSupport"/>). False in a ViewModel.
+        /// </summary>
+        bool TryResolveRuntimeControlType(string winFormsTypeName, out string avaloniaElementName)
+        {
+            avaloniaElementName = "";
+            return false;
+        }
+
+        /// <summary>Makes <paramref name="localName"/> a control of <paramref name="winFormsTypeName"/> the body created.</summary>
+        void DeclareRuntimeControl(string localName, string winFormsTypeName)
+        {
+        }
+
+        /// <summary>
+        /// True for a control the body created - a local it declared, or a runtime-control field
+        /// (<see cref="FormModel.RuntimeControls"/>) - which is the only kind it may hand to a parent:
+        /// a designer control already has one, and Avalonia throws where WinForms re-parented.
+        /// </summary>
+        bool IsRuntimeControl(string fieldName, out bool isField)
+        {
+            isField = false;
+            return false;
+        }
+
+        /// <summary>
+        /// The Avalonia children collection a WinForms child collection (<c>Controls</c> or a
+        /// strip's <c>Items</c>) became, for a control field - or for the View itself when
+        /// <paramref name="ownerField"/> is null.
+        /// </summary>
+        bool TryResolveChildCollection(string? ownerField, string collectionName, out string childrenExpression)
+        {
+            childrenExpression = "";
+            return false;
+        }
+
+        /// <summary>
+        /// True when the control is laid out by a Canvas this run emitted, so its WinForms
+        /// <c>Location</c>/<c>Size</c> are the Canvas attached properties and Width/Height.
+        /// </summary>
+        bool IsCanvasPositioned(string fieldName) => false;
+
+        /// <summary>
+        /// True when a handler may hand this grid its rows: a designer <c>DataGridView</c> with no
+        /// designer <c>DataSource</c> (that one is already a binding). <paramref name="enableAutoGenerate"/>
+        /// says the original generated its columns, which Avalonia does only when asked.
+        /// </summary>
+        bool TryResolveGridItemsSource(string fieldName, out bool enableAutoGenerate)
+        {
+            enableAutoGenerate = false;
+            return false;
+        }
+
+        /// <summary>
+        /// A <c>TableLayoutPanel</c> whose cells a body may ask about - see
+        /// HandlerBodyRewriter.TableLayout.cs for what makes one admissible.
+        /// </summary>
+        bool TryResolveTableLayout(ExpressionSyntax receiver, out TableLayoutTarget layout)
+        {
+            layout = null!;
+            return false;
+        }
+
+        /// <summary>
+        /// Every designer control <paramref name="expression"/> may stand for - one for a field, the
+        /// wired controls for a shared handler's <c>sender</c> local - and the text naming it.
+        /// </summary>
+        bool TryResolveControlCandidates(ExpressionSyntax expression, out string text, out IReadOnlyList<string> fieldNames)
+        {
+            text = "";
+            fieldNames = [];
+            return false;
+        }
+
+        /// <summary>A local that is one of <paramref name="layout"/>'s children, which one decided at run time.</summary>
+        void DeclareTableChildAlias(string localName, TableLayoutTarget layout)
+        {
+        }
 
         /// <summary>
         /// True when the field is a non-visual component this run emits as a real field of the
@@ -5104,7 +6003,7 @@ public sealed class HandlerBodyRewriter
         }
     }
 
-    private sealed class ViewTarget(
+    private sealed partial class ViewTarget(
         FormModel formModel,
         ControlMappingRegistry controlMappings,
         ViewNavigationContext navigation,
@@ -5122,6 +6021,8 @@ public sealed class HandlerBodyRewriter
         public ProjectStringResources ProjectStrings { get; set; } = ProjectStringResources.None;
 
         public ProjectSettingsAccess ProjectSettings { get; set; } = ProjectSettingsAccess.None;
+
+        public bool IsView => true;
 
         public bool TryResolvePrintDocument(string fieldName, out string documentFieldName)
         {
@@ -5183,6 +6084,8 @@ public sealed class HandlerBodyRewriter
         private readonly Dictionary<string, ControlModel> _senderAliases = new(StringComparer.Ordinal);
 
         public LocalScope Locals { get; } = new();
+
+        public BoundMethodBody? Semantics { get; set; }
 
         public RewriteRequirements Requirements { get; } = new();
 
@@ -5269,6 +6172,11 @@ public sealed class HandlerBodyRewriter
                 && binding is { Kind: LocalKind.Control, ControlFieldName: { } aliased })
             {
                 fieldName = aliased;
+                return true;
+            }
+
+            if (TryResolveSenderControl(expression, out fieldName))
+            {
                 return true;
             }
 
@@ -5425,6 +6333,23 @@ public sealed class HandlerBodyRewriter
             return avaloniaElementName.Length > 0;
         }
 
+        public bool TryResolveListItems(string fieldName, out bool hasDesignerItems)
+        {
+            hasDesignerItems = false;
+
+            if (!TryGetControl(fieldName, out var control)
+                || control.ClrTypeName is not ("ComboBox" or "ListBox")
+                || !TryResolveMappedElementName(fieldName, out var element)
+                || element != control.ClrTypeName
+                || dataSourceBindings.Any(b => string.Equals(b.ControlFieldName, fieldName, StringComparison.Ordinal)))
+            {
+                return false;
+            }
+
+            hasDesignerItems = control.LiteralItems.Count > 0;
+            return true;
+        }
+
         /// <summary>
         /// Whether this control's target can carry a style group - the same question, and now the
         /// same answer, the emitter asks before writing the attribute.
@@ -5473,7 +6398,9 @@ public sealed class HandlerBodyRewriter
         /// translation from having to know the difference.
         /// </remarks>
         private bool TryGetControl(string name, out ControlModel control) =>
-            _senderAliases.TryGetValue(name, out control!) || formModel.Controls.TryGetValue(name, out control!);
+            _senderAliases.TryGetValue(name, out control!)
+            || formModel.Controls.TryGetValue(name, out control!)
+            || formModel.RuntimeControls.TryGetValue(name, out control!);
 
         /// <summary>
         /// <c>var button = (Button)sender!;</c> resolved to the control the local stands for.
@@ -5530,6 +6457,7 @@ public sealed class HandlerBodyRewriter
             }
 
             _senderAliases[localName] = sources[0];
+            RecordSenderCandidates(localName, sources);
             fieldName = localName;
 
             // `sender` is an `object?` on the Avalonia side, and the generated project enables
@@ -5538,10 +6466,110 @@ public sealed class HandlerBodyRewriter
             return true;
         }
 
+        /// <summary>
+        /// <c>sender is Label label</c>, <c>sender is not Label label</c>, <c>sender is Label</c>.
+        /// </summary>
+        /// <remarks>
+        /// Admissible on the same terms as a shared handler's cast (see <see cref="TryResolveSenderCast"/>):
+        /// every wired control is of exactly the tested type and maps to one element. Then the test
+        /// is as true of the Avalonia sender as it was of the WinForms one - always - so it is kept,
+        /// against the element type, rather than reasoned away; and the pattern variable is a
+        /// control for everything the body goes on to say about it.
+        /// </remarks>
+        public bool TryResolveSenderType(TypeSyntax type, string? localName, out string elementName)
+        {
+            elementName = "";
+            var typeName = RoslynTypeNameHelper.GetSimpleTypeName(type);
+            var sources = signature.SourceControlFieldNames
+                .Select(f => TryGetControl(f, out var c) ? c : null)
+                .OfType<ControlModel>()
+                .ToList();
+
+            if (sources.Count != signature.SourceControlFieldNames.Count
+                || sources.Count == 0
+                || sources.Any(c => c.ClrTypeName != typeName))
+            {
+                return false;
+            }
+
+            var elements = sources.Select(controlMappings.Map).ToList();
+            if (elements.Any(m => m.Status != MappingStatus.Direct)
+                || elements.Select(m => m.AvaloniaElementName).Distinct(StringComparer.Ordinal).Count() != 1)
+            {
+                return false;
+            }
+
+            if (elements[0].AvaloniaElementName is not { } avaloniaElement)
+            {
+                return false;
+            }
+
+            elementName = avaloniaElement;
+            if (localName is not null)
+            {
+                _senderAliases[localName] = sources[0];
+                RecordSenderCandidates(localName, sources);
+                Locals.Declare(localName, LocalKind.Control, localName);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// <c>((Button)sender)</c> or <c>(sender as Button)</c> used in place, in a handler wired to
+        /// exactly one control: <c>sender</c> is that control, so the expression is its field.
+        /// Wired to several there is no one field to name, and the shape stays refused - a local
+        /// (<c>var b = (Button)sender;</c>) is how such a handler is translated.
+        /// </summary>
+        public bool TryResolveSenderControl(ExpressionSyntax expression, out string fieldName)
+        {
+            fieldName = "";
+            while (expression is ParenthesizedExpressionSyntax parenthesized)
+            {
+                expression = parenthesized.Expression;
+            }
+
+            TypeSyntax? type = expression switch
+            {
+                CastExpressionSyntax cast when IsSender(cast.Expression) => cast.Type,
+                BinaryExpressionSyntax { RawKind: (int)SyntaxKind.AsExpression, Right: TypeSyntax asType } binary
+                    when IsSender(binary.Left) => asType,
+                _ => null,
+            };
+
+            return type is not null
+                && signature.SourceControlFieldNames.Count == 1
+                && TryResolveSenderCast(type, "", out fieldName, out _);
+        }
+
+        private static bool IsSender(ExpressionSyntax expression) =>
+            StripSuppression(expression) is IdentifierNameSyntax { Identifier.ValueText: "sender" };
+
+        public bool TryResolveFormPaintLayer(out string fieldName)
+        {
+            if (formModel.PaintLayers.TryGetValue("", out var layer))
+            {
+                fieldName = layer;
+                return true;
+            }
+
+            fieldName = "";
+            return false;
+        }
+
         public bool TryResolveControlMethod(
             string fieldName, string methodName, IReadOnlyList<string> arguments, out string statement)
         {
             statement = "";
+
+            // A container whose drawing moved onto a paint layer: invalidating the container itself
+            // re-renders only its own chrome, never the layer inside it.
+            if (methodName is "Invalidate" or "Refresh"
+                && arguments.Count == 0
+                && formModel.PaintLayers.TryGetValue(fieldName, out var layer))
+            {
+                fieldName = layer;
+            }
 
             if (!TryGetControl(fieldName, out var control)
                 || !ControlMethodCatalog.TryGet(control.ClrTypeName, methodName, out var method)
@@ -5605,6 +6633,8 @@ public sealed class HandlerBodyRewriter
         public ProjectSettingsAccess ProjectSettings { get; set; } = ProjectSettingsAccess.None;
 
         public LocalScope Locals { get; } = new();
+
+        public BoundMethodBody? Semantics { get; set; }
 
         public RewriteRequirements Requirements { get; } = new();
 
@@ -5724,6 +6754,24 @@ public sealed class HandlerBodyRewriter
         {
             fieldName = "";
             statement = "";
+            return false;
+        }
+
+        public bool TryResolveSenderType(TypeSyntax type, string? localName, out string elementName)
+        {
+            elementName = "";
+            return false;
+        }
+
+        public bool TryResolveSenderControl(ExpressionSyntax expression, out string fieldName)
+        {
+            fieldName = "";
+            return false;
+        }
+
+        public bool TryResolveFormPaintLayer(out string fieldName)
+        {
+            fieldName = "";
             return false;
         }
 

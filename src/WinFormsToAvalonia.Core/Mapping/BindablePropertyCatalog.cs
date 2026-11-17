@@ -179,6 +179,8 @@ public static class BindablePropertyCatalog
             ["Checked"] = new("IsChecked", "bool", AvaloniaTypeName: "bool?"),
             ["Text"] = new("Content", "string", " = string.Empty;", "object"),
         },
+        // The mapper's own rename (DefaultControlMappers), now writable from a handler too.
+        ["DataGridView"] = new(StringComparer.Ordinal) { ["ReadOnly"] = new("IsReadOnly", "bool") },
         ["NumericUpDown"] = new(StringComparer.Ordinal) { ["Value"] = new("Value", "decimal?") },
         ["ProgressBar"] = new(StringComparer.Ordinal) { ["Value"] = new("Value", "double") },
         ["TrackBar"] = new(StringComparer.Ordinal) { ["Value"] = new("Value", "double") },

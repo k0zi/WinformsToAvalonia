@@ -124,6 +124,7 @@ public sealed class DesignerSyntaxWalker
                     HandleApplyResourcesInvocation(formModel, invocation, resx, className, warnings);
                     HandleDataBindingsInvocation(invocation, warnings);
                     HandleSetKeyNameInvocation(formModel, invocation);
+                    HandleTableCellOverride(formModel, invocation);
                     break;
             }
         }
@@ -469,6 +470,24 @@ public sealed class DesignerSyntaxWalker
               + "bind the Avalonia property in the AXAML by hand.");
     }
 
+    /// <summary>
+    /// <c>this.tableLayoutPanel1.SetColumnSpan(this.label1, 2)</c> and its siblings: the control's
+    /// cell, or the area it covers, is no longer just the one <c>Controls.Add</c> gave it.
+    /// </summary>
+    private static void HandleTableCellOverride(FormModel formModel, InvocationExpressionSyntax invocation)
+    {
+        if (invocation.Expression is MemberAccessExpressionSyntax
+            {
+                Name.Identifier.ValueText: "SetColumn" or "SetRow" or "SetCellPosition" or "SetColumnSpan" or "SetRowSpan",
+            }
+            && invocation.ArgumentList.Arguments is [{ Expression: var target }, ..]
+            && TryGetControlFieldReference(target, out var fieldName)
+            && formModel.Controls.TryGetValue(fieldName, out var control))
+        {
+            control.TableCellOverridden = true;
+        }
+    }
+
     private static void HandleInvocation(
         FormModel formModel, InvocationExpressionSyntax invocation, List<ParentChildEdge> edges, List<string> warnings)
     {
@@ -540,11 +559,26 @@ public sealed class DesignerSyntaxWalker
         // `Columns` always take objects, and a literal there would be a designer bug.
         var isItemsCollection = controlsAccess.Name.Identifier.ValueText == "Items";
 
+        // `this.tableLayoutPanel1.Controls.Add(this.label1, 2, 0)` - the cell, which is all
+        // GetColumn/GetRow will ever answer for that control.
+        TableCellPosition? cell = !isAddRange
+            && controlsAccess.Name.Identifier.ValueText == "Controls"
+            && invocation.ArgumentList.Arguments is [_, { Expression: var columnExpression }, { Expression: var rowExpression }]
+            && columnExpression is LiteralExpressionSyntax { Token.Value: int column }
+            && rowExpression is LiteralExpressionSyntax { Token.Value: int row }
+                ? new TableCellPosition(column, row)
+                : null;
+
         foreach (var childExpression in childExpressions)
         {
             if (TryGetControlFieldReference(childExpression, out var childField))
             {
                 edges.Add(new ParentChildEdge(parent, childField));
+                if (cell is { } placed && formModel.Controls.TryGetValue(childField, out var placedChild))
+                {
+                    placedChild.DesignerTableCell = placed;
+                }
+
                 continue;
             }
 

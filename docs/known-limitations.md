@@ -563,7 +563,14 @@ rule itself; what follows is what the rule does *not* cover yet.
     and the local stands for a control of the type they share. That needs every wired control to
     map to the same element; mixed types stay refused, since telling them apart is the whole
     reason such a handler reads `sender`. Either way the cast has to name the control's own
-    WinForms type - a base-type cast (`(Control)sender`) is refused rather than widened;
+    WinForms type - a base-type cast (`(Control)sender`) is refused rather than widened.
+    `var button = sender as Button;` is the same thing on the same terms (`as` never yields null
+    when every wired control is a Button). A type test - `if (sender is Label card)`, the guard
+    `if (sender is not Button b) return;`, or a bare `sender is Button` - is kept against the
+    Avalonia element type (`sender is TextBlock card`), again only when every wired control is of
+    exactly that type, so the test is as always-true as it was; the pattern variable is a control
+    for the rest of the body. Used in place, `((Button)sender).Text` and `(sender as Button)` are
+    the control's field on a single-control handler, and refused on a shared one;
   - the text-entry family's own properties, which are plain renames: `Multiline` →
     `AcceptsReturn`, `ReadOnly` → `IsReadOnly`, plus `MaxLength` and `SelectionStart` unchanged.
     One of them is not a rename at all: `WordWrap` is a `bool` in WinForms and a `TextWrapping`
@@ -571,8 +578,27 @@ rule itself; what follows is what the rule does *not* cover yet.
     TextWrapping.NoWrap` writing, `== TextWrapping.Wrap` reading). A property in that shape is
     deliberately **not** two-way bindable - a `{Binding}` has no converter in between, so it
     cannot carry a promoted `[RelayCommand]` and stays in code-behind, where the conversion is
-    written out. A compound assignment to one is refused, since that reads it as well as writing
-    it and a read cannot be spliced into a left-hand side;
+    written out. A compound assignment (`label1.Text += x`, `box.WordWrap |= y`) is expanded into
+    the read and the write it abbreviates - `a op= b` is `a = a op b` - so both halves go through
+    their own conversion: `label1.Text = (label1.Text ?? string.Empty) + x`;
+  - the cross-thread idiom: `InvokeRequired` (on the View or any control) as
+    `(!Dispatcher.UIThread.CheckAccess())`, `Invoke(...)` as `Dispatcher.UIThread.Invoke(...)` and
+    `BeginInvoke(...)` as `Dispatcher.UIThread.Post(...)` - the same synchronous/queued contract.
+    The delegate is rebuilt as a lambda: a parameterless lambda or anonymous method (bare, cast,
+    or wrapped in `new MethodInvoker(...)`/`new Action(...)`) whose body translates **whole**,
+    since it runs somewhere else and has no place for a remainder - or a helper that became real
+    code, with the arguments passed after it (bare or as `new object[] { ... }`). A delegate held
+    in a local first, a lambda with parameters, and a body that would await stay un-migrated;
+  - a stock cursor, `this.Cursor = Cursors.WaitCursor;` / `control.Cursor = Cursors.Hand;`, as
+    `new Cursor(StandardCursorType.Wait)` (`Cursors.Default` as `Cursor.Default`) -
+    `Mapping/CursorCatalog`. Only exact counterparts: the splitter, diagonal-resize and pan
+    cursors have none and are refused, as is the global `Cursor.Current`;
+  - a ComboBox's or ListBox's own list: `Items.Clear()`, `Add(x)`, `Insert(i, x)`, `RemoveAt(i)`,
+    `Count`, and `AddRange(array)` as the `foreach ... Items.Add` loop it stands for. Reading an
+    item back (`(string)box.Items[i]`), `Remove(x)`, `IndexOf(x)` and `Contains(x)` find items by
+    value, so they translate only where the AXAML declares **no** item elements - designer items
+    are `ComboBoxItem`s now, not the strings WinForms held. A list bound to an `ItemsSource`
+    refuses all of it: Avalonia throws on a write to `Items` while one is set;
   - `tabControl1.SelectedTab?.Text`, as
     `((tabControl1.SelectedItem as TabItem)?.Header as string)`. Provable because the
     `TabPage` → `TabItem` mapping is this converter's own: a non-null `SelectedItem` *is* a
@@ -634,12 +660,36 @@ rule itself; what follows is what the rule does *not* cover yet.
     (`new SolidColorBrush(Color.Parse("#AARRGGBB"))`). The colour goes through the same
     `ExpressionEvaluator` + `PropertyValueFormatters.AsBrush` pair the designer path uses, so a
     colour written in a handler and the same colour written in the designer cannot come out
-    differently - and anything they cannot resolve to a literal (a computed colour, another
-    control's `BackColor`) is refused rather than guessed at, exactly as in the AXAML. Gated on the
+    differently - and anything they cannot resolve to a literal (a computed colour) is refused
+    rather than guessed at, exactly as in the AXAML. **Another control's colour is read** where it
+    means the same: `label.ForeColor` is the element's `Foreground`, which Avalonia inherits just as
+    WinForms' ambient `ForeColor` does, and `label.BackColor` is `AmbientBackColorFallback.Of(label)` -
+    a bundled helper walking up to the first element with a background of its own, because an unset
+    Avalonia `Background` reads `null` where WinForms answers the parent's colour. It skips a fully
+    transparent one: that is what the conversion gives a clickable element so the pointer can hit it.
+    At the window it answers the theme's background where WinForms says `SystemColors.Control`. A
+    choice between two colours (`open ? Color.Black : label.BackColor`) is a choice between the two
+    brushes. A `SolidBrush` *local* still takes only a literal colour - its `Color` may be written
+    later, and a control's brush is shared with the control. Gated on the
     *element* through `AvaloniaStylePropertySupport`, the same table `AxamlEmitter` consults: a
     `Panel` has a Background but no Foreground, an `Image` has neither, and a **fallback** control
     gets no styling at all. `Font` is deliberately absent - one WinForms value becomes three
     Avalonia properties, which is a different shape of problem;
+  - **A `TableLayoutPanel` asked about its cells** - `GetColumn(label)`, `GetRow(label)`,
+    `GetControlFromPosition(c, r)`, `Controls.Count` and `(Label)Controls[i]`, the whole of what
+    dotnet/samples' MatchingGame says about its board. The panel is still a Canvas, but every child
+    the designer placed with `Controls.Add(child, column, row)` carries that cell as an inert
+    `Grid.Column`/`Grid.Row`, so `Grid.GetColumn(label)` reads back exactly what WinForms returned,
+    and the position lookup is `Children.OfType<T>().FirstOrDefault(...)` - null for an empty cell,
+    as in WinForms. Only for a panel the designer filled completely and plainly: every child in a
+    cell of its own, none moved or spanned afterwards (`SetColumn`, `SetColumnSpan`, ...), all of one
+    WinForms type mapped to one element - which is also what makes `Controls[i]` *be* `Children[i]`
+    and the cast unable to fail where it did not. A control asked about must be one of the
+    children: a field, a shared handler's `sender`, or a child already read from the panel. The
+    cell number is an `int` the semantic check cannot type (the call it came from is WinForms), so
+    the rewriter vouches for it - and only as a whole argument of a call that resolves to one
+    member taking it, which is how `_game.GetCard(column, row)` comes across. MatchingGame itself
+    still stops at `CheckForWinner`: its `GameSettings` reads the Windows registry;
   - **`errorProvider1.SetError(control, "message")`** → `ErrorProviderFallback.SetError(control, "message")`.
     The one translation whose result is a *static* call on a bundled fallback: everywhere else a
     fallback is something the AXAML instantiates and the handler then talks to, but a WinForms
@@ -1060,6 +1110,32 @@ rule itself; what follows is what the rule does *not* cover yet.
   means. This was written off as having no counterpart, which confused "no one-call equivalent"
   with "no equivalent" - they are not the same answer.
 
+- **Controls created at run time come across, for the plain types.** `var b = new Button { Text =
+  "Go" };` becomes `var b = new Button(); b.Content = "Go";` - the initializer is the property
+  writes it stands for, each through the same catalog a designer control's goes through, so an
+  unknown member still stops the handler. `Location`/`Size`/`Left`/`Top` become
+  `Canvas.SetLeft`/`SetTop` and `Width`/`Height`, because every container is emitted as a Canvas
+  (a designer control only where its parent really is one). `Controls.Add` hands the control to the
+  View's root Canvas or to a Panel that stayed a Canvas, `statusStrip.Items.Add`/`AddRange` to the
+  strip's `StatusStripFallback`. A Form field of such a type (`private ToolStripStatusLabel label;`)
+  is declared on the View as the Avalonia element.
+
+  The limits are deliberate:
+  - only a type whose *undecorated* mapping is the bare element (`RuntimeControlSupport`: Direct,
+    no attribute, no wrapper, no package, no warning) - a fallback template, a ListView, a
+    DataGridView stay refused;
+  - no constructor arguments, no event subscription on the new control (`b.Click += …` - the
+    handler would need its Avalonia signature, and nothing planned it);
+  - only a control the body created may be given a parent: a designer control already has one,
+    and where WinForms re-parents silently, Avalonia throws. A runtime *field* is detached from any
+    earlier parent first, which is the WinForms behaviour spelled out;
+  - a runtime field is kept only if **every** assignment to it came across (handlers, constructor,
+    helpers). A field declared on the View but created in a statement that stayed a comment would
+    turn each translated use into a `NullReferenceException`, so the planner settles that the same
+    way it settles carried fields;
+  - a GroupBox, TabPage or DataGridView as the parent, `Controls.Clear()`/`RemoveAt` and reading a
+    position back (`Canvas.GetLeft` is `NaN` where WinForms had `0`) are not translated.
+
 - **A ListView's items, on the half of the mapping that has an answer.** A ListView with neither
   `View.Details` nor parsed `ColumnHeader`s becomes a `ListBox`, and there
   `listView1.Items.Add(new ListViewItem("x"))` is exactly
@@ -1140,6 +1216,71 @@ rule itself; what follows is what the rule does *not* cover yet.
   button: the designer never records which handler opened which dialog, since handler bodies
   are not part of `InitializeComponent()`.
 
+## Code that touches no UI: the semantic pass-through
+
+The syntactic rules above refuse any name they cannot place - a type of the project's own, a field
+of one, a BCL call outside a short list - because it *could* be a WinForms API. A second, semantic
+stage answers that question instead of assuming it (`Semantics/SemanticProjectContext`): the
+original project is compiled against the .NET 10 base class library **without** WinForms, so every
+WinForms name binds to an error type, and code in which everything binds is provably the same code
+in the generated project.
+
+- **The project's other source files come across** when they are UI-neutral as a whole - models,
+  services, a cache class - unchanged, at the same relative path. A referenced class library that
+  is not itself a WinForms project comes along the same way, under a folder named after it, rather
+  than as a reference to the original csproj (a .NET Framework library cannot be referenced from
+  `net10.0` as it stands). A file is left behind, with the reason in `MIGRATION.md`, if it uses
+  WinForms, `System.Drawing` (which binds - it is in the BCL - but means what Avalonia spells as
+  brushes and `Avalonia.Point`), an `[Obsolete]`, Windows-only or experimental API (each a warning
+  in a project that builds warning-free; `Microsoft.Win32.Registry` is the common one), a type of a
+  file that was itself left behind, or if it would compile with **any** warning. Never copied:
+  `*.Designer.cs`, `AssemblyInfo.cs`, files with assembly attributes or an entry point, and a type
+  in a namespace the generated project uses itself (`{Root}.Views`, `.ViewModels`, ...). A
+  `using System.Windows.Forms;` left over from a template is dropped from the copy, and the file
+  gets `#nullable disable` unless the original project enabled nullable reference types.
+- **A handler statement comes across verbatim** when it is UI-neutral - the last resort, after
+  every rule that knows a WinForms shape has had its chance, so the translations above still win.
+  It may name the Form's own members only where the View declares them too (a carried field, a
+  helper that became real code and is not `async`); never `sender`/`e`, which are Avalonia objects
+  in the generated method; and never `this` except as the receiver of such a member -
+  `this.GetType()` asks a different object. Types outside `System` and the implicit-using
+  namespaces are written namespace-qualified, so nothing can bind to an Avalonia type of the same
+  name (`Mapping.Tests` checks that the simple names left alone mean the same thing in a View).
+  The prefix rule is unchanged - a passed-through local at the end of a partial prefix is still
+  trimmed - and a View carrying such code starts with `#nullable disable warnings`, since the code
+  was not written with nullable reference types in mind.
+- **Fields and helper signatures of named types.** A field whose type and initializer are
+  UI-neutral is carried (`private Game _game;`, `string[] formats = { ... };`), and a helper whose
+  return and parameter types are, is a candidate like a keyword-typed one.
+- **The constructor's own statements** (everything but `InitializeComponent()`) are translated
+  with the prefix rule too, into the generated View's constructor after its own setup. Only for a
+  class whose sole constructor is parameterless - another constructor's statements would run where
+  they never did. A carried field that the **un-migrated** rest of the constructor still mentions
+  is not carried after all: the constructor is usually where it is created
+  (`rm = new ResourceManager(...)`), and carrying it uninitialized would turn every use of it into
+  a `NullReferenceException` where there used to be an honest TODO.
+- **NuGet packages come across** when the code uses them and a `net10.0` project can: every
+  `PackageReference` (version from the item, its `<Version>` child, or `Directory.Packages.props`)
+  and every `packages.config` entry - of the project and of the class libraries it references - is
+  looked up in the NuGet global packages folder, a legacy solution's `packages/` folder, and
+  otherwise downloaded from nuget.org into a cache of the tool's own (`--offline` turns that off).
+  Its assemblies for the best-fitting framework (`net5`-`net10`, then `netcoreapp`, then
+  `netstandard`; `ref/` before `lib/`) join the semantic compilation, so a statement calling into it
+  binds and passes through like BCL code, and the package is added to the generated csproj at the
+  original's version - **only** if some code of the project names a type or member of it. A package
+  is left out, and said so, when it has only a .NET Framework or `-windows` library (every
+  WinForms control suite), when it references WinForms or WPF, when it is platform-specific
+  (`[assembly: SupportedOSPlatform]`), when its version is a range or floating, or when it cannot be
+  found. A polyfill .NET ships itself (`Microsoft.CSharp`, `System.Data.DataSetExtensions`) and a
+  `PrivateAssets="all"` tool are dropped without a word, and a meta-package
+  (`Microsoft.Windows.Compatibility`) is replaced by those of its dependencies the code uses. A
+  package the conversion adds itself for a component (`System.IO.Ports` for a `SerialPort`) is not
+  reported as left out.
+- Not covered: extension methods from a namespace the
+  generated View does not import; a static member reached through `using static`; overloaded
+  helpers and fields; property accessors; and a referenced WinForms project's own plain classes,
+  which belong to that project's conversion.
+
 ## Paint handlers and custom drawing
 
 - **A `Paint` handler needs a subclass, so the conversion supplies one.** Avalonia has no `Paint`
@@ -1147,10 +1288,30 @@ rule itself; what follows is what the rule does *not* cover yet.
   is that subclass and raises the override back as an event, and a `Panel` or `PictureBox` whose
   designer wired `Paint` is retargeted onto it. The subscription is made in the generated
   constructor - it is a CLR event on a template, not an element attribute.
-- **It can draw or contain, not both.** `Panel.Render` is `sealed` in Avalonia, so the surface
-  derives from `Control` and hosts no children. A Panel with children keeps them and reports that
-  its Paint was not wired; a PictureBox that also carries an Image keeps the picture, since
-  WinForms drew the handler's output over it and there is no honest way to do both here.
+- **A surface can draw or contain, not both - so a container gets a paint layer.**
+  `Panel.Render` is `sealed` in Avalonia, so the surface derives from `Control` and hosts no
+  children. A WinForms container's Paint draws *under* its children, though, and that is what a
+  childless surface placed first in the container's Canvas, at its origin and its size, does:
+  `PaintLayerInserter` moves the Paint binding of a `Panel` or `GroupBox` that has children - and
+  of the Form or UserControl itself - onto a synthetic `<field>PaintLayer` there. The drawing and
+  the children share one coordinate system, whatever offset the Avalonia container (a GroupBox's
+  header) puts on its content. The handler's `sender` is the layer now, so a body casting it to the
+  container type refuses. A Form's layer has the designed client size and does not follow a resize.
+  `container.Invalidate()`/`Refresh()`, and a bare `Invalidate()` on the Form, are redirected to the
+  layer: invalidating the container itself would re-render only its own chrome.
+- **Other containers are not layered.** A `TabPage`, `FlowLayoutPanel` or `SplitContainer` panel
+  with children keeps its children and reports that its Paint was not wired; a PictureBox that also
+  carries an Image keeps the picture, since WinForms drew the handler's output over it and there is
+  no honest way to do both here.
+- **`protected override void OnX(...)` becomes the `X` handler it is equivalent to**
+  (`OverrideHandlerLifter`), for every event the generated root raises plus `OnPaint`. The View's
+  Avalonia base has no `OnLoad` to override, so the override used to stay a comment among the
+  helpers. The one difference between an override and a handler is where the override's own code
+  runs relative to `base.OnX(e)`, which raises the event to everyone else - so the base call must be
+  the first or the last statement (or absent, when nothing else subscribes the event), and when the
+  designer also wires a handler to that event it must be first: the lifted handler is subscribed
+  after the designer's, from the constructor, and so runs after it. A body naming any other `base.`
+  member or a `sender` stays as it was.
 - **The geometric calls and every `DrawString` placement translate.** `DrawLine`,
   `DrawRectangle`, `FillRectangle`, `DrawEllipse` and `FillEllipse` in their four-coordinate form,
   plus `DrawString` at `(x, y)`, at a `PointF`/`Point`, and inside a `RectangleF`/`Rectangle` - or
@@ -1189,6 +1350,17 @@ rule itself; what follows is what the rule does *not* cover yet.
   evaluate to the same `KnownColor` the designer path already understood, and come out as explicit
   ARGB. That is deliberate: Avalonia's `Brushes` has no system colours at all, so translating a
   name to a name would emit `Brushes.Control`, which does not exist there.
+- **A pen or brush the handler builds itself comes across.** `var p = new Pen(color[, width])` and
+  `new SolidBrush(color)` - plain, `using var`, or a `using (...) { }` block - are built as the
+  Avalonia `Pen`/`SolidColorBrush` straight away, and every drawing call (and `DrawString`'s brush)
+  accepts the local where the matching argument goes. The `using` is dropped and its scope kept as
+  a block: Avalonia's are managed objects, not `IDisposable`, and keeping it would be a CS1674.
+  `Width` becomes `Thickness`, `Color` the brush, and `DashStyle` GDI+'s own pattern
+  (`Dash` 3-1, `Dot` 1-1, `DashDot`, `DashDotDot`) in pen widths - which is how Avalonia measures
+  dashes too, so the rhythm is the same, not merely "dashed". Still refused: `StartCap`/`EndCap`
+  (GDI+ caps each end separately and has arrow anchors, Avalonia one cap for both ends and no
+  arrows), `DashStyle.Custom`/`DashPattern`, joins, gradient and hatch brushes, and `DrawCurve`
+  (a cardinal spline Avalonia has no primitive for).
 
 ## MDI
 
@@ -1395,7 +1567,7 @@ themselves were measured at run time, since a reference assembly does not carry 
   `-2147483648` - the sign word of a negative decimal - had evaluated as *positive*, because C#
   types `2147483648` as a uint and the negation fell through.
 
-- **`DataGridView`** carries `ReadOnly` → `IsReadOnly`, `MultiSelect` → `SelectionMode`
+- **`DataGridView`** carries `ReadOnly` → `IsReadOnly` (from a handler too), `MultiSelect` → `SelectionMode`
   (`Extended`/`Single`) and `AutoGenerateColumns`. The last is the case where the defaults disagree
   the other way round: WinForms generates columns unless told not to and Avalonia (measured) does
   not, so the designer's habitual `= false` is what Avalonia already does.
@@ -1588,6 +1760,25 @@ object initializers - every degree of freedom is closed by a fact this run alrea
 Everything else still refuses, and still stops the handler at that statement: a row type from a
 referenced assembly, a constructor argument, a nested initializer, a list built with `Add` calls or
 a loop, and any `DataSource` that is not this literal shape (a `DataTable`, a query, a field).
+
+**A grid handed its rows directly does come across.** `dataGridView1.DataSource = orders;` - on a
+grid with no designer `DataSource` - becomes `dataGridView1.ItemsSource = orders;`, and `= null`
+becomes `ItemsSource = null`. The value is proven rather than guessed: it must pass through as
+UI-neutral code, and the semantic model must say it is a plain `IList` (a `List<T>`, an array, an
+`ObservableCollection<T>`), which WinForms shows one row per element of, reading public properties -
+the same thing Avalonia's grid does. Refused, and still stopping the handler:
+
+- a `DataTable`, `DataSet` or `DataView` - WinForms reads those through property descriptors
+  (`IListSource`), Avalonia's grid has no counterpart, so their rows would show no columns;
+- a bare `IEnumerable` such as an unmaterialised LINQ query - WinForms throws on it too;
+- a `BindingSource`, or anything else that names a WinForms type;
+- a grid with designer columns *and* WinForms' default `AutoGenerateColumns = true`: WinForms adds
+  only the properties those columns do not already show, Avalonia would add every one again.
+
+Where the grid had no columns of its own and the designer left the default, the translation also
+writes `AutoGenerateColumns = true`: WinForms generates the columns unless told not to, Avalonia
+only when told to - so without it the rows arrive and nothing shows them. A handler that sets
+`AutoGenerateColumns` itself still stops there.
 
 What *is* now possible is writing that population by hand, because the row type exists: a type
 declared **inside** a Form or UserControl is lifted into `Models/<Name>.cs` as a `public` type

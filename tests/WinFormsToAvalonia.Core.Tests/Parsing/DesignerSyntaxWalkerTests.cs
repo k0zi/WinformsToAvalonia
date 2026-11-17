@@ -121,6 +121,45 @@ public class DesignerSyntaxWalkerTests
         Assert.Empty(result.Warnings);
     }
 
+    /// <summary>
+    /// <c>Controls.Add(child, column, row)</c> records the cell; a later span or move makes it
+    /// something else, and the cell is no longer known - a plain <c>Add</c> never had one.
+    /// </summary>
+    [Fact]
+    public void Walk_TableLayoutPanelAdd_RecordsTheCellUnlessLaterChanged()
+    {
+        const string source = """
+            namespace Demo
+            {
+                partial class TestForm
+                {
+                    private void InitializeComponent()
+                    {
+                        this.table = new System.Windows.Forms.TableLayoutPanel();
+                        this.a = new System.Windows.Forms.Label();
+                        this.b = new System.Windows.Forms.Label();
+                        this.c = new System.Windows.Forms.Label();
+                        this.table.Controls.Add(this.a, 2, 1);
+                        this.table.Controls.Add(this.b, 0, 0);
+                        this.table.SetColumnSpan(this.b, 2);
+                        this.table.Controls.Add(this.c);
+                    }
+
+                    private System.Windows.Forms.TableLayoutPanel table;
+                    private System.Windows.Forms.Label a;
+                    private System.Windows.Forms.Label b;
+                    private System.Windows.Forms.Label c;
+                }
+            }
+            """;
+
+        var form = new DesignerSyntaxWalker().Walk(source, "TestForm.Designer.cs", "TestForm", "Demo").Form;
+
+        Assert.Equal(new TableCellPosition(2, 1), form.Controls["a"].TableCell);
+        Assert.Null(form.Controls["b"].TableCell);
+        Assert.Null(form.Controls["c"].TableCell);
+    }
+
     /// <summary>A declared field is still a control, whatever it is constructed from.</summary>
     [Fact]
     public void Walk_DeclaredFieldAssignedAConstruction_IsStillAControl()

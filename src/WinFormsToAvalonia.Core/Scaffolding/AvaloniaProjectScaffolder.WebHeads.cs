@@ -1,3 +1,4 @@
+using WinFormsToAvalonia.Core.Semantics;
 namespace WinFormsToAvalonia.Core.Scaffolding;
 
 /// <summary>
@@ -62,7 +63,8 @@ public sealed partial class AvaloniaProjectScaffolder
         VirtualFileSystem single,
         string projectName,
         IReadOnlySet<string>? extraNuGetPackages = null,
-        IReadOnlyList<string>? projectReferences = null)
+        IReadOnlyList<string>? projectReferences = null,
+        IReadOnlyList<CarriedPackage>? carriedPackages = null)
     {
         var packages = extraNuGetPackages ?? (IReadOnlySet<string>)new HashSet<string>();
         var references = projectReferences ?? [];
@@ -86,7 +88,7 @@ public sealed partial class AvaloniaProjectScaffolder
             split.AddBinary($"{projectName}/{path}", content);
         }
 
-        split.AddText($"{projectName}/{projectName}.csproj", BuildCsproj(projectName, packages, references, asLibrary: true));
+        split.AddText($"{projectName}/{projectName}.csproj", BuildCsproj(projectName, packages, references, asLibrary: true, carriedPackages));
         split.AddText($"{projectName}/Generated/ViewWindow.cs", BuildViewWindow(projectName));
 
         var desktop = DesktopHeadFolder(projectName);

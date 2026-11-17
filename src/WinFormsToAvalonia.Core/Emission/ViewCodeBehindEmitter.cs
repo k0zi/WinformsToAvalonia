@@ -57,6 +57,15 @@ public sealed class ViewCodeBehindEmitter
             }
         }
 
+        // Code that came across verbatim (a semantically proven statement, a carried field of a
+        // named type) was written without nullable reference types in mind; the generated project
+        // enables them, and reporting warnings the original never had would break the
+        // warning-free build. Annotations stay on, so the generated `object? sender` is still fine.
+        if (UsesSemanticPassThrough(plan))
+        {
+            Line("#nullable disable warnings");
+        }
+
         Using("System");
         if (plan.FileDialogs.Count > 0 || plan.PromotedHelpers.Any(h => h.IsAsync))
         {
@@ -275,6 +284,14 @@ public sealed class ViewCodeBehindEmitter
             Line($"        {fieldName}.{avaloniaEventName} += {handlerMethodName};");
         }
 
+        // The View's own: a second handler on an event whose one attribute the first one took.
+        foreach (var (avaloniaEventName, handlerMethodName) in plan.ChainedRootEventSubscriptions
+                     .Where(e => root == ViewRootKind.Window || !WindowOnlyEventCatalog.IsWindowOnly(e.AvaloniaEventName)))
+        {
+            Line();
+            Line($"        {avaloniaEventName} += {handlerMethodName};");
+        }
+
         // What the BindingNavigator's own buttons did in WinForms. Subscribed here rather than
         // through a XAML Click attribute because there is no handler method to point at: the
         // behaviour belongs to the framework, and the clamping to the fallback control.
@@ -285,6 +302,17 @@ public sealed class ViewCodeBehindEmitter
             {
                 Line($"        {button.ButtonFieldName}.Click += (_, _) => "
                     + $"{navigator.ControlFieldName}.{button.MethodName}();");
+            }
+        }
+
+        // The original constructor's own work, as far as it translated - after everything the
+        // generated constructor sets up, which is where InitializeComponent() left it in WinForms.
+        if (plan.ConstructorRewrite is { MigratedStatements.Count: > 0 } constructorRewrite)
+        {
+            Line();
+            foreach (var statement in constructorRewrite.MigratedStatements)
+            {
+                Line(Indent(statement, "        "));
             }
         }
 
@@ -328,8 +356,9 @@ public sealed class ViewCodeBehindEmitter
         var forwardedHandlers = root == ViewRootKind.Window
             ? new HashSet<string>(StringComparer.Ordinal)
             : plan.XamlEventAttributesFor(null)
-                .Where(e => WindowOnlyEventCatalog.IsWindowOnly(e.AttributeName))
-                .Select(e => e.HandlerMethodName)
+                .Concat(plan.ChainedRootEventSubscriptions)
+                .Where(e => WindowOnlyEventCatalog.IsWindowOnly(e.Item1))
+                .Select(e => e.Item2)
                 .ToHashSet(StringComparer.Ordinal);
 
         foreach (var handler in plan.CodeBehindHandlers)
@@ -660,6 +689,12 @@ public sealed class ViewCodeBehindEmitter
         string.Join("\n", text.Replace("\r\n", "\n").Split('\n').Select(l => l.Length == 0 ? l : indent + l));
 
     private static string EscapeForBlockComment(string text) => text.Replace("*/", "* /");
+
+    private static bool UsesSemanticPassThrough(FormMigrationPlan plan) =>
+        plan.PromotedFields.Any(f => f.IsSemantic)
+        || plan.PromotedHelpers.Any(h => h.Rewrite.UsesSemanticPassThrough)
+        || plan.ConstructorRewrite?.UsesSemanticPassThrough == true
+        || plan.CodeBehindHandlers.Any(h => h.Rewrite?.UsesSemanticPassThrough == true);
 
     /// <summary>
     /// A field with no initializer whose type may be a non-nullable reference type - which the

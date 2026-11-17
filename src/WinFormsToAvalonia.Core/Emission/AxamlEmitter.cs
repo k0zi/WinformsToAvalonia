@@ -151,6 +151,14 @@ public sealed class AxamlEmitter
             builder.Attribute(attributeName, handlerMethodName);
         }
 
+        // A second handler on a root event is subscribed from the constructor - unless a
+        // UserControl root does not have that event at all, when the wrapper forwards it too.
+        if (root == ViewRootKind.UserControl)
+        {
+            deferredWindowEvents.AddRange(state.Plan.ChainedRootEventSubscriptions
+                .Where(e => WindowOnlyEventCatalog.IsWindowOnly(e.AvaloniaEventName)));
+        }
+
         EmitCanvasLayoutStyles(builder, rootElementName);
 
         builder.OpenElement("Design.DataContext");
@@ -365,6 +373,15 @@ public sealed class AxamlEmitter
             else
             {
                 WarnIfPropertyUnresolved(control, "Size", "Size", state);
+            }
+
+            // A TableLayoutPanel cell. Inert inside the Canvas the panel became - the position
+            // above is what lays it out - but it is the cell a handler's GetColumn/GetRow asks
+            // for, as Grid.GetColumn/Grid.GetRow, and the layout a hand-made Grid would want.
+            if (control.TableCell is { } cell)
+            {
+                builder.Attribute("Grid.Column", FormatInt(cell.Column));
+                builder.Attribute("Grid.Row", FormatInt(cell.Row));
             }
         }
 

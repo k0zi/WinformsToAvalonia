@@ -50,6 +50,10 @@ public sealed class ConvertCommandSettings : CommandSettings
     [Description("Also generate a browser (WebAssembly) head: emits a shared library plus a desktop and a browser project instead of one desktop project. Needs the wasm-tools workload to build.")]
     public bool WithWeb { get; init; }
 
+    [CommandOption("--offline")]
+    [Description("Never download the source project's NuGet packages from nuget.org; use only what the local NuGet cache already holds. Code calling into a package that is not found stays un-migrated.")]
+    public bool Offline { get; init; }
+
     [CommandOption("--log-file <PATH>")]
     [Description("Write a full structured (JSON) conversion report alongside the console output.")]
     public string? LogFile { get; init; }

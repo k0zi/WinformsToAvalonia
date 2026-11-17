@@ -67,6 +67,13 @@ public sealed record RewrittenBody(
     /// </summary>
     public int MigratedStatementCount => MigratedStatementCountOverride ?? MigratedStatements.Count;
 
+    /// <summary>
+    /// Whether some of <see cref="MigratedStatements"/> came across verbatim, proved UI-neutral by
+    /// the semantic model. Such code was written without nullable reference types in mind, so the
+    /// file carrying it disables their warnings rather than report ones the original never had.
+    /// </summary>
+    public bool UsesSemanticPassThrough { get; init; }
+
     /// <summary>True when nothing is left to migrate by hand - the method needs no TODO marker.</summary>
     public bool IsComplete => RemainingBody.Length == 0 && TotalStatementCount > 0;
 }

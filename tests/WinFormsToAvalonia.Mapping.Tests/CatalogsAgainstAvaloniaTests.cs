@@ -609,6 +609,46 @@ public class CatalogsAgainstAvaloniaTests
         Assert.Contains(EnumMembers("RoutingStrategies"), m => m == "Tunnel");
     }
 
+    /// <summary>
+    /// <c>Cursors.WaitCursor</c> becomes <c>new Cursor(StandardCursorType.Wait)</c>, and the
+    /// default <c>Cursor.Default</c> - three claims about Avalonia's API, each a CS0117 in the
+    /// generated project if wrong.
+    /// </summary>
+    [Fact]
+    public void CursorCatalog_NamesRealStandardCursorTypes()
+    {
+        var standard = EnumMembers("StandardCursorType");
+        Assert.NotEmpty(standard);
+
+        foreach (var (winForms, avalonia) in CursorCatalog.StandardCursors)
+        {
+            Assert.True(standard.Contains(avalonia), $"Cursors.{winForms} maps to StandardCursorType.{avalonia}, which does not exist.");
+        }
+
+        var cursor = AvaloniaMetadata.FindElement("Cursor");
+        Assert.True(cursor is not null, "Avalonia has no Cursor type.");
+        Assert.True(
+            cursor!.GetMember("Default", BindingFlags.Public | BindingFlags.Static) is [_],
+            "Avalonia's Cursor has no static Default.");
+        Assert.Contains(cursor.GetConstructors(), c => c.GetParameters() is [{ ParameterType.Name: "StandardCursorType" }]);
+        Assert.NotNull(AvaloniaMetadata.FindProperty(AvaloniaMetadata.FindElement("InputElement")!, "Cursor"));
+    }
+
+    /// <summary>
+    /// <c>InvokeRequired</c>/<c>Invoke</c>/<c>BeginInvoke</c> become calls on
+    /// <c>Dispatcher.UIThread</c>: <c>CheckAccess()</c>, <c>Invoke(Action)</c> and <c>Post(Action)</c>.
+    /// </summary>
+    [Fact]
+    public void UiThreadMarshalling_NamesRealDispatcherMembers()
+    {
+        var dispatcher = AvaloniaMetadata.FindElement("Dispatcher");
+        Assert.True(dispatcher is { Namespace: "Avalonia.Threading" }, "Avalonia.Threading.Dispatcher not found.");
+        Assert.NotNull(dispatcher!.GetProperty("UIThread", BindingFlags.Public | BindingFlags.Static));
+        Assert.NotNull(AvaloniaMetadata.FindMethod(dispatcher, "CheckAccess", 0));
+        Assert.Contains(dispatcher.GetMethods(), m => m.Name == "Invoke" && m.GetParameters() is [{ ParameterType.Name: "Action" }]);
+        Assert.Contains(dispatcher.GetMethods(), m => m.Name == "Post" && m.GetParameters() is [{ ParameterType.Name: "Action" }, { IsOptional: true }]);
+    }
+
     private static HashSet<string> EnumMembers(string enumName) =>
         AvaloniaMetadata.FindElement(enumName)!
             .GetFields(BindingFlags.Public | BindingFlags.Static)

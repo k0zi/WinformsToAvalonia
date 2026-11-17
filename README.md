@@ -125,6 +125,7 @@ dotnet tool install --global --add-source ./artifacts WinFormsToAvalonia
 | `--no-fallback-controls` | Strict mode: skip fallback controls instead of emitting them. |
 | `--skip-code-behind-comments` | Omit the preserved code-behind block. |
 | `--with-web` | Also generate a browser (WebAssembly) head — see [Web (WASM) head](#web-wasm-head). |
+| `--offline` | Never download the source project's NuGet packages from nuget.org; use only the local NuGet cache. Code calling into a package that is not found stays un-migrated. |
 | `--log-file <path>` | Also write the conversion report as JSON. |
 
 ## Example

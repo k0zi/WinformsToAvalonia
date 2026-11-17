@@ -30,6 +30,24 @@ public static class SummaryRenderer
             }
         }
 
+        // Where the unfinished handlers stopped, bucketed: which missing translation would carry the
+        // most code next. Top three by default, every bucket with --verbose.
+        if (report.MigrationBlockers.Count > 0)
+        {
+            var blockersToShow = verbose ? report.MigrationBlockers : report.MigrationBlockers.Take(3).ToList();
+            console.MarkupLine(
+                $"[grey]Unfinished handlers stopped at ({report.MigrationBlockers.Sum(b => b.Value)} in total):[/]");
+            foreach (var (bucket, count) in blockersToShow)
+            {
+                console.MarkupLine($"  [grey]blocker[/] {count,3} x {Markup.Escape(bucket)}");
+            }
+
+            if (!verbose && report.MigrationBlockers.Count > blockersToShow.Count)
+            {
+                console.MarkupLine($"  [grey]... {report.MigrationBlockers.Count - blockersToShow.Count} more kind(s) (use --verbose to see all)[/]");
+            }
+        }
+
         // Not warnings - code-behind is the default - so not counted among them, but still
         // reachable: --verbose lists the reasons, MIGRATION.md always does.
         if (report.CodeBehindNotes.Count > 0)

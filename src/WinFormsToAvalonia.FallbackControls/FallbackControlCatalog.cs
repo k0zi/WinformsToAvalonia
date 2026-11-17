@@ -45,6 +45,10 @@ public static class FallbackControlCatalog
                 "ColorDialogFallback", "ColorDialogFallback.cs", "ColorDialogFallback.cs",
                 RequiredNuGetPackage: "Avalonia.Controls.ColorPicker"),
             ["FontDialogFallback"] = new("FontDialogFallback", "FontDialogFallback.cs", "FontDialogFallback.cs"),
+
+            // A handler reading a control's BackColor: WinForms answers the ambient colour,
+            // Avalonia's Background is not inherited.
+            ["AmbientBackColorFallback"] = new("AmbientBackColorFallback", "AmbientBackColorFallback.cs", "AmbientBackColorFallback.cs"),
             ["StatusStripFallback"] = new("StatusStripFallback", "StatusStripFallback.cs", "StatusStripFallback.cs"),
             ["ToolStripFallback"] = new("ToolStripFallback", "ToolStripFallback.cs", "ToolStripFallback.cs"),
             ["RichTextBoxFallback"] = new("RichTextBoxFallback", "RichTextBoxFallback.cs", "RichTextBoxFallback.cs"),

@@ -39,6 +39,10 @@ checkout() {
 
 failures=0
 total=0
+# The migration measure: handler statements that came across as real code, summed over every
+# entry. A green build says the output compiles; this says how much of the original it carries.
+migrated_sum=0
+statements_sum=0
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
@@ -55,7 +59,7 @@ while read -r repo commit source mappings; do
         continue
     fi
 
-    args=(convert --source "$dir/$source" --output "$out")
+    args=(convert --source "$dir/$source" --output "$out" --verbose)
     [ -n "${mappings:-}" ] && args+=(--mappings "$SCRIPT_DIR/$mappings")
     if ! conversion="$(dotnet "$CLI_DLL" "${args[@]}" 2>&1)"; then
         echo "FAIL  $name: conversion failed"
@@ -63,6 +67,14 @@ while read -r repo commit source mappings; do
         failures=$((failures + 1))
         continue
     fi
+
+    # "Handler statements migrated: 2/89 (2%)" - once per converted project, so a solution sums.
+    rate="$(echo "$conversion" | grep -oE 'Handler statements migrated: [0-9]+/[0-9]+' | grep -oE '[0-9]+/[0-9]+' \
+        | awk -F/ '{ m += $1; t += $2 } END { printf "%d/%d", m, t }')"
+    # "  blocker   3 x Graphics: DrawCurve" - collected over every entry for the histogram at the end.
+    echo "$conversion" | sed -nE 's/^ *blocker +([0-9]+) x (.*)$/\1\t\2/p' >> "$OUT_DIR/blockers.tsv"
+    migrated_sum=$((migrated_sum + ${rate%/*}))
+    statements_sum=$((statements_sum + ${rate#*/}))
 
     target="$(find "$out" -maxdepth 1 -name '*.slnx' | head -1)"
     [ -z "$target" ] && target="$out"
@@ -75,10 +87,17 @@ while read -r repo commit source mappings; do
         { echo "$errors"; echo "$warnings"; } | grep . | head -10 | sed "s|$out/||; s/^/      /"
         failures=$((failures + 1))
     else
-        echo "ok    $name"
+        echo "ok    $name  (handler statements migrated: $rate)"
         [ -z "${KEEP:-}" ] && rm -rf "$out"
     fi
 done < "$SCRIPT_DIR/corpus.txt"
 
+if [ $statements_sum -gt 0 ]; then
+    echo "==> handler statements migrated: $migrated_sum/$statements_sum ($((100 * migrated_sum / statements_sum))%)"
+fi
+if [ -s "$OUT_DIR/blockers.tsv" ]; then
+    echo "==> where unfinished handlers stopped (first un-migrated statement, most frequent first):"
+    awk -F'\t' '{ n[$2] += $1 } END { for (k in n) printf "%5d  %s\n", n[k], k }' "$OUT_DIR/blockers.tsv" | sort -k1,1nr -k2 | head -25
+fi
 echo "==> $((total - failures))/$total passed (failing output kept in $OUT_DIR)"
 [ $failures -eq 0 ]

@@ -28,7 +28,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     /// <summary>Bound to toolStripProgressBar1.Value in the view.</summary>
     [ObservableProperty]
-    public partial double ToolStripProgressBar1Value { get; set; }
+    public partial double ToolStripProgressBar1Value { get; set; } = 35;
 
     /// <summary>Bound to statusLabel.Text in the view.</summary>
     [ObservableProperty]

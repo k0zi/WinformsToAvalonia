@@ -186,7 +186,21 @@ public sealed record ComponentFieldPlan(
 /// A private backing field of the original Form, carried over as real code - which is what lets
 /// the helper that maintains it (the classic <c>SetBusy</c> / <c>isBusy</c> pair) translate at all.
 /// </summary>
-public sealed record PromotedFieldPlan(string Name, string ModifiersText, string TypeText, string? InitializerText);
+public sealed record PromotedFieldPlan(string Name, string ModifiersText, string TypeText, string? InitializerText)
+{
+    /// <summary>
+    /// Carried because the semantic model proved its type and initializer UI-neutral, rather than
+    /// because they are keyword types and literals. Such a field may hold a reference type the
+    /// original assigned without nullable annotations - see <c>RewrittenBody.UsesSemanticPassThrough</c>.
+    /// </summary>
+    public bool IsSemantic { get; init; }
+
+    /// <summary>
+    /// A field holding a control the Form creates at run time, declared as its Avalonia element
+    /// (<see cref="TypeText"/>) - see <c>FormMigrationPlanner.PlanRuntimeControlFields</c>.
+    /// </summary>
+    public bool IsRuntimeControl { get; init; }
+}
 
 /// <summary>
 /// A code-behind helper method whose <em>entire</em> body translated, so the generated View can
@@ -377,7 +391,13 @@ public sealed record FormMigrationPlan(
     /// Menu items whose WinForms <c>CheckOnClick</c> the View reproduces: a constructor subscription
     /// that flips <c>IsChecked</c>, made before the item's own Click handlers are chained after it.
     /// </summary>
-    IReadOnlyList<string>? CheckOnClickToggles = null)
+    IReadOnlyList<string>? CheckOnClickToggles = null,
+    /// <summary>
+    /// The translated prefix of the original constructor's own statements (everything but
+    /// <c>InitializeComponent()</c>). <see cref="ConstructorExtraStatements"/> then holds only what
+    /// did not translate. Null where nothing was attempted.
+    /// </summary>
+    RewrittenBody? ConstructorRewrite = null)
 {
     public IReadOnlyList<string> CheckOnClickToggles { get; } = CheckOnClickToggles ?? [];
 
@@ -423,7 +443,8 @@ public sealed record FormMigrationPlan(
         Rewrites
             .Concat(PromotedHelpers.Select(h => h.Rewrite))
             .Concat(ViewModelHelpers.Select(h => h.Rewrite))
-            .Concat(PromotedProperties.SelectMany(p => new[] { p.Getter, p.Setter }).OfType<RewrittenBody>());
+            .Concat(PromotedProperties.SelectMany(p => new[] { p.Getter, p.Setter }).OfType<RewrittenBody>())
+            .Concat(ConstructorRewrite is { } constructor ? [constructor] : []);
 
     /// <summary>
     /// Whether the View declares the field the close-confirmation rewrite reads, so a
@@ -462,6 +483,12 @@ public sealed record FormMigrationPlan(
     /// </summary>
     public IReadOnlyList<string> RequiredNuGetPackages =>
         [.. Components.Select(c => c.NuGetPackage).OfType<string>().Distinct(StringComparer.Ordinal).OrderBy(p => p, StringComparer.Ordinal)];
+
+    /// <summary>
+    /// The un-migrated remainder of every handler that stopped part-way (or never started) - what
+    /// <c>MigrationBlockerClassifier</c> reads its first statement from.
+    /// </summary>
+    public IEnumerable<string> HandlerRemainders => Rewrites.Select(r => r.RemainingBody).Where(b => b.Length > 0);
 
     /// <summary>Statements translated into real Avalonia code, out of every statement seen.</summary>
     public (int Migrated, int Total) StatementMigration =>
@@ -502,6 +529,19 @@ public sealed record FormMigrationPlan(
             .SelectMany(h => h.Subscriptions)
             .Where(s => !s.Suppressed && s.Tunnel && s.Mapping.AvaloniaEventName is not null)
             .Select(s => (s.ControlFieldName, $"InputElement.{s.Mapping.AvaloniaEventName}Event", s.HandlerMethodName));
+
+    /// <summary>
+    /// The View's own events that lost the root's single attribute to another handler on the same
+    /// Avalonia event - a designer <c>Load</c> handler and a lifted <c>OnLoad</c> override both
+    /// become <c>Opened</c>. Subscribed from the constructor on a Window root; forwarded by the
+    /// wrapper Window when the root is a UserControl and the event is one only a Window has.
+    /// </summary>
+    public IEnumerable<(string AvaloniaEventName, string HandlerMethodName)> ChainedRootEventSubscriptions =>
+        CodeBehindHandlers
+            .SelectMany(h => h.Subscriptions)
+            .Where(s => !s.Suppressed && !s.Tunnel && s.ChainedInConstructor
+                && s.ControlFieldName is null && s.Mapping.AvaloniaEventName is not null)
+            .Select(s => (s.Mapping.AvaloniaEventName!, s.HandlerMethodName));
 
     public IEnumerable<(string FieldName, string AvaloniaEventName, string HandlerMethodName)> ConstructorEventSubscriptions
     {

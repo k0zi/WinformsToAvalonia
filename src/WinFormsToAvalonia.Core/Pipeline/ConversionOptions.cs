@@ -34,4 +34,9 @@ public sealed record ConversionOptions(
     /// A JSON file mapping third-party control types the converter does not know - see
     /// <c>Mapping/UserMappings</c> for the format.
     /// </summary>
-    string? MappingsFile = null);
+    string? MappingsFile = null,
+    /// <summary>
+    /// Never download a NuGet package the original project references: only what the machine's
+    /// NuGet folders already hold is used to decide whether code calling into it can come across.
+    /// </summary>
+    bool Offline = false);

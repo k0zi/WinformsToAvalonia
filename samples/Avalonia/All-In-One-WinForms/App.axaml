@@ -3,13 +3,11 @@
              x:Class="All_In_One_WinForms.App"
              xmlns:local="using:All_In_One_WinForms"
              RequestedThemeVariant="Light">
-    <!-- TODO(Winforms2Avalonia): NotifyIcon 'notifyIcon1' had no resolvable icon file in Designer.cs
-         (it is usually a resx resource). Copy the real icon into Assets/, then uncomment:
-         <TrayIcon.Icons>
-             <TrayIcons>
-                 <TrayIcon Icon="/Assets/notifyIcon1.ico" ToolTipText="All-In-One WinForms" />
-             </TrayIcons>
-         </TrayIcon.Icons> -->
+    <TrayIcon.Icons>
+        <TrayIcons>
+            <TrayIcon ToolTipText="All-In-One WinForms" />
+        </TrayIcons>
+    </TrayIcon.Icons>
 
     <Application.DataTemplates>
         <local:ViewLocator />

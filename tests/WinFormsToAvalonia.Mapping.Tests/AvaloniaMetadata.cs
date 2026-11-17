@@ -218,6 +218,51 @@ public static class AvaloniaMetadata
             ? type.GetGenericArguments()[0]
             : null;
 
+    /// <summary>Every public type of every Avalonia assembly the generated projects can see.</summary>
+    public static IEnumerable<Type> ExportedTypes() =>
+        Context.Value.Assemblies.SelectMany(SafeExportedTypes);
+
+    /// <summary>
+    /// Every public type of the .NET runtime this suite runs on - the base class library the
+    /// generated <c>net10.0</c> projects compile against, read through the same metadata context.
+    /// </summary>
+    public static IEnumerable<Type> RuntimeExportedTypes()
+    {
+        foreach (var path in Directory.GetFiles(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "System*.dll"))
+        {
+            Assembly assembly;
+            try
+            {
+                assembly = Context.Value.Mlc.LoadFromAssemblyPath(path);
+            }
+            catch (BadImageFormatException)
+            {
+                continue;
+            }
+            catch (FileLoadException)
+            {
+                continue;
+            }
+
+            foreach (var type in SafeExportedTypes(assembly))
+            {
+                yield return type;
+            }
+        }
+    }
+
+    private static IEnumerable<Type> SafeExportedTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetExportedTypes();
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or TypeLoadException or ReflectionTypeLoadException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>Every Avalonia assembly the generated projects can see, for diagnostics.</summary>
     public static IReadOnlyList<string> LoadedAssemblyNames =>
         [.. Context.Value.Assemblies.Select(a => a.GetName().Name!).Order(StringComparer.Ordinal)];

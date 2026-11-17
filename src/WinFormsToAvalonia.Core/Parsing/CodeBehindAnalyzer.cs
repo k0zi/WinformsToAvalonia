@@ -169,7 +169,13 @@ public sealed class CodeBehindAnalyzer
             }
         }
 
-        return new CodeBehindModel(filePath, handlers, helpers, constructorExtraStatements, runtimeSubscriptions);
+        var constructors = classDeclaration.Members.OfType<ConstructorDeclarationSyntax>().ToList();
+        return new CodeBehindModel(filePath, handlers, helpers, constructorExtraStatements, runtimeSubscriptions)
+        {
+            ConstructorStatementsMovable = constructors.Count == 0
+                || (constructors is [{ ParameterList.Parameters.Count: 0 } only]
+                    && !only.Modifiers.Any(m => m.IsKind(SyntaxKind.StaticKeyword))),
+        };
     }
 
     private static HashSet<string> CollectDesignerHandlerNames(FormModel formModel)

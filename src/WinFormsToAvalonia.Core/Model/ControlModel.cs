@@ -45,6 +45,21 @@ public sealed class ControlModel
     public List<ControlModel> Children { get; } = [];
 
     /// <summary>
+    /// The <c>TableLayoutPanel</c> cell the designer put this control in -
+    /// <c>this.tableLayoutPanel1.Controls.Add(this.label1, 2, 0)</c> - when that is the only thing
+    /// that placed it. Null when it was added without a cell, or when a later
+    /// <c>SetColumn</c>/<c>SetRow</c>/<c>SetCellPosition</c>/<c>SetColumnSpan</c>/<c>SetRowSpan</c>
+    /// made the cell, or the area it covers, something else (<see cref="TableCellOverridden"/>).
+    /// </summary>
+    public TableCellPosition? TableCell => TableCellOverridden ? null : DesignerTableCell;
+
+    /// <summary>The cell from the three-argument <c>Controls.Add</c>, before any override is considered.</summary>
+    public TableCellPosition? DesignerTableCell { get; set; }
+
+    /// <summary>A designer call changed this control's cell or span after it was added.</summary>
+    public bool TableCellOverridden { get; set; }
+
+    /// <summary>
     /// Literal entries the designer added to this control's <c>Items</c> collection
     /// (`comboBox1.Items.AddRange(new object[] { "A", "B" })`). Only plain literals - anything
     /// else in an Items call is either a real child control (which becomes a

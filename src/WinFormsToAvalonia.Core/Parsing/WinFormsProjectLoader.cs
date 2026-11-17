@@ -86,7 +86,105 @@ public sealed class WinFormsProjectLoader
             compileFiles,
             resourceFiles,
             projectReferences,
-            ReadProperty(root, ns, "OutputType"));
+            ReadProperty(root, ns, "OutputType"),
+            // Decides whether a source file copied into the generated project (which enables
+            // nullable reference types) needs `#nullable disable` to keep meaning what it meant.
+            string.Equals(ReadProperty(root, ns, "Nullable"), "enable", StringComparison.OrdinalIgnoreCase),
+            ReadPackageReferences(root, ns, projectDirectory));
+    }
+
+    /// <summary>
+    /// <c>&lt;PackageReference Include="X" Version="1.2.3" /&gt;</c> (the version also as a child element,
+    /// or from central package management's <c>Directory.Packages.props</c>), and a legacy project's
+    /// <c>packages.config</c>.
+    /// </summary>
+    private static List<NuGetPackageReference> ReadPackageReferences(XElement root, XNamespace ns, string projectDirectory)
+    {
+        var packages = new List<NuGetPackageReference>();
+        Dictionary<string, string>? centralVersions = null;
+
+        foreach (var item in root.Elements(ns + "ItemGroup").Elements(ns + "PackageReference"))
+        {
+            if (item.Attribute("Include")?.Value.Trim() is not { Length: > 0 } id)
+            {
+                continue;
+            }
+
+            var version = item.Attribute("Version")?.Value ?? item.Element(ns + "Version")?.Value;
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                centralVersions ??= ReadCentralPackageVersions(projectDirectory);
+                centralVersions.TryGetValue(id, out version);
+            }
+
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                continue;
+            }
+
+            var privateAssets = item.Attribute("PrivateAssets")?.Value ?? item.Element(ns + "PrivateAssets")?.Value;
+            packages.Add(new NuGetPackageReference(
+                id, version.Trim(), string.Equals(privateAssets?.Trim(), "all", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        var packagesConfig = Path.Combine(projectDirectory, "packages.config");
+        if (File.Exists(packagesConfig))
+        {
+            try
+            {
+                foreach (var package in XDocument.Load(packagesConfig).Root?.Elements("package") ?? [])
+                {
+                    if (package.Attribute("id")?.Value is { Length: > 0 } id
+                        && package.Attribute("version")?.Value is { Length: > 0 } version)
+                    {
+                        packages.Add(new NuGetPackageReference(
+                            id, version, string.Equals(package.Attribute("developmentDependency")?.Value, "true", StringComparison.OrdinalIgnoreCase)));
+                    }
+                }
+            }
+            catch (System.Xml.XmlException)
+            {
+                // A malformed packages.config names no package.
+            }
+        }
+
+        return packages
+            .DistinctBy(p => p.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>The nearest <c>Directory.Packages.props</c> above the project, as <c>id → version</c>.</summary>
+    private static Dictionary<string, string> ReadCentralPackageVersions(string projectDirectory)
+    {
+        var versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var directory = new DirectoryInfo(projectDirectory); directory is not null; directory = directory.Parent)
+        {
+            var props = Path.Combine(directory.FullName, "Directory.Packages.props");
+            if (!File.Exists(props))
+            {
+                continue;
+            }
+
+            try
+            {
+                var propsRoot = XDocument.Load(props).Root;
+                foreach (var item in propsRoot?.Descendants(propsRoot.Name.Namespace + "PackageVersion") ?? [])
+                {
+                    if (item.Attribute("Include")?.Value is { Length: > 0 } id
+                        && item.Attribute("Version")?.Value is { Length: > 0 } version)
+                    {
+                        versions.TryAdd(id, version);
+                    }
+                }
+            }
+            catch (System.Xml.XmlException)
+            {
+            }
+
+            break;
+        }
+
+        return versions;
     }
 
     private static IReadOnlyList<string> ReadTargetFrameworks(XElement root, XNamespace ns)

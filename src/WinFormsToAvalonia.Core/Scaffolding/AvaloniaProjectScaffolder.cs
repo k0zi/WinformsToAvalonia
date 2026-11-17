@@ -1,3 +1,4 @@
+using WinFormsToAvalonia.Core.Semantics;
 using WinFormsToAvalonia.Core.Emission;
 using WinFormsToAvalonia.Core.Model;
 
@@ -41,6 +42,12 @@ public sealed partial class AvaloniaProjectScaffolder
     {
         ["Avalonia.Controls.DataGrid"] = "avares://Avalonia.Controls.DataGrid/Themes/Simple.xaml",
         ["Avalonia.Controls.ColorPicker"] = "avares://Avalonia.Controls.ColorPicker/Themes/Simple/Simple.xaml",
+    };
+
+    /// <summary>The packages every generated project references - a carried package by one of these names is already there.</summary>
+    private static readonly IReadOnlySet<string> ScaffoldPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "Avalonia", "Avalonia.Desktop", "Avalonia.Themes.Simple", "Avalonia.Fonts.Inter", "CommunityToolkit.Mvvm",
     };
 
     public static readonly IReadOnlyDictionary<string, string> ExtraPackageVersions = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -107,7 +114,8 @@ public sealed partial class AvaloniaProjectScaffolder
         IReadOnlyList<NotifyIconInfo>? notifyIcons = null,
         IReadOnlyList<string>? projectReferences = null,
         ConvertedFormOutput? mainForm = null,
-        bool asLibrary = false)
+        bool asLibrary = false,
+        IReadOnlyList<CarriedPackage>? carriedPackages = null)
     {
         if (mainForm is not null && (mainForm.Kind != WinFormsArtifactKind.Form || !forms.Contains(mainForm)))
         {
@@ -116,6 +124,8 @@ public sealed partial class AvaloniaProjectScaffolder
 
         var packages = extraNuGetPackages ?? (IReadOnlySet<string>)new HashSet<string>();
         var references = projectReferences ?? [];
+        string BuildCsproj(string name, IReadOnlySet<string> extra, IReadOnlyList<string> refs, bool asLibrary = false) =>
+            AvaloniaProjectScaffolder.BuildCsproj(name, extra, refs, asLibrary, carriedPackages);
 
         // A converted class library stays one: its Views are for the applications that reference
         // it, so it gets no entry point, no App and no placeholder window - only what the Views
@@ -208,12 +218,20 @@ public sealed partial class AvaloniaProjectScaffolder
         string projectName,
         IReadOnlySet<string> extraNuGetPackages,
         IReadOnlyList<string> projectReferences,
-        bool asLibrary = false)
+        bool asLibrary = false,
+        IReadOnlyList<CarriedPackage>? carriedPackages = null)
     {
         var extraPackageLines = string.Concat(extraNuGetPackages
             .Where(ExtraPackageVersions.ContainsKey)
             .OrderBy(p => p, StringComparer.Ordinal)
             .Select(p => $"\n    <PackageReference Include=\"{p}\" Version=\"{ExtraPackageVersions[p]}\" />"));
+
+        // The original project's own packages, at its own versions - after the ones the conversion
+        // adds, and never a second reference to one of those.
+        extraPackageLines += string.Concat((carriedPackages ?? [])
+            .Where(p => !extraNuGetPackages.Contains(p.Id) && !ScaffoldPackageIds.Contains(p.Id))
+            .OrderBy(p => p.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(p => $"\n    <PackageReference Include=\"{p.Id}\" Version=\"{p.Version}\" />"));
 
         var projectReferenceGroup = projectReferences.Count == 0
             ? ""

@@ -14,7 +14,7 @@ namespace All_In_One_WinForms.Controls;
 /// <para>
 /// This one only became possible once the document could be produced. Avalonia still has no
 /// printing API, but a preview does not need one - it needs a rendered page, and
-/// <c>RenderFirstPage</c> is a real page drawn by the handler the original wrote. Until that
+/// <c>RenderPages</c> is every page, drawn by the handler the original wrote. Until that
 /// existed, the <c>PrintPreviewControl</c> fallback could only be a page-shaped placeholder.
 /// </para>
 /// <para>
@@ -26,19 +26,34 @@ public static class PrintPreviewDialogFallback
 {
     public static async Task ShowAsync(Visual owner, PrintDocumentFallback document, string? title = null)
     {
-        using var page = document.RenderFirstPage();
+        var pages = document.RenderPages();
+
+        // One page fits the window, as before; several scroll, one under the other.
+        var sheets = new StackPanel { Spacing = 12 };
+        foreach (var page in pages)
+        {
+            sheets.Children.Add(new Image
+            {
+                Source = page,
+                Stretch = Stretch.Uniform,
+                MaxWidth = pages.Count > 1 ? 560 : double.PositiveInfinity,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
+        }
 
         var preview = new Border
         {
             Background = Brushes.DimGray,
             Padding = new Thickness(12),
-            Child = new Image
-            {
-                Source = page,
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
+            Child = pages.Count > 1
+                ? new ScrollViewer { Content = sheets }
+                : new Image
+                {
+                    Source = pages[0],
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
         };
 
         var closeButton = new Button { Content = "Close", IsDefault = true, IsCancel = true, MinWidth = 88 };
@@ -69,6 +84,13 @@ public static class PrintPreviewDialogFallback
         };
 
         closeButton.Click += (_, _) => dialog.Close();
+        dialog.Closed += (_, _) =>
+        {
+            foreach (var page in pages)
+            {
+                page.Dispose();
+            }
+        };
 
         if (TopLevel.GetTopLevel(owner) is Window parent)
         {

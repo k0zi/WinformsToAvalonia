@@ -14,6 +14,14 @@ public partial class App : Application
         AvaloniaXamlLoader.Load(this);
     }
 
+    /// <summary>The tray icon converted from the WinForms NotifyIcon 'notifyIcon1'.</summary>
+    /// <remarks>
+    /// Populated by App.axaml, which Initialize() loads before any View is constructed -
+    /// so this is never null by the time a handler can run.
+    /// </remarks>
+    public static TrayIcon NotifyIcon1 =>
+        TrayIcon.GetIcons(Current!)![0];
+
 
     public override void OnFrameworkInitializationCompleted()
     {

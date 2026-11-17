@@ -14,6 +14,26 @@ public sealed record CodeBehindModel(
     IReadOnlyList<string> ConstructorExtraStatements,
     IReadOnlyList<RuntimeEventSubscription> RuntimeEventSubscriptions)
 {
+    /// <summary>
+    /// Whether <see cref="ConstructorExtraStatements"/> can run in the generated View's own
+    /// (parameterless) constructor and mean what they meant: they all come from a single,
+    /// parameterless instance constructor - or there is no constructor at all. Statements of a
+    /// constructor taking arguments, or of one of several, would run where they never did.
+    /// </summary>
+    public bool ConstructorStatementsMovable { get; init; } = true;
+
+    /// <summary>
+    /// Handlers that were <c>protected override void OnX(...)</c> methods in the original
+    /// (<c>OverrideHandlerLifter</c>), each with the override's name - which is the method the
+    /// semantic model knows, since it compiled the original source.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> LiftedOverrides { get; init; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>The method of the original source that <paramref name="methodName"/>'s body came from.</summary>
+    public string SourceMethodName(string methodName) =>
+        LiftedOverrides.TryGetValue(methodName, out var original) ? original : methodName;
+
     public static CodeBehindModel Empty(string originalFilePath = "") =>
         new(originalFilePath, [], [], [], []);
 
@@ -33,6 +53,7 @@ public sealed record CodeBehindModel(
             HandlerMethods = [.. HandlerMethods, .. baseModel.HandlerMethods.Where(h => !ownMembers.Contains(h.MethodName))],
             HelperMembers = [.. HelperMembers, .. baseModel.HelperMembers.Where(m => !ownMembers.Contains(m.Name))],
             ConstructorExtraStatements = [.. baseModel.ConstructorExtraStatements, .. ConstructorExtraStatements],
+            ConstructorStatementsMovable = ConstructorStatementsMovable && baseModel.ConstructorStatementsMovable,
             RuntimeEventSubscriptions = [.. baseModel.RuntimeEventSubscriptions, .. RuntimeEventSubscriptions],
         };
     }

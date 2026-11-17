@@ -128,6 +128,32 @@ public class AvaloniaProjectScaffolderTests
         Assert.DoesNotContain("Avalonia.Desktop", csproj);
     }
 
+    /// <summary>
+    /// The original project's packages go into the csproj at its own versions - after the ones the
+    /// conversion adds, and never a second reference to one of those or to the scaffold's own.
+    /// </summary>
+    [Fact]
+    public void BuildProject_WithCarriedPackages_ReferencesThemOnceEach()
+    {
+        var vfs = new AvaloniaProjectScaffolder().BuildProject(
+            "Demo",
+            [new("", "MainView", "MainViewModel", "<Window />", "// view code-behind", "// view model")],
+            extraNuGetPackages: new HashSet<string>(StringComparer.Ordinal) { "System.IO.Ports" },
+            carriedPackages:
+            [
+                new("System.IO.Ports", "8.0.0"),
+                new("CommunityToolkit.Mvvm", "8.0.0"),
+                new("Newtonsoft.Json", "13.0.3"),
+            ]);
+
+        vfs.TryGetText("Demo.csproj", out var csproj);
+
+        Assert.Contains("<PackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.3\" />", csproj);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csproj, "Include=\"System.IO.Ports\""));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csproj, "Include=\"CommunityToolkit.Mvvm\""));
+        Assert.True(csproj.IndexOf("System.IO.Ports", StringComparison.Ordinal) < csproj.IndexOf("Newtonsoft.Json", StringComparison.Ordinal));
+    }
+
     /// <summary>Every package that ships a theme has to be one the csproj writer can emit.</summary>
     [Fact]
     public void PackageStyleIncludes_OnlyNamesPackagesTheCsprojCanReference()

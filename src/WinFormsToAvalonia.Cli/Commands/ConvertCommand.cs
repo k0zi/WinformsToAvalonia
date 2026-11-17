@@ -24,7 +24,8 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
             OverwriteAll: settings.OverwriteAll,
             WithWeb: settings.WithWeb,
             Prune: settings.Prune,
-            MappingsFile: settings.Mappings);
+            MappingsFile: settings.Mappings,
+            Offline: settings.Offline);
 
         if (SolutionReader.IsSolutionPath(settings.Source))
         {

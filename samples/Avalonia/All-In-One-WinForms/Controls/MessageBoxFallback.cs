@@ -17,10 +17,11 @@ namespace All_In_One_WinForms.Controls;
 /// rather than the AXAML.
 /// </para>
 /// <para>
-/// Three entry points, matching the three WinForms shapes that have an unambiguous meaning here:
-/// a plain acknowledgement, and the two-button questions whose answer is a yes/no. WinForms'
-/// three-way overloads (<c>YesNoCancel</c>, <c>AbortRetryIgnore</c>) have no bool answer and are
-/// deliberately absent - the translation refuses them rather than inventing a third state.
+/// Four entry points, matching the WinForms shapes that have an unambiguous meaning here: a plain
+/// acknowledgement, the two-button questions whose answer is a yes/no, and <c>YesNoCancel</c> - a
+/// <c>bool?</c>, where null is Cancel, which is also what closing the window by its title bar
+/// answers, exactly as WinForms reports it. <c>AbortRetryIgnore</c> and <c>RetryCancel</c> are still
+/// absent: nothing about their three answers maps onto a value this obviously.
 /// </para>
 /// <para>
 /// Every entry point is awaitable, unlike WinForms' blocking call - which is what makes the
@@ -41,9 +42,21 @@ public static class MessageBoxFallback
     public static Task<bool> ShowOkCancelAsync(Visual owner, string? text, string? caption = "") =>
         ShowCore(owner, text, caption, "OK", "Cancel");
 
+    /// <summary>True for Yes, false for No, null for Cancel. The <c>MessageBoxButtons.YesNoCancel</c> equivalent.</summary>
+    public static Task<bool?> ShowYesNoCancelAsync(Visual owner, string? text, string? caption = "") =>
+        ShowAnswerAsync(owner, text, caption, "Yes", "No", "Cancel");
+
     /// <param name="cancelContent">Null for the one-button shape, which always answers true.</param>
     private static async Task<bool> ShowCore(
-        Visual owner, string? text, string? caption, string acceptContent, string? cancelContent)
+        Visual owner, string? text, string? caption, string acceptContent, string? cancelContent) =>
+        await ShowAnswerAsync(owner, text, caption, acceptContent, cancelContent, thirdContent: null) ?? false;
+
+    /// <param name="thirdContent">
+    /// A third button - Cancel, after Yes and No - which answers null, as does closing the window.
+    /// When it is present it is the one Escape presses, as WinForms' Cancel is.
+    /// </param>
+    private static async Task<bool?> ShowAnswerAsync(
+        Visual owner, string? text, string? caption, string acceptContent, string? cancelContent, string? thirdContent)
     {
         var acceptButton = new Button { Content = acceptContent, IsDefault = true, MinWidth = 88 };
 
@@ -84,9 +97,16 @@ public static class MessageBoxFallback
 
         if (cancelContent is not null)
         {
-            var cancelButton = new Button { Content = cancelContent, IsCancel = true, MinWidth = 88 };
+            var cancelButton = new Button { Content = cancelContent, IsCancel = thirdContent is null, MinWidth = 88 };
             cancelButton.Click += (_, _) => dialog.Close(false);
             buttons.Children.Add(cancelButton);
+        }
+
+        if (thirdContent is not null)
+        {
+            var thirdButton = new Button { Content = thirdContent, IsCancel = true, MinWidth = 88 };
+            thirdButton.Click += (_, _) => dialog.Close(null);
+            buttons.Children.Add(thirdButton);
         }
 
         // A converted app always has a window by the time a handler runs, but answering "not
@@ -94,9 +114,9 @@ public static class MessageBoxFallback
         if (TopLevel.GetTopLevel(owner) is not Window ownerWindow)
         {
             dialog.Show();
-            return false;
+            return thirdContent is null ? false : null;
         }
 
-        return await dialog.ShowDialog<bool>(ownerWindow);
+        return await dialog.ShowDialog<bool?>(ownerWindow);
     }
 }

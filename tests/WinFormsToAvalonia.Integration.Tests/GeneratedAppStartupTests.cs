@@ -165,6 +165,23 @@ public class GeneratedAppStartupTests
             clickButtons: true);
 
     /// <summary>
+    /// Code the semantic model proved UI-neutral, running: a constructor statement that creates a
+    /// referenced library's object, fields of the project's own types, a ComboBox filled from the
+    /// Load handler, and a click handler that uses all of them.
+    /// </summary>
+    /// <remarks>
+    /// Building proves the passed-through code compiles; only running it proves the order is
+    /// still right - the click reads the item Load added and the object the constructor made, and
+    /// either one missing is an exception here rather than a warning anywhere.
+    /// </remarks>
+    [Fact]
+    public Task ConvertedSemanticApp_RunsItsPassedThroughCode() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "SemanticApp", "App", "App.csproj"),
+            "SemanticApp",
+            clickButtons: true);
+
+    /// <summary>
     /// The all-in-one sample, which is not a fixture at all - it is the app this repo ships to be
     /// looked at, an order of magnitude broader than any fixture here.
     /// </summary>
@@ -257,6 +274,77 @@ public class GeneratedAppStartupTests
             reportPaint: true,
             reportPrint: false,
             "w2a-paint:canvasPanel:1");
+
+    /// <summary>
+    /// Paint layers - a Form's own Paint and a GroupBox that both draws and contains a label -
+    /// really render, and the repaint button (clicked) reaches them.
+    /// </summary>
+    [Fact]
+    public Task ConvertedPaintLayerApp_RendersBothLayers() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "PaintLayerApp", "PaintLayerApp.csproj"),
+            "PaintLayerApp",
+            clickButtons: true,
+            reportPaint: true,
+            reportPrint: false,
+            "w2a-paint:mainFormPaintLayer:1",
+            "w2a-paint:drawingGroupPaintLayer:1");
+
+    /// <summary>
+    /// Controls created at run time really land in the window: the Load handler's status label in
+    /// the strip and the field-initialized label in the panel, then - the Add button is clicked - a
+    /// new button in the panel with the texts updated.
+    /// </summary>
+    [Fact]
+    public Task ConvertedRuntimeControlsApp_AddsItsControlsToTheWindow() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "RuntimeControlsApp", "RuntimeControlsApp.csproj"),
+            "RuntimeControlsApp",
+            clickButtons: true,
+            reportPaint: false,
+            reportPrint: false,
+            "w2a-runtime:statusStrip1:TextBlock:Added a button",
+            "w2a-runtime:hostPanel:TextBlock:one or more",
+            "w2a-runtime:hostPanel:Button:Added");
+
+    /// <summary>
+    /// Rows a handler hands a grid really show: the column-less grid generates its columns from the
+    /// row type (which Avalonia does only when told to), the designer-columned one fills its bound
+    /// column - and the Lock button (clicked) re-sets the source without losing either.
+    /// </summary>
+    [Fact]
+    public Task ConvertedGridDataSourceApp_ShowsTheRowsItWasGiven() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "GridDataSourceApp", "GridDataSourceApp.csproj"),
+            "GridDataSourceApp",
+            clickButtons: true,
+            reportPaint: false,
+            reportPrint: false,
+            // The harness reports the first cell the grid realised, which is the last row here -
+            // a row's name either way, so the generated column and the bound one both filled.
+            "w2a-grid:autoGrid:2:Grace",
+            "w2a-grid:boundGrid:2:Grace");
+
+    /// <summary>
+    /// The MatchingGame shape, run: the Load handler deals the cards by asking each label for its
+    /// cell and hides each card by giving its text the panel's colour - then a press on the first
+    /// card turns that one black, through the shared handler, GetColumn and GetControlFromPosition.
+    /// </summary>
+    [Fact]
+    public Task ConvertedTableCellApp_DealsAndTurnsCardsByCell() =>
+        AssertStarts(
+            Path.Combine(AppContext.BaseDirectory, "SampleApps", "TableCellApp", "TableCellApp.csproj"),
+            "TableCellApp",
+            clickButtons: true,
+            reportPaint: false,
+            reportPrint: false,
+            // CornflowerBlue is the panel's: the labels set no colour of their own.
+            "w2a-cell:tableLayoutPanel1:0,0:1:CornflowerBlue",
+            "w2a-cell:tableLayoutPanel1:1,0:2:CornflowerBlue",
+            "w2a-cell:tableLayoutPanel1:0,1:2:CornflowerBlue",
+            "w2a-cell:tableLayoutPanel1:1,1:1:CornflowerBlue",
+            "w2a-cell-pressed:tableLayoutPanel1:0,0:1:Black",
+            "w2a-cell-pressed:tableLayoutPanel1:1,0:2:CornflowerBlue");
 
     /// <summary>
     /// A converted CheckedListBox: the tick renders, and a handler can move it.
@@ -429,6 +517,9 @@ public class GeneratedAppStartupTests
                     ReportGrids(lifetime.MainWindow);
                     ReportCheckBoxes(lifetime.MainWindow);
                     ReportContainerRegions(lifetime.MainWindow);
+                    ReportRuntimeChildren(lifetime.MainWindow);
+                    ReportTableCells(lifetime.MainWindow, "w2a-cell");
+                    {{(clickButtons ? "PressFirstTableCell(lifetime.MainWindow);" : "")}}
                     {{(reportPaint ? "ReportPaintSurfaces(lifetime.MainWindow);" : "")}}
                     {{(reportPrint ? "ReportPrintDocuments(lifetime.MainWindow);" : "")}}
 
@@ -694,6 +785,92 @@ public class GeneratedAppStartupTests
 
                         Console.WriteLine($"w2a-region:{container.Name}:{named}");
                     }
+                }
+
+                /// <summary>
+                /// Every control a handler created at run time - the only children with no
+                /// x:Name, since everything the designer declared is named - with its parent.
+                /// </summary>
+                /// <remarks>
+                /// What proves a translated <c>Controls.Add</c> really put a live control into the
+                /// window, rather than compiling into code that never ran or added it nowhere.
+                /// </remarks>
+                private static void ReportRuntimeChildren(Window? window)
+                {
+                    if (window is null)
+                    {
+                        return;
+                    }
+
+                    foreach (var panel in window.GetVisualDescendants().OfType<Panel>())
+                    {
+                        var parentName = string.IsNullOrEmpty(panel.Name) ? (panel.Parent is Window or UserControl ? "(root)" : null) : panel.Name;
+                        if (parentName is null)
+                        {
+                            continue;
+                        }
+
+                        foreach (var child in panel.Children.Where(c => string.IsNullOrEmpty(c.Name)))
+                        {
+                            var text = child switch
+                            {
+                                TextBlock t => t.Text,
+                                ContentControl c => c.Content?.ToString(),
+                                _ => "",
+                            };
+                            Console.WriteLine($"w2a-runtime:{parentName}:{child.GetType().Name}:{text}");
+                        }
+                    }
+                }
+
+                /// <summary>
+                /// Each TableLayoutPanel cell's text and text colour, in cell order:
+                /// `w2a-cell:{panel}:{column},{row}:{text}:{foreground}`.
+                /// </summary>
+                /// <remarks>
+                /// A cell is what carries the designer's Grid.Column/Grid.Row - the value a
+                /// translated GetColumn reads. The foreground is the half that proves a colour
+                /// assignment really ran: hiding a label's text is `ForeColor = BackColor`.
+                /// </remarks>
+                private static void ReportTableCells(Window? window, string prefix)
+                {
+                    if (window is null)
+                    {
+                        return;
+                    }
+
+                    var cells = window.GetVisualDescendants().OfType<TextBlock>()
+                        .Where(t => !string.IsNullOrEmpty(t.Name) && t.IsSet(Grid.ColumnProperty) && t.Parent is Panel { Name.Length: > 0 })
+                        .OrderBy(t => Grid.GetRow(t))
+                        .ThenBy(t => Grid.GetColumn(t));
+                    foreach (var cell in cells)
+                    {
+                        var foreground = (cell.Foreground as Avalonia.Media.ISolidColorBrush)?.Color.ToString() ?? "null";
+                        Console.WriteLine($"{prefix}:{((Panel)cell.Parent!).Name}:{Grid.GetColumn(cell)},{Grid.GetRow(cell)}:{cell.Text}:{foreground}");
+                    }
+                }
+
+                /// <summary>
+                /// A real left-button press on the first cell, through the routed event - so a
+                /// shared handler gets the TextBlock as `sender`, exactly as a click would.
+                /// </summary>
+                private static void PressFirstTableCell(Window? window)
+                {
+                    var first = window?.GetVisualDescendants().OfType<TextBlock>()
+                        .Where(t => !string.IsNullOrEmpty(t.Name) && t.IsSet(Grid.ColumnProperty))
+                        .OrderBy(t => Grid.GetRow(t))
+                        .ThenBy(t => Grid.GetColumn(t))
+                        .FirstOrDefault();
+                    if (first is null)
+                    {
+                        return;
+                    }
+
+                    var pointer = new Avalonia.Input.Pointer(Avalonia.Input.Pointer.GetNextFreeId(), PointerType.Mouse, isPrimary: true);
+                    var properties = new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed);
+                    first.RaiseEvent(new PointerPressedEventArgs(
+                        first, pointer, window!, new Point(1, 1), 0, properties, KeyModifiers.None));
+                    ReportTableCells(window, "w2a-cell-pressed");
                 }
 
                 private static IEnumerable<Control> Descendants(Control root)

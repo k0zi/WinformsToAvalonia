@@ -40,8 +40,15 @@ public sealed record ConversionReport(
     /// </summary>
     IReadOnlyList<string>? CodeBehindNotes = null,
     IReadOnlyList<string>? PrunedFiles = null,
-    IReadOnlyList<string>? OrphanedFiles = null)
+    IReadOnlyList<string>? OrphanedFiles = null,
+    IReadOnlyList<KeyValuePair<string, int>>? MigrationBlockers = null)
 {
+    /// <summary>
+    /// Why the unfinished handlers stopped: the first un-migrated statement of each, bucketed by
+    /// <c>MigrationBlockerClassifier</c> and ordered most frequent first.
+    /// </summary>
+    public IReadOnlyList<KeyValuePair<string, int>> MigrationBlockers { get; } = MigrationBlockers ?? [];
+
     /// <summary>Stale generated files deleted by <c>--prune</c>.</summary>
     public IReadOnlyList<string> PrunedFiles { get; } = PrunedFiles ?? [];
 
