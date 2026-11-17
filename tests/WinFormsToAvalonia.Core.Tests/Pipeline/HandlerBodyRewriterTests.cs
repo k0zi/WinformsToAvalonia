@@ -1777,6 +1777,27 @@ public class HandlerBodyRewriterTests
         Assert.True(result.IsComplete);
     }
 
+    /// <summary>
+    /// Under --with-web the main View is a UserControl that only <em>reaches</em> its Window, and
+    /// a UserControl has no Close - the tail has to go through the Window like every other close.
+    /// </summary>
+    [Fact]
+    public void RewriteForView_DialogResultTailInAViewThatOnlyReachesItsWindow_ClosesThroughIt()
+    {
+        var navigation = new ViewNavigationContext(
+            new Dictionary<string, FormViewInfo>(StringComparer.Ordinal), HostIsWindow: false, WindowExpression: "ViewWindow.Of(this)");
+
+        var result = Rewriter.RewriteForView(
+            """
+            DialogResult = DialogResult.OK;
+            Close();
+            """,
+            FormWith(("okButton", "Button")),
+            navigation);
+
+        Assert.Equal(["ViewWindow.Of(this).Close(true);"], result.MigratedStatements);
+    }
+
     [Fact]
     public void RewriteForView_DialogResultAlone_StillCloses()
     {

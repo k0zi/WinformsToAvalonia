@@ -275,7 +275,9 @@ public sealed class DesignerFileLocator
     private static string? FindSiblingResx(string anchorFile, string className)
     {
         var directory = Path.GetDirectoryName(anchorFile)!;
-        var candidate = Path.Combine(directory, className + ".resx");
+        // Visual Studio on Windows does not care how `Form1.resx` is cased against `Form1.cs`; a
+        // Linux file system does, and a Localizable Form would silently lose every property it keeps there.
+        var candidate = WinFormsProjectLoader.ResolveCasing(Path.Combine(directory, className + ".resx"));
         return File.Exists(candidate) ? candidate : null;
     }
 

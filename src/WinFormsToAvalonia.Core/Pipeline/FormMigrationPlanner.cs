@@ -92,7 +92,11 @@ public sealed class FormMigrationPlanner
         // declared on the View but created in a statement that stayed a comment would turn every
         // translated use of it into a NullReferenceException - where it used to be an honest TODO.
         // Dropping one can only strand more code, never less, so each round shrinks the set.
+        // A field the semantic model carried over gets the same treatment, for the same reason: one
+        // assigned only in the un-migrated rest of Form_Load would be declared and never set, so a
+        // translated read of it elsewhere is a NullReferenceException where the original had a TODO.
         var runtimeFields = PlanRuntimeControlFields(codeBehind, formModel);
+        var strandedSemanticFields = new HashSet<string>(StringComparer.Ordinal);
         while (true)
         {
             formModel.RuntimeControls.Clear();
@@ -103,11 +107,15 @@ public sealed class FormMigrationPlanner
 
             var plan = PlanOnce(
                 formModel, codeBehind, formViews, artifactKind, projectComponentNamespaces, viewSurface, trayIconFields,
-                rootKind, modelTypes, semantics);
+                rootKind, modelTypes, semantics, strandedSemanticFields);
 
-            var unmigrated = UnmigratedTexts(plan, codeBehind).ToList();
-            var stranded = runtimeFields.Where(f => unmigrated.Any(text => AssignsField(text, f.Field.Name))).ToList();
-            if (stranded.Count == 0)
+            var watched = runtimeFields.Select(f => f.Field.Name)
+                .Concat(plan.PromotedFields.Where(f => f.IsSemantic).Select(f => f.Name))
+                .ToHashSet(StringComparer.Ordinal);
+            var assigned = AssignedFieldNames(UnmigratedTexts(plan, codeBehind), watched);
+            var stranded = runtimeFields.Where(f => assigned.Contains(f.Field.Name)).ToList();
+            var strandedSemantic = plan.PromotedFields.Where(f => f.IsSemantic && assigned.Contains(f.Name)).ToList();
+            if (stranded.Count == 0 && strandedSemantic.Count == 0)
             {
                 var names = runtimeFields.Select(f => f.Field.Name).ToHashSet(StringComparer.Ordinal);
                 return plan with
@@ -118,6 +126,7 @@ public sealed class FormMigrationPlanner
             }
 
             runtimeFields = [.. runtimeFields.Except(stranded)];
+            strandedSemanticFields.UnionWith(strandedSemantic.Select(f => f.Name));
         }
     }
 
@@ -203,22 +212,44 @@ public sealed class FormMigrationPlanner
         }
     }
 
-    /// <summary>Whether <paramref name="text"/> - statements or whole members - assigns <c>name</c> or <c>this.name</c>.</summary>
-    private static bool AssignsField(string text, string name)
+    /// <summary>
+    /// Which of <paramref name="names"/> the <paramref name="texts"/> - statements or whole members -
+    /// assign, as <c>name = ...</c> or <c>this.name = ...</c>. Each text is parsed once, and only
+    /// when it mentions one of the names at all.
+    /// </summary>
+    private static HashSet<string> AssignedFieldNames(IEnumerable<string> texts, IReadOnlySet<string> names)
     {
-        if (!text.Contains(name, StringComparison.Ordinal))
+        var assigned = new HashSet<string>(StringComparer.Ordinal);
+        if (names.Count == 0)
         {
-            return false;
+            return assigned;
         }
 
-        // Members parse as members and statements as a local-function body - one wrapper takes both.
-        var root = CSharpSyntaxTree.ParseText($"class W2a {{\n{text}\nvoid W2aBody() {{\n{text}\n}}\n}}").GetRoot();
-        return root.DescendantNodes().OfType<AssignmentExpressionSyntax>().Any(a => a.Left switch
+        foreach (var text in texts)
         {
-            IdentifierNameSyntax identifier => identifier.Identifier.ValueText == name,
-            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var member } => member.Identifier.ValueText == name,
-            _ => false,
-        });
+            if (!names.Any(name => text.Contains(name, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            // Members parse as members and statements as a local-function body - one wrapper takes both.
+            var root = CSharpSyntaxTree.ParseText($"class W2a {{\n{text}\nvoid W2aBody() {{\n{text}\n}}\n}}").GetRoot();
+            foreach (var assignment in root.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+            {
+                var target = assignment.Left switch
+                {
+                    IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+                    MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var member } => member.Identifier.ValueText,
+                    _ => null,
+                };
+                if (target is not null && names.Contains(target))
+                {
+                    assigned.Add(target);
+                }
+            }
+        }
+
+        return assigned;
     }
 
     private FormMigrationPlan PlanOnce(
@@ -231,7 +262,8 @@ public sealed class FormMigrationPlanner
         IReadOnlySet<string>? trayIconFields,
         ViewRootKind? rootKind,
         ModelTypeContext? modelTypes,
-        SemanticClassScope? semantics)
+        SemanticClassScope? semantics,
+        IReadOnlySet<string> strandedSemanticFields)
     {
         // The browser head's main Form is rooted at a UserControl, so `this` is not the Window -
         // but one still hosts it, and the generated helper walks up to it. See ViewRootKind.
@@ -332,7 +364,9 @@ public sealed class FormMigrationPlanner
         // whether the helper itself did.
         // Fields before helpers: the classic `SetBusy` / `isBusy` pair only translates if the
         // field it maintains exists on the Avalonia side too.
-        var promotedFields = PlanHelperFields(codeBehind, semantics);
+        var promotedFields = PlanHelperFields(codeBehind, semantics)
+            .Where(f => !strandedSemanticFields.Contains(f.Name))
+            .ToList();
         HashSet<string> promotedFieldNames;
         List<PromotedHelperPlan> promotedHelpers;
         RewrittenBody? constructorRewrite;
@@ -380,13 +414,16 @@ public sealed class FormMigrationPlanner
         var trayResolved = SuppressUnresolvedTrayIconSubscriptions(codeBehindHandlers, trayIconFields, warnings);
 
         var paintResolved = SuppressPaintOnNonSurfaces(trayResolved, formModel, warnings);
+        // A control with no field (a vendor designer local, a copy of a bar item linked twice) has
+        // nothing the constructor could name, so it takes no toggle there either.
         var checkOnClickToggles = formModel.Controls.Values
-            .Where(IsCheckOnClick)
+            .Where(c => IsCheckOnClick(c) && !c.IsDesignerLocal)
             .Select(c => c.FieldName)
             .Order(StringComparer.Ordinal)
             .ToList();
-        var rewrittenHandlers = TunnelKeyboardEvents(ChainAfterCheckOnClickToggles(
-                ResolveDuplicateXamlAttributes(paintResolved, formModel, _controlMappings, warnings), checkOnClickToggles), formModel)
+        var rewrittenHandlers = SuppressConstructorWiringOnUnnamedControls(TunnelKeyboardEvents(ChainAfterCheckOnClickToggles(
+                ResolveDuplicateXamlAttributes(paintResolved, formModel, _controlMappings, warnings), checkOnClickToggles), formModel),
+                formModel, warnings)
             .Select(h => h.Rewrite is not null
                 // Already synthesized (a designer-set DialogResult) - there is no original body
                 // to translate, and re-running the rewriter would erase it.
@@ -704,6 +741,53 @@ public sealed class FormMigrationPlanner
         ];
     }
 
+    /// <summary>
+    /// A subscription made from the constructor names its control's field - which a vendor designer
+    /// local, or a copy of a bar item linked into a second place, does not have. Such a handler
+    /// stays attribute-wired when it can and is reported when it cannot, rather than emitted as a
+    /// line naming an identifier that does not exist.
+    /// </summary>
+    private static IReadOnlyList<CodeBehindHandlerPlan> SuppressConstructorWiringOnUnnamedControls(
+        IReadOnlyList<CodeBehindHandlerPlan> handlers, FormModel formModel, List<string> warnings)
+    {
+        bool IsUnnamed(string? field) =>
+            field is not null && formModel.Controls.TryGetValue(field, out var control) && control.IsDesignerLocal;
+
+        if (!handlers.Any(h => h.Subscriptions.Any(s => (s.Tunnel || s.ChainedInConstructor) && IsUnnamed(s.ControlFieldName))))
+        {
+            return handlers;
+        }
+
+        return
+        [
+            .. handlers.Select(h => h with
+            {
+                Subscriptions = [.. h.Subscriptions.Select(s =>
+                {
+                    if (!IsUnnamed(s.ControlFieldName))
+                    {
+                        return s;
+                    }
+
+                    if (s.Tunnel)
+                    {
+                        return s with { Tunnel = false };
+                    }
+
+                    if (s.ChainedInConstructor)
+                    {
+                        warnings.Add(
+                            $"'{h.MethodName}' handles {s.WinFormsEventName} on a copy of '{s.ControlFieldName!.Split('#', '@')[0]}' that has "
+                            + "no field to subscribe through - wire it by hand on that element.");
+                        return s with { ChainedInConstructor = false, Suppressed = true };
+                    }
+
+                    return s;
+                })],
+            }),
+        ];
+    }
+
     /// <summary>The Avalonia keyboard events that have a tunnelling phase to subscribe to.</summary>
     /// <remarks>
     /// TextInput (WinForms' KeyPress) worse than the others: an attribute-wired handler on a TextBox
@@ -923,8 +1007,8 @@ public sealed class FormMigrationPlanner
     /// </summary>
     private static IReadOnlyList<string> DocumentInitializers(ControlModel document) =>
         document.Properties.TryGetValue("DocumentName", out var value)
-        && PropertyValueFormatters.AsText(value) is { } name
-            ? [$"DocumentName = \"{name}\""]
+        && PropertyValueFormatters.AsPlainText(value) is { } name
+            ? [$"DocumentName = {SymbolDisplay.FormatLiteral(name, quote: true)}"]
             : [];
 
     /// <summary>
@@ -1207,11 +1291,13 @@ public sealed class FormMigrationPlanner
         var byName = new Dictionary<string, HelperCallInfo>(StringComparer.Ordinal);
 
         // Order-independent within a round, so a helper calling another needs a second pass.
+        var overloaded = OverloadedMethodNames(codeBehind);
         var candidates = codeBehind.HelperMembers
             .Where(m => names.Contains(m.Name)
                 && m.Signature is not null
                 && IsPlainDotNetSignature(m.Signature!)
-                && !ReservedMemberNames.IsReserved(m.Name))
+                && !ReservedMemberNames.IsReserved(m.Name)
+                && !overloaded.Contains(m.Name))
             .ToList();
 
         for (var round = 0; round < candidates.Count; round++)
@@ -1422,11 +1508,16 @@ public sealed class FormMigrationPlanner
         // The signature as the generated View declares it: as written for keyword types, or
         // rendered by the semantic model when every type in it is UI-neutral.
         var renderedSignatures = new Dictionary<string, (string ReturnType, string Parameters)>(StringComparer.Ordinal);
+        var overloaded = OverloadedMethodNames(codeBehind);
         var candidates = codeBehind.HelperMembers
             .Where(m => m.Kind == HelperMemberKind.Method && m.Signature is not null)
             // A helper called `Tag` or `Refresh` would land beside the member the generated class
             // already inherits - CS0108 in the generated project, which this build cannot see.
             .Where(m => !ReservedMemberNames.IsReserved(m.Name))
+            // Everything downstream knows a helper by its name alone - the call table, the rendered
+            // signature, the facts a caller inherits - so an overloaded one cannot be told apart
+            // from its sibling. Both stay un-promoted, the rule SemanticClassScope applies too.
+            .Where(m => !overloaded.Contains(m.Name))
             .Where(m =>
             {
                 if (IsPlainDotNetSignature(m.Signature!))
@@ -1495,6 +1586,15 @@ public sealed class FormMigrationPlanner
 
         return promoted;
     }
+
+    /// <summary>The code-behind methods declared more than once - overloads, which a name cannot pick between.</summary>
+    private static HashSet<string> OverloadedMethodNames(CodeBehindModel codeBehind) =>
+        codeBehind.HelperMembers
+            .Where(m => m.Kind == HelperMemberKind.Method)
+            .GroupBy(m => m.Name, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// Whether a helper's signature is expressible on the Avalonia side without translation:
@@ -1879,7 +1979,8 @@ public sealed class FormMigrationPlanner
 
             foreach (var member in members)
             {
-                if (!IsBindableFromAViewModel(control.ClrTypeName, member))
+                if (!HandlerBodyRewriter.VendorCanonicalMember(control, member, out var canonical)
+                    || !IsBindableFromAViewModel(control.ClrTypeName, canonical))
                 {
                     reason = $"it uses '{fieldName}.{member}', which has no bindable Avalonia equivalent.";
                     return false;
@@ -1976,7 +2077,9 @@ public sealed class FormMigrationPlanner
 
             // A reserved name counts as unanalysable here on purpose: the helper cannot be emitted
             // on either target, so promoting its caller would leave the call with nothing to reach.
+            // So does an overloaded one: which overload's facts the call means is not decidable here.
             if (ReservedMemberNames.IsReserved(name)
+                || codeBehind.HelperMembers.Count(m => m.Name == name) > 1
                 || codeBehind.HelperMembers.FirstOrDefault(m => m.Name == name) is not { Facts: { } facts, Signature: not null })
             {
                 unanalysable.Add(name);
@@ -2263,7 +2366,8 @@ public sealed class FormMigrationPlanner
                 // Avalonia counterpart is one - `AppendText` binds `Text`, `Hide()` binds
                 // `IsVisible`. Both have to produce the same [ObservableProperty], or a helper
                 // that only ever calls the method would leave nothing for its body to name.
-                if (!TryResolveBindable(control.ClrTypeName, member, out var bindable, out var propertyName)
+                if (!HandlerBodyRewriter.VendorCanonicalMember(control, member, out var canonicalMember)
+                    || !TryResolveBindable(control.ClrTypeName, canonicalMember, out var bindable, out var propertyName)
                     || !seen.Add((fieldName, bindable.AvaloniaPropertyName)))
                 {
                     continue;

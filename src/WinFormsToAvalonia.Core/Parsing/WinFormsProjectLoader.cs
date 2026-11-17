@@ -336,7 +336,7 @@ public sealed class WinFormsProjectLoader
     /// <paramref name="path"/> as it is spelled on disk, segment by segment, when it does not exist
     /// as written but exactly one case-insensitive match does. Otherwise unchanged.
     /// </summary>
-    private static string ResolveCasing(string path)
+    internal static string ResolveCasing(string path)
     {
         if (File.Exists(path) || Directory.Exists(path))
         {

@@ -24,6 +24,35 @@ public sealed class ControlModel
     /// </summary>
     public string? DeclaredClrTypeName { get; set; }
 
+    /// <summary>
+    /// The type exactly as the designer wrote it in <c>new T(...)</c> - namespace and all, when it
+    /// was written with one (<c>DevExpress.XtraEditors.TextEdit</c>). What identifies a vendor
+    /// control: <c>LayoutControlItem</c> is a DevExpress type and a Telerik one.
+    /// </summary>
+    public string? WrittenTypeName { get; init; }
+
+    /// <summary>
+    /// The full name of the built-in vendor entry this control was converted through, once it has
+    /// been - null for every WinForms control and every user-mapped one.
+    /// </summary>
+    public string? VendorTypeName { get; set; }
+
+    /// <summary>
+    /// For a vendor control: the only members a handler body may name on it, each with the WinForms
+    /// member it stands for. Proved to have the same type on both sides - a member the vendor shares
+    /// a name with but not a type (Telerik's float <c>RadTrackBar.Value</c>) is absent, so it
+    /// refuses rather than translating into a build error. Null for a WinForms control.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? VendorMembers { get; set; }
+
+    /// <summary>
+    /// A model with no field behind it: a vendor designer's local variable
+    /// (<c>GridViewTextBoxColumn col1 = new ...;</c>), or one the conversion synthesized. Such a
+    /// control gets no <c>x:Name</c> - nothing in code could name it - and its key is not an
+    /// identifier, so no handler body can resolve it either.
+    /// </summary>
+    public bool IsDesignerLocal { get; init; }
+
     public PropertyBag Properties { get; } = new();
 
     /// <summary>

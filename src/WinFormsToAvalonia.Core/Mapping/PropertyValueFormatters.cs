@@ -7,6 +7,27 @@ namespace WinFormsToAvalonia.Core.Mapping;
 public static class PropertyValueFormatters
 {
     /// <summary>
+    /// A literal string as an AXAML attribute value. An attribute that starts with <c>{</c> is a
+    /// markup extension to the XAML compiler, so a caption like <c>{0} files selected</c> fails the
+    /// generated build; the standard <c>{}</c> escape in front makes it plain text again.
+    /// </summary>
+    /// <remarks>
+    /// Only for designer text. A <c>{Binding}</c> the conversion writes itself is exactly what
+    /// must stay a markup extension, which is why this is not part of
+    /// <c>AxamlDocumentBuilder.Attribute</c>.
+    /// </remarks>
+    public static string XamlLiteral(string text) =>
+        text.StartsWith('{') ? "{}" + text : text;
+
+    /// <summary>A designer string as written, for a consumer that is not an AXAML attribute.</summary>
+    public static string? AsPlainText(PropertyValue value) => value switch
+    {
+        PropertyValue.Literal { Value: string s } => s,
+        PropertyValue.Literal { Value: { } v } => Convert.ToString(v, CultureInfo.InvariantCulture),
+        _ => null,
+    };
+
+    /// <summary>
     /// WinForms serializes font sizes in points; Avalonia's FontSize is in device-independent
     /// pixels (1/96 inch). The WinForms designer itself lays out at 96 DPI, so the conversion is
     /// the fixed 96/72 ratio - 9pt becomes 12, 8.25pt becomes 11.
@@ -61,9 +82,10 @@ public static class PropertyValueFormatters
         ["WindowText"] = "#FF000000",
     };
 
+    /// <summary>A designer string as an AXAML attribute value - see <see cref="XamlLiteral"/>.</summary>
     public static string? AsText(PropertyValue value) => value switch
     {
-        PropertyValue.Literal { Value: string s } => s,
+        PropertyValue.Literal { Value: string s } => XamlLiteral(s),
         PropertyValue.Literal { Value: { } v } => Convert.ToString(v, CultureInfo.InvariantCulture),
         _ => null,
     };

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Xml.Linq;
 using WinFormsToAvalonia.Core.Model;
 
@@ -128,13 +129,14 @@ public static class ProjectResourcesReader
             var parts = value.Split(';');
             var relative = parts[0].Trim().Replace('\\', Path.DirectorySeparatorChar);
             var referencedType = parts.Length > 1 ? SimpleName(parts[1]) : null;
-            var full = Path.GetFullPath(Path.Combine(directory, relative));
+            var full = WinFormsProjectLoader.ResolveCasing(Path.GetFullPath(Path.Combine(directory, relative)));
 
-            // A text file reference is still a string as far as the code is concerned.
+            // A text file reference is still a string as far as the code is concerned - read in the
+            // encoding the reference names, which for a file written on Windows is often not UTF-8.
             if (referencedType == "String")
             {
                 return File.Exists(full)
-                    ? new ProjectResourceEntry(name, ProjectResourceKind.Text, "String", Text: File.ReadAllText(full))
+                    ? new ProjectResourceEntry(name, ProjectResourceKind.Text, "String", Text: ReadText(full, parts.Length > 2 ? parts[2].Trim() : null))
                     : new ProjectResourceEntry(name, ProjectResourceKind.File, "String");
             }
 
@@ -150,20 +152,31 @@ public static class ProjectResourcesReader
         return new ProjectResourceEntry(name, ProjectResourceKind.Text, type is null ? "String" : SimpleName(type), Text: value);
     }
 
-    /// <summary>The member name Visual Studio's resource generator gives an entry.</summary>
-    public static string ToIdentifier(string name)
+    /// <summary>
+    /// A referenced text file in the encoding its <c>ResXFileRef</c> names (<c>Windows-1252</c>,
+    /// <c>utf-8</c>, ...). A byte-order mark still wins, as it does for Visual Studio; a name this
+    /// runtime does not know falls back to the default, which is what it always was.
+    /// </summary>
+    private static string ReadText(string path, string? encodingName)
     {
-        var chars = name.Select(c => char.IsLetterOrDigit(c) || c == '_' ? c : '_').ToArray();
-        var identifier = new string(chars);
-        if (identifier.Length == 0 || char.IsDigit(identifier[0]))
+        if (string.IsNullOrEmpty(encodingName))
         {
-            identifier = "_" + identifier;
+            return File.ReadAllText(path);
         }
 
-        return Microsoft.CodeAnalysis.CSharp.SyntaxFacts.GetKeywordKind(identifier) != Microsoft.CodeAnalysis.CSharp.SyntaxKind.None
-            ? "_" + identifier
-            : identifier;
+        try
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            return File.ReadAllText(path, Encoding.GetEncoding(encodingName));
+        }
+        catch (ArgumentException)
+        {
+            return File.ReadAllText(path);
+        }
     }
+
+    /// <summary>The member name Visual Studio's resource generator gives an entry.</summary>
+    public static string ToIdentifier(string name) => Emission.NamingConventions.ToIdentifier(name);
 
     /// <summary>"Bitmap" for "System.Drawing.Bitmap, System.Drawing, Version=...".</summary>
     private static string SimpleName(string assemblyQualifiedName)

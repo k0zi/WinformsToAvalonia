@@ -39,6 +39,7 @@ source project is never modified.
 | 🔍 **Roslyn-based** | Parses `InitializeComponent` with the C# compiler API — no regex. |
 | 🌐 **Reads resources** | `Localizable=true` forms, which set every property through `resources.ApplyResources(...)`, convert with their text, geometry and fonts intact; images are recovered from the `.resx` into `Assets/`. |
 | 🧩 **92 control types recognized** | 59 mapped to an element (47 Direct + 12 via bundled fallback controls), 20 converted without one — a `Timer` becomes a `DispatcherTimer` field, a `ToolTip` an attribute on its target — and 13 registered with guidance-only migration notes instead of a silent failure. Run `list-mappings` for the live count. See [`docs/Controls.md`](https://github.com/k0zi/WinformsToAvalonia/blob/main/docs/Controls.md). |
+| 🏷️ **DevExpress & Telerik built in** | Forms on `XtraForm`, `RibbonForm`, `RadForm` and their kin convert with no mappings file, and so do their editors, grids (columns and all), bars, ribbons, menus, trees and layout controls - each rebuilt into the WinForms shape the rest of the converter knows, every name checked against the vendors' real assemblies. See [`docs/ThirdPartyControls.md`](https://github.com/k0zi/WinformsToAvalonia/blob/main/docs/ThirdPartyControls.md). |
 | 📐 **Pixel-accurate layout** | Absolute `Canvas` positioning preserves the original design exactly; `Anchor`/`Dock` are recorded, never guessed at. |
 | ⚡ **Always-compiling output** | `dotnet build && dotnet run` works on the generated project immediately — warning-free. |
 | ✍️ **Handler bodies translated** | Bindable property access, control flow and loops, `Close()`/`Focus()`, window properties, `MessageBox.Show`, opening another Form (with its `DialogResult` contract), file dialogs, the clipboard, `sender`, non-visual .NET components and your own helper methods become real Avalonia code; the report says how much came across. |
@@ -112,7 +113,7 @@ dotnet tool install --global --add-source ./artifacts WinFormsToAvalonia
 |---|---|
 | `convert --source <csproj\|sln\|slnx> --output <dir>` | Converts a WinForms project into a new Avalonia project — or, given a solution, every WinForms project in it, into one generated solution, with the `ProjectReference`s between them preserved so a Form can host a UserControl from another project. |
 | `analyze --source <csproj\|sln\|slnx>` | Discovery only (nothing written) — lists the Forms/UserControls/Components that would be converted, one table per project. |
-| `list-mappings [--filter <substring>]` | Prints the full WinForms → Avalonia control mapping table. |
+| `list-mappings [--filter <substring>]` | Prints the full WinForms → Avalonia control mapping table, and the built-in DevExpress/Telerik support. |
 
 **`convert` options**
 
@@ -121,12 +122,14 @@ dotnet tool install --global --add-source ./artifacts WinFormsToAvalonia
 | `--force` | Allow writing into a non-empty output directory. Files you have already edited are preserved — the regenerated version lands beside them as `*.w2a-new`. |
 | `--overwrite-all` | Replace existing output files instead of preserving them. |
 | `--dry-run` | Run the full pipeline and print the report, write nothing. |
-| `--verbose` | Show every warning, not just the first few. |
+| `-v`, `--verbose` | Log each stage as it runs — what it found, how many handler statements migrated, every NuGet download — and show every warning, not just the first few. |
+| `--trace` | Everything `--verbose` shows, plus each individual decision: every control type, every handler and the statement it stopped at, every NuGet lookup, every file written. |
 | `--no-fallback-controls` | Strict mode: skip fallback controls instead of emitting them. |
 | `--skip-code-behind-comments` | Omit the preserved code-behind block. |
 | `--with-web` | Also generate a browser (WebAssembly) head — see [Web (WASM) head](#web-wasm-head). |
+| `--mappings <file.json>` | Say what a third-party control is (`{ "controls": { "GaugeControl": { "element": "ProgressBar" } } }`). DevExpress and Telerik need none - they are built in, see [`docs/ThirdPartyControls.md`](https://github.com/k0zi/WinformsToAvalonia/blob/main/docs/ThirdPartyControls.md). |
 | `--offline` | Never download the source project's NuGet packages from nuget.org; use only the local NuGet cache. Code calling into a package that is not found stays un-migrated. |
-| `--log-file <path>` | Also write the conversion report as JSON. |
+| `--log-file <path>` | Also write the conversion report as JSON, with the complete `--trace` log in it. |
 
 ## Example
 

@@ -1,5 +1,6 @@
 using WinFormsToAvalonia.Core.Semantics;
 using WinFormsToAvalonia.Core.Emission;
+using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 
 namespace WinFormsToAvalonia.Core.Scaffolding;
@@ -227,9 +228,10 @@ public sealed partial class AvaloniaProjectScaffolder
             .Select(p => $"\n    <PackageReference Include=\"{p}\" Version=\"{ExtraPackageVersions[p]}\" />"));
 
         // The original project's own packages, at its own versions - after the ones the conversion
-        // adds, and never a second reference to one of those.
+        // adds, and never a second reference to one of those. NuGet ids are case-insensitive, so
+        // `system.io.ports` beside `System.IO.Ports` is the same package - and a NU1504 warning.
         extraPackageLines += string.Concat((carriedPackages ?? [])
-            .Where(p => !extraNuGetPackages.Contains(p.Id) && !ScaffoldPackageIds.Contains(p.Id))
+            .Where(p => !extraNuGetPackages.Contains(p.Id, StringComparer.OrdinalIgnoreCase) && !ScaffoldPackageIds.Contains(p.Id))
             .OrderBy(p => p.Id, StringComparer.OrdinalIgnoreCase)
             .Select(p => $"\n    <PackageReference Include=\"{p.Id}\" Version=\"{p.Version}\" />"));
 
@@ -384,8 +386,9 @@ public sealed partial class AvaloniaProjectScaffolder
         if (unresolved.Count > 0)
         {
             var fieldNames = string.Join(", ", unresolved.Select(i => $"'{i.FieldName}'"));
+            // Inside a comment, so the tooltip text must not close it early with a `--`.
             var trayIconLines = string.Concat(unresolved.Select(icon =>
-                $"                 <TrayIcon Icon=\"/Assets/{icon.FieldName}.ico\"{ToolTipAttribute(icon)} />\n"));
+                $"                 <TrayIcon Icon=\"/Assets/{icon.FieldName}.ico\"{AxamlDocumentBuilder.CommentSafe(ToolTipAttribute(icon))} />\n"));
             section +=
                 $"    <!-- TODO(Winforms2Avalonia): NotifyIcon {fieldNames} had no resolvable icon file in Designer.cs\n" +
                 "         (it is usually a resx resource). Copy the real icon into Assets/, then uncomment:\n" +
@@ -481,7 +484,7 @@ public sealed partial class AvaloniaProjectScaffolder
             }
 
             var enabled = item.IsEnabled ? "" : " IsEnabled=\"False\"";
-            var header = $"{pad}<NativeMenuItem Header=\"{AxamlDocumentBuilder.Escape(item.Header)}\"{enabled}";
+            var header = $"{pad}<NativeMenuItem Header=\"{AxamlDocumentBuilder.Escape(PropertyValueFormatters.XamlLiteral(item.Header))}\"{enabled}";
 
             if (item.Children.Count == 0)
             {
@@ -502,7 +505,7 @@ public sealed partial class AvaloniaProjectScaffolder
     }
 
     private static string ToolTipAttribute(NotifyIconInfo icon) =>
-        icon.TooltipText is null ? "" : $" ToolTipText=\"{icon.TooltipText}\"";
+        icon.TooltipText is null ? "" : $" ToolTipText=\"{AxamlDocumentBuilder.Escape(PropertyValueFormatters.XamlLiteral(icon.TooltipText))}\"";
 
     private static string BuildAppAxamlCs(
         string projectName,

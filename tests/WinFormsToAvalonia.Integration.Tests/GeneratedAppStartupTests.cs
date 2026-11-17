@@ -158,6 +158,15 @@ public class GeneratedAppStartupTests
     // Images and a Window icon loaded from Assets/Resources/ - Avalonia resolves both at run time,
     // so a wrong path builds and only fails here - plus a handler reading Properties.Resources.
     [InlineData("ProjectResourcesApp")]
+    // A tray tooltip and a title that start with `{` (App.axaml is parsed before any window
+    // exists), and a click on a handler that reads a field assigned only in the un-migrated rest of
+    // Load - carried over, that was a NullReferenceException here.
+    [InlineData("EdgeCasesApp")]
+    // Vendor controls rebuilt into WinForms shapes - bars into strips, a grid view's columns into the
+    // grid's, a radio group into radio buttons - and their handlers translated through the vendors'
+    // member names. Every button is clicked, the toolbar buttons the bars became included.
+    [InlineData("DevExpressApp")]
+    [InlineData("TelerikApp")]
     public Task ConvertedApp_StartsOnTheHeadlessPlatform(string sampleAppName) =>
         AssertStarts(
             Path.Combine(AppContext.BaseDirectory, "SampleApps", sampleAppName, $"{sampleAppName}.csproj"),

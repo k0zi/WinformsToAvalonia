@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.RegularExpressions;
+using WinFormsToAvalonia.Core.Pipeline;
 
 namespace WinFormsToAvalonia.Core.Semantics;
 
@@ -19,19 +20,22 @@ public sealed partial class NuGetPackageStore
 
     private readonly IReadOnlyList<string> _globalFolders;
     private readonly string? _downloadCache;
+    private readonly ConversionLog _log;
     private readonly Dictionary<string, string?> _located = new(StringComparer.OrdinalIgnoreCase);
 
-    private NuGetPackageStore(IReadOnlyList<string> globalFolders, string? downloadCache)
+    private NuGetPackageStore(IReadOnlyList<string> globalFolders, string? downloadCache, ConversionLog? log = null)
     {
         _globalFolders = globalFolders;
         _downloadCache = downloadCache;
+        _log = log ?? ConversionLog.None;
     }
 
     /// <summary>Never finds anything: the conversion behaves as if the project had no packages.</summary>
     public static NuGetPackageStore None { get; } = new([], null);
 
     /// <summary>The machine's NuGet folders, plus downloading when <paramref name="allowDownload"/>.</summary>
-    public static NuGetPackageStore Default(bool allowDownload)
+    /// <param name="log">Told where each package was found - and, above all, about every download.</param>
+    public static NuGetPackageStore Default(bool allowDownload, ConversionLog? log = null)
     {
         var global = Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } configured
             ? configured
@@ -41,7 +45,7 @@ public sealed partial class NuGetPackageStore
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinFormsToAvalonia", "packages")
             : null;
 
-        return new NuGetPackageStore([global], cache);
+        return new NuGetPackageStore([global], cache, log);
     }
 
     /// <summary>Only the given folders, laid out like the global packages folder (<c>id/version/</c>, lower case).</summary>
@@ -65,8 +69,22 @@ public sealed partial class NuGetPackageStore
         }
 
         var found = FindInGlobalFolders(id, normalized)
-            ?? FindInSolutionPackagesFolder(id, version, normalized, projectDirectory)
-            ?? Download(id, normalized);
+            ?? FindInSolutionPackagesFolder(id, version, normalized, projectDirectory);
+        if (found is not null)
+        {
+            _log.Trace($"NuGet {id} {normalized}: found at {found}");
+        }
+        else
+        {
+            found = Download(id, normalized);
+            if (found is null)
+            {
+                _log.Detail(_downloadCache is null
+                    ? $"NuGet {id} {normalized}: not in the local NuGet folders (offline, not downloaded)"
+                    : $"NuGet {id} {normalized}: not found locally, and the download failed");
+            }
+        }
+
         _located[key] = found;
         return found;
     }
@@ -89,7 +107,17 @@ public sealed partial class NuGetPackageStore
             return null;
         }
 
-        var numbers = match.Groups["numbers"].Value.Split('.').Select(n => long.Parse(n, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+        var numbers = new List<long>();
+        foreach (var part in match.Groups["numbers"].Value.Split('.'))
+        {
+            // A component too large for a long is not a version anything could resolve.
+            if (!long.TryParse(part, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var number))
+            {
+                return null;
+            }
+
+            numbers.Add(number);
+        }
         while (numbers.Count < 3)
         {
             numbers.Add(0);
@@ -156,6 +184,9 @@ public sealed partial class NuGetPackageStore
         var target = Path.Combine(_downloadCache, lowerId, lowerVersion);
         var staging = target + ".w2a-" + Guid.NewGuid().ToString("N");
 
+        // The one network request the tool makes - always said, at a level --verbose shows.
+        _log.Detail($"NuGet {id} {normalized}: not found locally, downloading from nuget.org");
+
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
@@ -199,6 +230,7 @@ public sealed partial class NuGetPackageStore
     private static bool IsComplete(string folder) =>
         Directory.Exists(folder) && Directory.EnumerateFiles(folder, "*.nuspec").Any();
 
-    [GeneratedRegex(@"^(?<numbers>\d+(\.\d+){0,3})(-(?<release>[0-9A-Za-z.-]+))?(\+[0-9A-Za-z.-]+)?$")]
+    // [0-9], not \d: \d also matches non-ASCII digits, which no version contains and long.Parse rejects.
+    [GeneratedRegex(@"^(?<numbers>[0-9]+(\.[0-9]+){0,3})(-(?<release>[0-9A-Za-z.-]+))?(\+[0-9A-Za-z.-]+)?$")]
     private static partial Regex ExactVersion();
 }

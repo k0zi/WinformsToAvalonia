@@ -67,7 +67,9 @@ public static class SummaryRenderer
 
     public static void RenderFileTree(IAnsiConsole console, string title, VirtualFileSystem vfs)
     {
-        var tree = new Tree(title);
+        // Paths are user input, and every string a Tree takes is markup: `Projects [2024]` would
+        // throw after the files were already written.
+        var tree = new Tree(Markup.Escape(title));
         var nodesByFolder = new Dictionary<string, TreeNode>(StringComparer.Ordinal);
 
         foreach (var path in vfs.RelativePaths)
@@ -81,7 +83,7 @@ public static class SummaryRenderer
                 currentPath = currentPath.Length == 0 ? segments[i] : $"{currentPath}/{segments[i]}";
                 if (!nodesByFolder.TryGetValue(currentPath, out var node))
                 {
-                    node = parentNode is null ? tree.AddNode($"[blue]{segments[i]}/[/]") : parentNode.AddNode($"[blue]{segments[i]}/[/]");
+                    node = parentNode is null ? tree.AddNode($"[blue]{Markup.Escape(segments[i])}/[/]") : parentNode.AddNode($"[blue]{Markup.Escape(segments[i])}/[/]");
                     nodesByFolder[currentPath] = node;
                 }
 
@@ -91,11 +93,11 @@ public static class SummaryRenderer
             var fileName = segments[^1];
             if (parentNode is null)
             {
-                tree.AddNode(fileName);
+                tree.AddNode(Markup.Escape(fileName));
             }
             else
             {
-                parentNode.AddNode(fileName);
+                parentNode.AddNode(Markup.Escape(fileName));
             }
         }
 
@@ -107,7 +109,7 @@ public static class SummaryRenderer
         var style = report.IsLegacyStyle ? "legacy (.NET Framework)" : "SDK-style";
         var lines = new List<string>
         {
-            $"Project style: [bold]{style}[/], target framework(s): [bold]{string.Join(", ", report.TargetFrameworks)}[/]",
+            $"Project style: [bold]{style}[/], target framework(s): [bold]{Markup.Escape(string.Join(", ", report.TargetFrameworks))}[/]",
             $"Forms converted: [bold]{report.FormCount}[/]{(report.UserControlCount > 0 ? $", user controls: [bold]{report.UserControlCount}[/]" : "")}",
             // "Converted elsewhere" is deliberately not red and deliberately not next to
             // "unsupported": a Timer that became a DispatcherTimer is a success, and counting it
@@ -119,12 +121,12 @@ public static class SummaryRenderer
 
         if (report.UsedFallbackKeys.Count > 0)
         {
-            lines.Add($"Fallback controls used: [bold]{string.Join(", ", report.UsedFallbackKeys)}[/]");
+            lines.Add($"Fallback controls used: [bold]{Markup.Escape(string.Join(", ", report.UsedFallbackKeys))}[/]");
         }
 
         if (report.RequiredNuGetPackages.Count > 0)
         {
-            lines.Add($"Extra NuGet packages added: [bold]{string.Join(", ", report.RequiredNuGetPackages)}[/]");
+            lines.Add($"Extra NuGet packages added: [bold]{Markup.Escape(string.Join(", ", report.RequiredNuGetPackages))}[/]");
         }
 
         if (report.HandlerStatementCount > 0)

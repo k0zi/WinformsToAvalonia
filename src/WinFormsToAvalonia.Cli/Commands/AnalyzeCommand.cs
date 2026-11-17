@@ -1,6 +1,8 @@
 using Spectre.Console;
 using Spectre.Console.Cli;
 using WinFormsToAvalonia.Cli.Rendering;
+using WinFormsToAvalonia.Core.Mapping;
+using WinFormsToAvalonia.Core.Mapping.Vendors;
 using WinFormsToAvalonia.Core.Parsing;
 
 namespace WinFormsToAvalonia.Cli.Commands;
@@ -52,11 +54,13 @@ public sealed class AnalyzeCommand : Command<AnalyzeCommandSettings>
         {
             AnsiConsole.MarkupLine(
                 $"Project style: [bold]{(project.IsLegacyStyle ? "legacy (.NET Framework)" : "SDK-style")}[/], " +
-                $"target framework(s): [bold]{string.Join(", ", project.TargetFrameworks)}[/], " +
-                $"root namespace: [bold]{project.RootNamespace}[/]");
+                $"target framework(s): [bold]{Markup.Escape(string.Join(", ", project.TargetFrameworks))}[/], " +
+                $"root namespace: [bold]{Markup.Escape(project.RootNamespace)}[/]");
         }
 
-        var pairings = new DesignerFileLocator().Locate(project);
+        // A Form built on a DevExpress or Telerik base class is a Form here too, as it is to convert.
+        var pairings = new DesignerFileLocator().Locate(
+            project, VendorCatalog.BuiltIn.ExternalBaseTypes(new Dictionary<string, UserMapping>(StringComparer.Ordinal)));
         DiscoveryTableRenderer.Render(AnsiConsole.Console, project, pairings);
     }
 }

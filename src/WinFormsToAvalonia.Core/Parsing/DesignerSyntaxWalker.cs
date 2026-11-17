@@ -2,6 +2,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using WinFormsToAvalonia.Core.Mapping;
+using WinFormsToAvalonia.Core.Mapping.Vendors;
 using WinFormsToAvalonia.Core.Model;
 
 namespace WinFormsToAvalonia.Core.Parsing;
@@ -15,7 +16,7 @@ namespace WinFormsToAvalonia.Core.Parsing;
 /// configures/adds it. Assembling the edges into an actual tree (RootControls/Components)
 /// is ControlGraphBuilder's job, not this class's.
 /// </summary>
-public sealed class DesignerSyntaxWalker
+public sealed partial class DesignerSyntaxWalker
 {
     /// <summary>
     /// Value types designer code constructs inline for a property value
@@ -47,13 +48,24 @@ public sealed class DesignerSyntaxWalker
     /// <c>resources.ApplyResources(...)</c> calls; passing null (or an empty document) keeps the
     /// walker's behaviour exactly as it was before resources were understood at all.
     /// </param>
+    /// <param name="vendors">
+    /// The vendor controls to recognise (DevExpress, Telerik). Every vendor-specific branch below
+    /// fires only for a control whose written type is one of them, so a project with none walks
+    /// exactly as it did before vendors were understood - and so does any walk given null.
+    /// </param>
+    /// <param name="vendorBaseForm">
+    /// The class derives from a vendor Form or UserControl, whose own nested settings
+    /// (<c>this.LookAndFeel.SkinName</c>) are recorded as dotted Form properties instead of dropped.
+    /// </param>
     public DesignerWalkResult Walk(
         string designerFileContent,
         string designerFilePath,
         string className,
         string? @namespace,
         ResxDocument? resx = null,
-        DesignerWalkResult? inheritedFrom = null)
+        DesignerWalkResult? inheritedFrom = null,
+        VendorCatalog? vendors = null,
+        bool vendorBaseForm = false)
     {
         var tree = CSharpSyntaxTree.ParseText(designerFileContent, path: designerFilePath);
         var root = tree.GetRoot();
@@ -68,6 +80,10 @@ public sealed class DesignerSyntaxWalker
         var edges = new List<ParentChildEdge>();
         var hostedAliases = new Dictionary<string, string>(StringComparer.Ordinal);
         var warnings = new List<string>();
+        var vendorLinks = new List<VendorLink>();
+        var vendor = vendors is { IsEmpty: false }
+            ? new VendorWalk(vendors, UsingNamespaces(root), className, vendorBaseForm, vendorLinks)
+            : null;
         if (inheritedFrom is not null)
         {
             foreach (var (name, value) in inheritedFrom.Form.FormProperties)
@@ -82,6 +98,7 @@ public sealed class DesignerSyntaxWalker
             }
 
             edges.AddRange(inheritedFrom.Edges);
+            vendorLinks.AddRange(inheritedFrom.VendorLinks);
             foreach (var (host, hosted) in inheritedFrom.HostedControlAliases)
             {
                 hostedAliases[host] = hosted;
@@ -96,7 +113,7 @@ public sealed class DesignerSyntaxWalker
 
         if (initializeComponent?.Body is null)
         {
-            return new DesignerWalkResult(formModel, edges, warnings, hostedAliases);
+            return new DesignerWalkResult(formModel, edges, warnings, hostedAliases, vendorLinks);
         }
 
         // Every control a designer creates has a field; no inherited property does. That is what
@@ -108,6 +125,12 @@ public sealed class DesignerSyntaxWalker
 
         foreach (var statement in initializeComponent.Body.Statements)
         {
+            if (statement is LocalDeclarationStatementSyntax localDeclaration && vendor is not null)
+            {
+                vendor.DeclareLocals(formModel, localDeclaration);
+                continue;
+            }
+
             if (statement is not ExpressionStatementSyntax expressionStatement)
             {
                 continue;
@@ -116,9 +139,14 @@ public sealed class DesignerSyntaxWalker
             switch (expressionStatement.Expression)
             {
                 case AssignmentExpressionSyntax assignment:
-                    HandleAssignment(formModel, assignment, hostedAliases, declaredFields, warnings);
+                    HandleAssignment(formModel, assignment, hostedAliases, declaredFields, warnings, vendor);
                     break;
                 case InvocationExpressionSyntax invocation:
+                    if (vendor is not null && vendor.TryHandleCollection(formModel, invocation, edges, warnings))
+                    {
+                        break;
+                    }
+
                     HandleInvocation(formModel, invocation, edges, warnings);
                     HandleExtenderProviderInvocation(formModel, invocation, warnings);
                     HandleApplyResourcesInvocation(formModel, invocation, resx, className, warnings);
@@ -129,8 +157,17 @@ public sealed class DesignerSyntaxWalker
             }
         }
 
-        return new DesignerWalkResult(formModel, edges, warnings, hostedAliases);
+        vendor?.ReportUnreadStatements(warnings);
+        return new DesignerWalkResult(formModel, edges, warnings, hostedAliases, vendorLinks);
     }
+
+    /// <summary>The namespaces the file imports - what an unqualified vendor type name is resolved against.</summary>
+    private static IReadOnlySet<string> UsingNamespaces(SyntaxNode root) =>
+        root.DescendantNodes()
+            .OfType<UsingDirectiveSyntax>()
+            .Where(u => u.Alias is null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.Name is not null)
+            .Select(u => u.Name!.ToString())
+            .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// `resources.ApplyResources(this.button1, "button1")` - the shape a Localizable form uses
@@ -222,10 +259,14 @@ public sealed class DesignerSyntaxWalker
         AssignmentExpressionSyntax assignment,
         Dictionary<string, string> hostedAliases,
         IReadOnlySet<string> declaredFields,
-        List<string> warnings)
+        List<string> warnings,
+        VendorWalk? vendor = null)
     {
         if (!TryParseThisMemberAccess(assignment.Left, out var first, out var second))
         {
+            // `this.textEdit1.Properties.ReadOnly = true;`, `col1.FieldName = "Name";` - shapes only
+            // a vendor control's designer writes.
+            vendor?.HandleDeepAssignment(formModel, assignment, declaredFields);
             return;
         }
 
@@ -241,11 +282,17 @@ public sealed class DesignerSyntaxWalker
             if (second is null)
             {
                 HandleThisLevelAssignment(
-                    formModel, first, assignment.Right, hostedAliases, declaredFields, warnings);
+                    formModel, first, assignment.Right, hostedAliases, declaredFields, warnings, vendor);
             }
             else if (formModel.Controls.TryGetValue(first, out var control))
             {
                 control.Properties[second] = ExpressionEvaluator.Evaluate(assignment.Right);
+            }
+            else if (vendor is { VendorBaseForm: true } && !declaredFields.Contains(first))
+            {
+                // `this.IconOptions.Image = ...` - a setting of the vendor Form itself, kept under its
+                // dotted name so it is reported (or knowingly ignored) rather than lost.
+                formModel.FormProperties[$"{first}.{second}"] = ExpressionEvaluator.Evaluate(assignment.Right);
             }
 
             return;
@@ -286,7 +333,8 @@ public sealed class DesignerSyntaxWalker
         ExpressionSyntax right,
         Dictionary<string, string> hostedAliases,
         IReadOnlySet<string> declaredFields,
-        List<string> warnings)
+        List<string> warnings,
+        VendorWalk? vendor = null)
     {
         if (right is ObjectCreationExpressionSyntax creation
             && !InlineValueTypeNames.Contains(RoslynTypeNameHelper.GetSimpleTypeName(creation.Type)))
@@ -312,7 +360,10 @@ public sealed class DesignerSyntaxWalker
             }
 
             var typeName = RoslynTypeNameHelper.GetSimpleTypeName(creation.Type);
-            formModel.Controls[name] = new ControlModel { FieldName = name, ClrTypeName = typeName };
+            var writtenTypeName = creation.Type.ToString();
+            var created = new ControlModel { FieldName = name, ClrTypeName = typeName, WrittenTypeName = writtenTypeName };
+            formModel.Controls[name] = created;
+            vendor?.Recognise(created, creation);
 
             // A host is plumbing around a control the designer names right here - the only shape
             // it can take, since the type has no parameterless constructor. Recorded only: the

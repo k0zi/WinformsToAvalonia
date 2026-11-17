@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="10.0.0" />
+
+    <!-- WinForms' own reference assembly: the side a vendor control is converted *as*. -->
+    <PackageReference Include="Microsoft.WindowsDesktop.App.Ref" Version="10.0.11"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+  </ItemGroup>
+
+  <!--
+    The vendors' real assemblies, read as metadata and never executed - the same idea as
+    Mapping.Tests' Avalonia and WinForms references. Downloaded only: a PackageReference would let
+    Telerik.Licensing's build targets into this project, and a reference to a UI suite is not what
+    a test project needs. Exact versions, so the catalog is always checked against the same API.
+    Its own project, so the release workflow - which runs Core and Mapping - does not pull them.
+  -->
+  <PropertyGroup>
+    <DevExpressVersion>26.1.6</DevExpressVersion>
+    <TelerikVersion>2026.4.1111</TelerikVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageDownload Include="DevExpress.Data" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Data.Desktop" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Drawing" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Office.Core" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Pdf.Core" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Pdf.Drawing" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Printing.Core" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.RichEdit.Core" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Sparkline.Core" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Utils" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Win.Grid" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Win.Navigation" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Win.Printing" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="DevExpress.Win.TreeList" Version="[$(DevExpressVersion)]" />
+    <PackageDownload Include="Telerik.UI.for.WinForms.Common" Version="[$(TelerikVersion)]" />
+    <PackageDownload Include="Telerik.UI.for.WinForms.GridView" Version="[$(TelerikVersion)]" />
+    <PackageDownload Include="Telerik.Licensing" Version="[1.11.3]" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The whole Windows Desktop reference pack - a vendor member's type is often System.Drawing's -
+         in a folder of its own, so the test process never loads a reference assembly to run it. -->
+    <None Include="$(PkgMicrosoft_WindowsDesktop_App_Ref)/ref/net10.0/*.dll">
+      <Link>WindowsDesktopRef/%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- Where the downloads landed - PackageDownload has no path property of its own. -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NuGetPackageRoot</_Parameter1>
+      <_Parameter2>$(NuGetPackageRoot)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WinFormsToAvalonia.Core\WinFormsToAvalonia.Core.csproj" />
+  </ItemGroup>
+
+</Project>

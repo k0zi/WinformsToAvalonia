@@ -8,8 +8,9 @@ namespace WinFormsToAvalonia.Core.Scaffolding;
 public enum ExistingFileStrategy
 {
     /// <summary>
-    /// Never destroy an existing file: identical content is skipped, and different content is
-    /// written beside the original as <c>&lt;name&gt;.w2a-new</c> for the user to merge.
+    /// Never destroy a file someone edited: identical content is skipped, a file still exactly as
+    /// the previous run generated it (per the manifest) is updated, and anything else is kept -
+    /// the generated content written beside it as <c>&lt;name&gt;.w2a-new</c> for the user to merge.
     /// </summary>
     PreserveExisting,
 
@@ -17,7 +18,10 @@ public enum ExistingFileStrategy
     Overwrite,
 }
 
-/// <param name="Written">Files written to their real path (new, or the strategy was Overwrite).</param>
+/// <param name="Written">
+/// Files written to their real path: new, the strategy was Overwrite, or the file on disk was still
+/// exactly what the previous run generated.
+/// </param>
 /// <param name="Unchanged">Files already on disk with byte-identical content - not rewritten.</param>
 /// <param name="Preserved">
 /// Files kept as the user has them because the generated content differed. The generated version
@@ -119,7 +123,8 @@ public sealed class VirtualFileSystem
         foreach (var (relativePath, content) in _textFiles)
         {
             WriteOne(
-                rootDirectory, relativePath, existingFiles, written, unchanged, preserved,
+                rootDirectory, relativePath, existingFiles, previous.GetValueOrDefault(relativePath),
+                written, unchanged, preserved,
                 matchesDisk: path => File.ReadAllText(path) == content,
                 write: path => File.WriteAllText(path, content));
         }
@@ -127,7 +132,8 @@ public sealed class VirtualFileSystem
         foreach (var (relativePath, content) in _binaryFiles)
         {
             WriteOne(
-                rootDirectory, relativePath, existingFiles, written, unchanged, preserved,
+                rootDirectory, relativePath, existingFiles, previous.GetValueOrDefault(relativePath),
+                written, unchanged, preserved,
                 matchesDisk: path => File.ReadAllBytes(path).AsSpan().SequenceEqual(content),
                 write: path => File.WriteAllBytes(path, content));
         }
@@ -148,7 +154,11 @@ public sealed class VirtualFileSystem
         foreach (var (relativePath, generatedHash) in previous.Where(e => !current.ContainsKey(e.Key)))
         {
             var fullPath = Path.Combine(rootDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(fullPath))
+
+            // The manifest is a file on disk like any other. An entry that leads outside the output
+            // directory (`../x`, an absolute path) was never written by this tool, so it is neither
+            // deleted nor carried forward.
+            if (!IsUnder(rootDirectory, fullPath) || !File.Exists(fullPath))
             {
                 continue;
             }
@@ -183,6 +193,12 @@ public sealed class VirtualFileSystem
     }
 
     private static string Hash(byte[] content) => Convert.ToHexString(SHA256.HashData(content));
+
+    private static bool IsUnder(string rootDirectory, string fullPath)
+    {
+        var root = Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(fullPath).StartsWith(root, StringComparison.Ordinal);
+    }
 
     private static Dictionary<string, string> ReadManifest(string rootDirectory)
     {
@@ -226,10 +242,12 @@ public sealed class VirtualFileSystem
         }
     }
 
+    /// <param name="generatedBefore">The hash the previous run's manifest recorded for this path, if any.</param>
     private static void WriteOne(
         string rootDirectory,
         string relativePath,
         ExistingFileStrategy existingFiles,
+        string? generatedBefore,
         List<string> written,
         List<string> unchanged,
         List<string> preserved,
@@ -238,21 +256,40 @@ public sealed class VirtualFileSystem
     {
         var fullPath = EnsureDirectoryFor(rootDirectory, relativePath);
 
-        if (existingFiles == ExistingFileStrategy.Overwrite || !File.Exists(fullPath))
+        // Still byte for byte what the previous run generated: nobody has touched it, so it is this
+        // tool's to update. Without this, every regenerated file got a *.w2a-new beside it after a
+        // source change or an upgrade - edited or not.
+        if (existingFiles == ExistingFileStrategy.Overwrite
+            || !File.Exists(fullPath)
+            || (generatedBefore is not null && !matchesDisk(fullPath) && Hash(File.ReadAllBytes(fullPath)) == generatedBefore))
         {
             write(fullPath);
             written.Add(relativePath);
+            DeleteStaleMergeCopy(fullPath);
             return;
         }
 
         if (matchesDisk(fullPath))
         {
             unchanged.Add(relativePath);
+            DeleteStaleMergeCopy(fullPath);
             return;
         }
 
         write(fullPath + GeneratedFileSuffix);
         preserved.Add(relativePath);
+    }
+
+    /// <summary>
+    /// A merge copy an earlier run left beside a file that now holds exactly this run's output -
+    /// merged by hand, or updated above. It describes nothing any more, and it is this tool's own file.
+    /// </summary>
+    private static void DeleteStaleMergeCopy(string fullPath)
+    {
+        if (File.Exists(fullPath + GeneratedFileSuffix))
+        {
+            File.Delete(fullPath + GeneratedFileSuffix);
+        }
     }
 
     private static List<string> Ordered(List<string> paths)

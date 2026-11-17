@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 
 namespace WinFormsToAvalonia.Core.Pipeline;
@@ -58,7 +59,9 @@ public static class MigrationBlockerClassifier
         foreach (var invocation in invocations)
         {
             var name = InvokedName(invocation);
-            var receiver = invocation.Expression is MemberAccessExpressionSyntax access ? LastIdentifier(access.Expression) : null;
+            var receiver = invocation.Expression is MemberAccessExpressionSyntax access
+                ? MessageBoxReceivers.IsMessageBox(access.Expression) ? "MessageBox" : LastIdentifier(access.Expression)
+                : null;
             if (receiver == "MessageBox" || (name is not null && DialogNames.Contains(name) && receiver != "MessageBox"))
             {
                 return receiver == "MessageBox" ? $"Dialog: MessageBox.{name}" : $"Dialog: {name}";

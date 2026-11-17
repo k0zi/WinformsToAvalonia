@@ -17,7 +17,7 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
             OutputDirectory: settings.Output,
             Force: settings.Force,
             DryRun: settings.DryRun,
-            Verbose: settings.Verbose,
+            Verbose: settings.Verbose || settings.Trace,
             NoFallbackControls: settings.NoFallbackControls,
             SkipCodeBehindComments: settings.SkipCodeBehindComments,
             LogFile: settings.LogFile,
@@ -27,17 +27,19 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
             MappingsFile: settings.Mappings,
             Offline: settings.Offline);
 
+        var log = new ConversionLogRenderer(
+            AnsiConsole.Console,
+            settings.Trace ? ConversionLogLevel.Trace : settings.Verbose ? ConversionLogLevel.Detail : null);
+
         if (SolutionReader.IsSolutionPath(settings.Source))
         {
-            return ConvertSolution(settings, options);
+            return ConvertSolution(settings, options, log);
         }
 
         ConversionRunResult result;
         try
         {
-            result = AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .Start("Converting...", _ => new ConversionPipeline().Run(options));
+            result = log.Run("Converting...", l => new ConversionPipeline(l).Run(options));
         }
         catch (UserMappingsException ex)
         {
@@ -61,15 +63,15 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
             return 1;
         }
 
-        SummaryRenderer.RenderReport(AnsiConsole.Console, result.Report, settings.Verbose);
+        SummaryRenderer.RenderReport(AnsiConsole.Console, result.Report, options.Verbose);
 
         var treeTitle = options.DryRun ? "Would generate (--dry-run)" : $"Generated at {settings.Output}";
         SummaryRenderer.RenderFileTree(AnsiConsole.Console, treeTitle, result.Vfs);
 
         if (settings.LogFile is not null)
         {
-            WriteLogFile(settings.LogFile, result, options);
-            AnsiConsole.MarkupLine($"Structured report written to [grey]{settings.LogFile}[/].");
+            WriteLogFile(settings.LogFile, result, options, log.Entries);
+            AnsiConsole.MarkupLine($"Structured report written to [grey]{Markup.Escape(settings.LogFile)}[/].");
         }
 
         if (options.DryRun)
@@ -78,7 +80,7 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
         }
         else
         {
-            AnsiConsole.MarkupLine($"[green]Done.[/] Next: [grey]cd {settings.Output} && dotnet build && dotnet run[/]");
+            AnsiConsole.MarkupLine($"[green]Done.[/] Next: [grey]cd {Markup.Escape(settings.Output)} && dotnet build && dotnet run[/]");
         }
 
         return 0;
@@ -99,14 +101,12 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
     /// Every WinForms project the solution lists, each through the ordinary single-project
     /// pipeline, into one output solution.
     /// </summary>
-    private static int ConvertSolution(ConvertCommandSettings settings, ConversionOptions options)
+    private static int ConvertSolution(ConvertCommandSettings settings, ConversionOptions options, ConversionLogRenderer log)
     {
         SolutionConversionResult solution;
         try
         {
-            solution = AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .Start("Converting solution...", _ => new SolutionConversionPipeline().Run(options));
+            solution = log.Run("Converting solution...", l => new SolutionConversionPipeline(l).Run(options));
         }
         catch (UserMappingsException ex)
         {
@@ -125,7 +125,7 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
         {
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine($"[bold]{Markup.Escape(Path.GetFileName(project.SourceProjectPath))}[/]");
-            SummaryRenderer.RenderReport(AnsiConsole.Console, project.Result.Report, settings.Verbose);
+            SummaryRenderer.RenderReport(AnsiConsole.Console, project.Result.Report, options.Verbose);
         }
 
         foreach (var skipped in solution.Skipped)
@@ -139,19 +139,20 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
         {
             AnsiConsole.MarkupLine(
                 $"[yellow]Dry run[/] - {solution.Converted.Count} project(s) would be written to " +
-                $"[grey]{settings.Output}[/], with [grey]{solution.SolutionFileName}[/] alongside them.");
+                $"[grey]{Markup.Escape(settings.Output)}[/], with [grey]{Markup.Escape(solution.SolutionFileName)}[/] alongside them.");
         }
         else
         {
             AnsiConsole.MarkupLine(
                 $"[green]Done.[/] {solution.Converted.Count} project(s). " +
-                $"Next: [grey]cd {settings.Output} && dotnet build {solution.SolutionFileName}[/]");
+                $"Next: [grey]cd {Markup.Escape(settings.Output)} && dotnet build {Markup.Escape(solution.SolutionFileName)}[/]");
         }
 
         return 0;
     }
 
-    private static void WriteLogFile(string logFilePath, ConversionRunResult result, ConversionOptions options)
+    private static void WriteLogFile(
+        string logFilePath, ConversionRunResult result, ConversionOptions options, IReadOnlyList<ConversionLogEntry> log)
     {
         var payload = new
         {
@@ -160,6 +161,12 @@ public sealed class ConvertCommand : Command<ConvertCommandSettings>
             dryRun = options.DryRun,
             report = result.Report,
             generatedFiles = result.Vfs.RelativePaths,
+            log = log.Select(e => new
+            {
+                elapsedMs = (long)e.Elapsed.TotalMilliseconds,
+                level = e.Level.ToString(),
+                message = e.Message,
+            }),
         };
 
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });

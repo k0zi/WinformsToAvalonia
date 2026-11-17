@@ -18,12 +18,13 @@ dotnet test  WinFormsToAvalonia.slnx
 # one project / one test
 dotnet test tests/WinFormsToAvalonia.Core.Tests
 dotnet test tests/WinFormsToAvalonia.Mapping.Tests
+dotnet test tests/WinFormsToAvalonia.Vendors.Tests    # downloads DevExpress/Telerik from nuget.org, reads them as metadata
 dotnet test tests/WinFormsToAvalonia.Integration.Tests --filter "FullyQualifiedName~RealFormConversionBuildTests"
 dotnet test --filter "DisplayName~ConvertedFixtureProject_BuildsSuccessfullyWithDotnetBuild"
 
 # run the tool
 # --source takes a .csproj, or a .sln/.slnx to convert every WinForms project in it at once
-dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--prune|--mappings <file.json>|--dry-run|--verbose|--no-fallback-controls|--skip-code-behind-comments|--with-web|--offline|--log-file <p>]
+dotnet run --project src/WinFormsToAvalonia.Cli -- convert --source <app.csproj|app.slnx> --output ./Out [--force|--overwrite-all|--prune|--mappings <file.json>|--dry-run|--verbose|--trace|--no-fallback-controls|--skip-code-behind-comments|--with-web|--offline|--log-file <p>]
 dotnet run --project src/WinFormsToAvalonia.Cli -- analyze --source <app.csproj|app.slnx>
 dotnet run --project src/WinFormsToAvalonia.Cli -- list-mappings [--filter Box]
 
@@ -77,7 +78,7 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    type from a referenced assembly stays `Other` but is reported, not dropped) →
    `DesignerSyntaxWalker` (Roslyn walk of `InitializeComponent`, also
    capturing `EventHandlerBinding`s) → `ControlGraphBuilder` (flat assignments → parent/child
-   `FormModel`). The project's own subclasses of mapped controls (`MyButton : Button`) - and vendor types a `--mappings` file maps with `"as"` (`UserMappings.Retype`) - are
+   `FormModel`). The project's own subclasses of mapped controls (`MyButton : Button`) - and vendor types a `--mappings` file maps with `"as"` (`UserMappings.Retype`), and every DevExpress/Telerik control through the built-in catalog (`VendorDesignerNormalizer`; see Invariants) - are
    re-typed to their WinForms base right after the walk (`ControlModel.DeclaredClrTypeName` keeps
    the written name), so every table downstream answers for the real control. `InlineHandlerLifter` turns designer lambdas into named handler methods before
    the code-behind is analysed, so they are ordinary handlers from then on. Visual inheritance is flattened *here*: `ParseArtifact` walks each base Form's
@@ -236,8 +237,11 @@ match. Options are the user's intent, so this is a parameter, not a field on `Co
    a re-run never clobbers a file the user has edited, writing the regenerated version beside it
    as `*.w2a-new` instead (`--overwrite-all` opts out). Keep new write paths going through it.
    It also writes `.w2a-manifest.json` (every generated path + the SHA-256 of what was generated)
-   on every real run; `--prune` deletes a file the previous manifest lists and this run no longer
+   on every real run, and that hash is what "edited" means: a file whose bytes still match it is
+   updated in place (and a stale `*.w2a-new` beside a file that now holds this run's output is
+   removed). `--prune` deletes a file the previous manifest lists and this run no longer
    generates, **only** if its bytes still match that hash - an edited one is reported as orphaned.
+   A manifest entry that leads outside the output root is ignored, never deleted.
    `--with-web` is bolted on as a **post-processing pass** over the finished VFS -
    `AvaloniaProjectScaffolder.SplitIntoHeads` (in the `.WebHeads.cs` partial) re-roots everything
    under `{projectName}/`, rewrites that csproj as a library, moves `Program.cs`/`app.manifest`
@@ -264,6 +268,32 @@ not by building.
 
 ## Invariants worth not breaking
 
+- **A vendor control is a WinForms control by the time anything but the walker and the normalizer
+  sees it.** DevExpress and Telerik are built in (`Core/Mapping/Vendors/`: `VendorCatalog`,
+  `DevExpressPack`, `TelerikPack`), and every entry converts *as* a control the registry already maps
+  (`VendorControl.Retype`, the built-in form of a `--mappings` `"as"`), so no table downstream learns a
+  vendor name and no Avalonia element is introduced - `VendorCatalogTests` holds every target to the
+  registry. Vendor names are deliberately **not** in `ControlMappingRegistry` (keyed by simple
+  WinForms name, documented row by row, and a project's own UserControl may be called `GridView`).
+  The walker's vendor branches (`DesignerSyntaxWalker.Vendors.cs`: dotted `Properties.X` keys, vendor
+  collections, designer *locals*, a vendor Form's own nested settings) fire only for a control whose
+  **written** type resolves in the catalog, so a WinForms project walks byte-for-byte as before -
+  `EveryWinFormsFixture_WalksTheSameWithTheVendorCatalog` checks every fixture. What a vendor spreads
+  over several objects is rebuilt by `VendorDesignerNormalizer` in `ParseArtifact`, after the walk and
+  before retype and `ControlGraphBuilder`: GridView columns into the grid, bars into strips at their
+  dock controls' bounds, a ribbon into a menu bar, layout captions into Labels, a RadioGroup into
+  RadioButtons, a command bar's rows/strips away. It *moves* what it carries (parse-time reads are
+  reset), reports what a removed object set or handled, and leaves no edge pointing at a removed model.
+  A designer local (`col1@MainForm`) or a copy of a bar item linked twice (`openItem#2`) is
+  `IsDesignerLocal`: no `x:Name`, no constructor wiring, a key no handler body can name.
+  In handler bodies `HandlerBodyRewriter.TryGetControl` refuses a vendor control outright - every
+  shape-specific path answers by WinForms member names, and a vendor member may share the name but not
+  the type (Telerik's float `RadTrackBar.Value`). Only the catalog lookups reach one, through
+  `TryGetControlMember`/`VendorCanonicalMember` and the entry's `Members`, each proved to have the same
+  type on both sides by `WinFormsToAvalonia.Vendors.Tests`. A user's `--mappings` entry for a vendor
+  type replaces the built-in one (`VendorCatalog.Without`), and `NuGetPackageResolver` refuses the
+  suites' packages before the store is asked - they are on nuget.org, and hundreds of megabytes.
+
 - **Semantic pass-through is the *last* resort, and only ever proves.** `HandlerBodyRewriter`
   tries every shape-specific translation first and falls back to `TryPassThroughStatement` /
   the pass-through branch of `TryRewriteExpression` only when they refuse - so a WinForms idiom
@@ -278,8 +308,10 @@ not by building.
   parameter the real type converts to (`NeutralityChecker.ResolveCallWithVouchedArguments`) -
   never in an operator, a member access or anything else whose meaning its type would decide.
   Anything carried that the un-migrated constructor remainder still mentions is dropped again
-  (`FormMigrationPlanner.Plan`'s settle loop): a carried-but-uninitialized field turns a TODO
-  into a `NullReferenceException`.
+  (`PlanOnce`'s inner loop), and so is a carried field that *any* un-migrated text still assigns -
+  the rest of a `Form_Load`, an un-promoted helper (`FormMigrationPlanner.Plan`'s outer settle
+  loop, shared with the runtime-control fields): a carried-but-uninitialized field turns a TODO
+  into a `NullReferenceException`. `SampleApps/EdgeCasesApp` is the click that proves it.
 
 - **Canvas-everywhere layout.** Every container emits a `Canvas`; children carry absolute
   `Canvas.Left`/`Top`/`Width`/`Height` - *except* where the parent holds items rather than
@@ -507,6 +539,13 @@ not by building.
 
 ## Tests
 
+- `Vendors.Tests` — the vendor catalog against DevExpress 26.1 and Telerik 2026.4, downloaded with
+  `PackageDownload` (never referenced: Telerik.Licensing's build targets would come with it) and read
+  with `MetadataLoadContext` beside the Windows Desktop reference pack: every type, dotted designer
+  path, event, collection and base class, and - the one that keeps handler translation honest - that
+  every member a body may name has the same type as the WinForms member it is read as. Its own
+  project so `build.yml` (Core + Mapping) never downloads the suites. `docs/ThirdPartyControls.md` is
+  checked against the catalog both ways by `VendorDocumentationTests` in Core.Tests.
 - `Mapping.Tests` — the only project that references **either** framework, and it never runs a
   line of either. `AvaloniaMetadata` reads Avalonia's reference assemblies; `WinFormsMetadata`
   reads WinForms' (from `Microsoft.WindowsDesktop.App.Ref`, copied beside the test assembly), so

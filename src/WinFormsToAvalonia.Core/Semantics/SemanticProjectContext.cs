@@ -216,6 +216,35 @@ public sealed class SemanticProjectContext
         return new SemanticProjectContext(compilation, carried, files, warnings, generatedRootNamespace, carriedPackages, notCarriedPackages);
     }
 
+    /// <summary>
+    /// Why a type declared inside <paramref name="ownerFullName"/> would not compile on its own in
+    /// the generated project - the first binding error in its declaration - or null when it binds.
+    /// </summary>
+    /// <remarks>
+    /// The question the syntactic carry-over check cannot answer: a nested <c>class MyBehavior :
+    /// GridDataRowBehavior</c> names nothing WinForms, but its base is a Telerik type, which binds to
+    /// an error here exactly as a WinForms one does. With no semantic model, or no single such type
+    /// to look at, there is nothing to add to the syntactic answer.
+    /// </remarks>
+    public string? NestedTypeProblem(string ownerFullName, string nestedTypeName)
+    {
+        if (Compilation?.GetTypeByMetadataName(ownerFullName)?.GetTypeMembers(nestedTypeName) is not [var nested])
+        {
+            return null;
+        }
+
+        foreach (var reference in nested.DeclaringSyntaxReferences)
+        {
+            var model = Compilation.GetSemanticModel(reference.SyntaxTree);
+            if (model.GetDiagnostics(reference.Span).FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error) is { } error)
+            {
+                return error.GetMessage(System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>The scope of one Form/UserControl class, or null when it cannot be found unambiguously.</summary>
     public SemanticClassScope? ForClass(string fullyQualifiedName)
     {

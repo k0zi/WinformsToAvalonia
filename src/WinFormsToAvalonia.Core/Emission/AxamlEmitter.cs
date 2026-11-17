@@ -348,7 +348,9 @@ public sealed class AxamlEmitter
         }
 
         builder.OpenElement(elementName);
-        if (mapped.SupportsName)
+
+        // A designer local or a synthesized element has no field, and its key is not an identifier.
+        if (mapped.SupportsName && !control.IsDesignerLocal)
         {
             builder.Attribute("x:Name", control.FieldName);
         }
@@ -956,7 +958,7 @@ public sealed class AxamlEmitter
         AxamlDocumentBuilder builder, ControlModel control, string elementName, EmissionState state)
     {
         if (!control.Properties.TryGetValue("Image", out var value)
-            || PropertyValueFormatters.AsText(value) is not { } assetPath
+            || PropertyValueFormatters.AsPlainText(value) is not { } assetPath
             || !assetPath.StartsWith("/Assets/", StringComparison.Ordinal))
         {
             return;
@@ -1285,7 +1287,7 @@ public sealed class AxamlEmitter
             if (items.ItemContentAttributeName is { } contentAttribute)
             {
                 builder.OpenElement(items.ItemElementName);
-                builder.Attribute(contentAttribute, item);
+                builder.Attribute(contentAttribute, PropertyValueFormatters.XamlLiteral(item));
                 builder.CloseElement();
                 continue;
             }
@@ -1435,7 +1437,7 @@ public sealed class AxamlEmitter
             && value is PropertyValue.Literal { Value: string text }
             && !string.IsNullOrEmpty(text))
         {
-            return text;
+            return PropertyValueFormatters.XamlLiteral(text);
         }
 
         return fallback;

@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using WinFormsToAvalonia.Core.Emission;
 using WinFormsToAvalonia.Core.Mapping;
+using WinFormsToAvalonia.Core.Mapping.Vendors;
 using WinFormsToAvalonia.Core.Model;
 using WinFormsToAvalonia.Core.Parsing;
 using WinFormsToAvalonia.Core.Scaffolding;
@@ -32,6 +34,13 @@ public sealed class ConversionPipeline
     private readonly CodeBehindAnalyzer _codeBehindAnalyzer = new();
     private readonly AvaloniaProjectScaffolder _scaffolder = new();
     private readonly FallbackControlResolver _fallbackControlResolver = new();
+    private readonly ConversionLog _log;
+
+    /// <param name="log">Told what each stage is doing as it does it; nothing when null.</param>
+    public ConversionPipeline(ConversionLog? log = null)
+    {
+        _log = log ?? ConversionLog.None;
+    }
 
     /// <param name="solutionContext">
     /// What the rest of the solution contributes, when this project is one of several being
@@ -44,14 +53,29 @@ public sealed class ConversionPipeline
         var viewModelEmitter = new ViewModelEmitter();
         var codeBehindEmitter = new ViewCodeBehindEmitter();
 
+        _log.Stage($"Loading {Path.GetFileName(options.SourceProjectPath)}");
         var project = _projectLoader.Load(options.SourceProjectPath);
+        _log.Detail(
+            $"{(project.IsLegacyStyle ? "Legacy" : "SDK-style")} project{(project.IsLibrary ? " (class library)" : "")}, "
+            + $"{string.Join(";", project.TargetFrameworks)}: {project.CompileFiles.Count} source file(s), "
+            + $"{project.ResourceFiles.Count} .resx, {project.Packages.Count} NuGet package(s), "
+            + $"{project.ProjectReferences.Count} project reference(s)");
         // The user's --mappings file: third-party base classes (a vendor's Form) decide what is
         // converted at all, so it is read before discovery; third-party controls are re-typed as a
         // WinForms control while parsing, or emitted as an element the user named.
         var userMappings = options.MappingsFile is { } mappingsFile
             ? UserMappings.Load(mappingsFile, new ControlMappingRegistry())
             : new Dictionary<string, UserMapping>(StringComparer.Ordinal);
-        var allPairings = _designerFileLocator.Locate(project, UserMappings.BaseTypes(userMappings));
+        if (options.MappingsFile is not null)
+        {
+            _log.Detail($"Mappings file {options.MappingsFile}: {userMappings.Count} type(s)");
+        }
+
+        _log.Stage("Discovering Forms, UserControls and Components");
+        // DevExpress and Telerik, minus anything the user mapped themselves - their entry wins.
+        var vendors = VendorCatalog.BuiltIn.Without(userMappings.Keys);
+        var allPairings = _designerFileLocator.Locate(project, vendors.ExternalBaseTypes(userMappings));
+        LogDiscovery(project.ProjectDirectory, allPairings);
 
         if (!allPairings.Any(p => p.Kind is WinFormsArtifactKind.Form or WinFormsArtifactKind.UserControl or WinFormsArtifactKind.Component))
         {
@@ -72,6 +96,7 @@ public sealed class ConversionPipeline
         // The project compiled against the base class library alone. What binds there without
         // WinForms is provably the same code in the generated project - its plain source files
         // come across whole, and a handler statement that touches no control translates verbatim.
+        _log.Stage("Compiling the project without WinForms (what can come across unchanged)");
         var semantics = SemanticProjectContext.Build(
             project,
             projectName,
@@ -81,7 +106,24 @@ public sealed class ConversionPipeline
                 .Where(p => p.Kind is not WinFormsArtifactKind.Other || p.DesignerFilePath is not null)
                 .Select(p => p.FullyQualifiedName)
                 .ToHashSet(StringComparer.Ordinal),
-            NuGetPackageStore.Default(allowDownload: !options.Offline));
+            NuGetPackageStore.Default(allowDownload: !options.Offline, _log));
+        _log.Detail(
+            $"{semantics.CarriedFiles.Count} UI-neutral source file(s) carried over, "
+            + $"{semantics.CarriedPackages.Count} NuGet package(s) carried, {semantics.NotCarriedPackages.Count} left behind");
+        foreach (var carried in semantics.CarriedFiles)
+        {
+            _log.Trace($"Carried over: {carried.RelativePath}");
+        }
+
+        foreach (var package in semantics.CarriedPackages)
+        {
+            _log.Trace($"Carried package: {package.Id} {package.Version}");
+        }
+
+        foreach (var package in semantics.NotCarriedPackages)
+        {
+            _log.Trace($"Left behind: {package.Id} {package.Version} - {package.Reason}");
+        }
 
         // The main window is the Form `Application.Run` starts, not whichever Form discovery
         // happened to list first. Decided once, here, because two places act on it: the
@@ -96,6 +138,12 @@ public sealed class ConversionPipeline
 
         var startupPairing = startup.Form
             ?? pairings.FirstOrDefault(p => p.Kind == WinFormsArtifactKind.Form);
+        if (!project.IsLibrary)
+        {
+            _log.Detail(startupPairing is null
+                ? "Main window: none (no Form to start)"
+                : $"Main window: {startupPairing.ClassName}{(startup.Form is null ? " (Application.Run not found - first Form)" : "")}");
+        }
 
         // A Component this project defines is plain .NET when it names nothing that would not
         // survive - so its source comes across and it gets a real field, instead of the whole
@@ -175,7 +223,7 @@ public sealed class ConversionPipeline
         // referenced assembly, which syntax alone cannot follow. Say so rather than drop it.
         // The project's own subclasses of WinForms controls (`MyButton : Button`). A custom control
         // with a designer half of its own is one of these too - not a Form whose base is missing.
-        var customControls = CustomControlBaseTypes(allPairings);
+        var customControls = CustomControlBaseTypes(allPairings, vendors, userMappings);
 
         foreach (var skipped in allPairings.Where(p => p.UnresolvedBaseTypes.Count > 0 && !customControls.ContainsKey(p.ClassName)))
         {
@@ -207,15 +255,24 @@ public sealed class ConversionPipeline
         // Every artifact parsed before any of them is planned. A handler that says
         // `dialog.EnteredText` names a property of a View that may not be planned yet, so - like
         // BuildFormViews for the Forms themselves - ordering alone cannot settle it.
+        _log.Stage($"Parsing {pairings.Count} designer file(s)");
         var parsedArtifacts = pairings
-            .Select(p => ParseArtifact(project.ProjectDirectory, p, allPairings, customControls, userMappings))
+            .Select(p =>
+            {
+                _log.Trace($"Walking InitializeComponent of {p.ClassName}");
+                var parsed = ParseArtifact(project.ProjectDirectory, p, allPairings, customControls, userMappings, vendors);
+                _log.Detail(
+                    $"{p.ClassName}: {parsed.FormModel.Controls.Count} control(s), {parsed.FormModel.Components.Count} "
+                    + $"component(s), {parsed.CodeBehind.HandlerMethods.Count} event handler(s)");
+                return parsed;
+            })
             .ToList();
 
         // Same pre-pass, same reason: a handler body may name a type declared inside a Form, and
         // the ViewModel collection a BindingSource becomes needs its element type while the Form
         // is being *planned*. Only the file writing waits (see below) - hoisting that too would
         // reorder MIGRATION.md's warnings for every project that carries no model type at all.
-        var modelTypes = CarryOverModelTypes(pairings, projectName);
+        var modelTypes = CarryOverModelTypes(pairings, projectName, semantics);
         var synthesizedModelTypes = new Dictionary<string, string>(StringComparer.Ordinal);
 
         // By the full name: two Forms may share a simple name in different namespaces (one sample
@@ -245,6 +302,8 @@ public sealed class ConversionPipeline
 
         foreach (var (pairing, relativeFolder, formModel, codeBehindModel, resx, walkWarnings) in parsedArtifacts)
         {
+            _log.Stage($"Converting {pairing.ClassName} ({pairing.Kind})");
+
             // What parsing looked at carries nothing into the output; from here on a lookup means
             // some stage of the conversion asked about the property.
             formModel.FormProperties.ResetReads();
@@ -310,6 +369,7 @@ public sealed class ConversionPipeline
                 semantics.ForClass(pairing.FullyQualifiedName));
             allWarnings.AddRange(migrationPlan.Warnings);
             codeBehindNotes.AddRange(migrationPlan.CodeBehindNotes);
+            LogPlan(pairing.ClassName, migrationPlan);
 
             // Synthesized rather than lifted, so it comes from the plan rather than from the
             // pre-pass that carried the Form's own nested types over.
@@ -345,6 +405,18 @@ public sealed class ConversionPipeline
             unsupportedCount += axamlResult.UnsupportedControlCount;
             convertedElsewhereCount += axamlResult.ConvertedElsewhereCount;
             convertedElsewhereNotes.AddRange(axamlResult.ConvertedElsewhereNotes);
+            _log.Detail(
+                $"{viewClassName}.axaml: {axamlResult.DirectControlCount} direct, {axamlResult.FallbackControlCount} via fallback "
+                + $"control, {axamlResult.UnsupportedControlCount} without an element, {axamlResult.ConvertedElsewhereCount} "
+                + "converted elsewhere");
+            foreach (var group in formModel.Controls.Values
+                .GroupBy(c => c.ClrTypeName, StringComparer.Ordinal)
+                .OrderBy(g => g.Key, StringComparer.Ordinal))
+            {
+                _log.Trace(
+                    $"{group.Key} x{group.Count()}: {string.Join(", ", group.Select(c => c.FieldName).Order(StringComparer.Ordinal))}"
+                    + (mappingRegistry.Mappers.ContainsKey(group.Key) ? "" : " (no mapping)"));
+            }
 
             var viewModel = viewModelEmitter.EmitViewModel(migrationPlan, projectName, relativeFolder, viewModelClassName);
             var rawCodeBehind = options.SkipCodeBehindComments ? null : _codeBehindExtractor.Extract(pairing.PrimaryFilePath);
@@ -397,6 +469,17 @@ public sealed class ConversionPipeline
             allWarnings.AddRange(LibraryWarnings(project, allRequiredNuGetPackages, notifyIcons));
         }
 
+        _log.Stage("Scaffolding the Avalonia project");
+        if (allUsedFallbackKeys.Count > 0)
+        {
+            _log.Detail($"Bundled fallback controls: {string.Join(", ", allUsedFallbackKeys.Order(StringComparer.Ordinal))}");
+        }
+
+        if (allRequiredNuGetPackages.Count > 0)
+        {
+            _log.Detail($"Extra NuGet packages: {string.Join(", ", allRequiredNuGetPackages.Order(StringComparer.Ordinal))}");
+        }
+
         var vfs = _scaffolder.BuildProject(
             projectName, convertedForms, allRequiredNuGetPackages, project.IsLibrary ? [] : notifyIcons,
             solutionContext?.ProjectReferences ?? [], project.IsLibrary ? null : startupOutput,
@@ -426,7 +509,7 @@ public sealed class ConversionPipeline
         // A package the conversion references itself - a component's, at the version it pins - is
         // not "left behind", whatever the semantic check thought of it.
         allWarnings.AddRange(semantics.NotCarriedPackages
-            .Where(p => !allRequiredNuGetPackages.Contains(p.Id))
+            .Where(p => !allRequiredNuGetPackages.Contains(p.Id, StringComparer.OrdinalIgnoreCase))
             .Select(p => p.Message));
         allWarnings.AddRange(semantics.Warnings);
 
@@ -496,6 +579,7 @@ public sealed class ConversionPipeline
         // MIGRATION.md added since the scaffold - keeps writing single-project relative paths.
         if (withWeb)
         {
+            _log.Stage("Splitting into a shared library, a desktop and a browser head");
             vfs = _scaffolder.SplitIntoHeads(
                 vfs, projectName, allRequiredNuGetPackages, solutionContext?.ProjectReferences ?? [], semantics.CarriedPackages);
         }
@@ -504,14 +588,27 @@ public sealed class ConversionPipeline
         WriteToDiskResult? writeResult = null;
         if (!options.DryRun)
         {
+            _log.Stage($"Writing {vfs.RelativePaths.Count()} file(s) to {options.OutputDirectory}");
             writeResult = vfs.WriteToDisk(
                 options.OutputDirectory,
                 options.OverwriteAll ? ExistingFileStrategy.Overwrite : ExistingFileStrategy.PreserveExisting,
                 options.Prune);
             preservedFiles.AddRange(writeResult.Preserved);
+            LogWrite(writeResult);
+        }
+        else
+        {
+            _log.Detail($"Dry run: {vfs.RelativePaths.Count()} file(s) generated, none written");
+            foreach (var path in vfs.RelativePaths)
+            {
+                _log.Trace($"Would write: {path}");
+            }
         }
 
         stopwatch.Stop();
+        _log.Detail(
+            $"Done in {stopwatch.Elapsed.TotalSeconds:0.00}s: {allMigratedStatements}/{allHandlerStatements} handler "
+            + $"statement(s) migrated, {allWarnings.Count} warning(s)");
 
         var report = new ConversionReport(
             project.IsLegacyStyle,
@@ -536,6 +633,72 @@ public sealed class ConversionPipeline
             MigrationBlockerClassifier.Histogram(migrationBlockers));
 
         return new ConversionRunResult(vfs, report);
+    }
+
+    private void LogDiscovery(string projectDirectory, IReadOnlyList<DesignerFilePairing> allPairings)
+    {
+        int Count(WinFormsArtifactKind kind) => allPairings.Count(p => p.Kind == kind);
+        _log.Detail(
+            $"{Count(WinFormsArtifactKind.Form)} Form(s), {Count(WinFormsArtifactKind.UserControl)} UserControl(s), "
+            + $"{Count(WinFormsArtifactKind.Component)} Component(s), {Count(WinFormsArtifactKind.Other)} other class(es)");
+
+        // An Other with no designer is every plain class in the project - not a decision worth a line.
+        foreach (var pairing in allPairings.Where(p => p.Kind is not WinFormsArtifactKind.Other || p.DesignerFilePath is not null))
+        {
+            var file = pairing.DesignerFilePath ?? pairing.PrimaryFilePath;
+            _log.Trace(
+                $"{pairing.Kind} {pairing.FullyQualifiedName}"
+                + (file is null ? "" : $" ({Path.GetRelativePath(projectDirectory, file)})")
+                + (pairing.UnresolvedBaseTypes.Count > 0 ? $" - unresolved base {string.Join("/", pairing.UnresolvedBaseTypes)}" : ""));
+        }
+    }
+
+    /// <summary>Where each handler landed, and for an unfinished one the statement it stopped at.</summary>
+    private void LogPlan(string className, FormMigrationPlan plan)
+    {
+        var (migrated, total) = plan.StatementMigration;
+        _log.Detail(
+            $"{className}: {plan.CodeBehindHandlers.Count} handler(s) in code-behind, {plan.ViewModelCommands.Count} "
+            + $"promoted to a [RelayCommand], {migrated}/{total} statement(s) migrated");
+
+        foreach (var handler in plan.CodeBehindHandlers)
+        {
+            _log.Trace($"{className}.{handler.OriginalMethodName} -> code-behind {handler.MethodName}: "
+                + Outcome(handler.IsUnfinished, handler.Rewrite, handler.RemainingBody));
+        }
+
+        foreach (var command in plan.ViewModelCommands)
+        {
+            _log.Trace($"{className}.{command.OriginalMethodName} -> [RelayCommand] {command.CommandMethodName}: "
+                + Outcome(command.IsUnfinished, command.Rewrite, command.RemainingBody));
+        }
+
+        static string Outcome(bool unfinished, RewrittenBody? rewrite, string remaining)
+        {
+            var done = rewrite?.MigratedStatementCount ?? 0;
+            return !unfinished ? $"migrated ({done} statement(s))"
+                : done > 0 ? $"partly migrated ({done}/{rewrite!.TotalStatementCount}), stopped at: {FirstLineOf(remaining)}"
+                : remaining.Length > 0 ? $"not migrated, stopped at: {FirstLineOf(remaining)}"
+                : "empty body";
+        }
+    }
+
+    private void LogWrite(WriteToDiskResult result)
+    {
+        _log.Detail(
+            $"{result.Written.Count} written, {result.Unchanged.Count} unchanged, {result.Preserved.Count} preserved "
+            + $"(edited - new version beside it as *.w2a-new), {result.Pruned.Count} pruned, {result.Orphaned.Count} orphaned");
+        foreach (var (label, paths) in new[]
+                 {
+                     ("Written", result.Written), ("Unchanged", result.Unchanged), ("Preserved", result.Preserved),
+                     ("Pruned", result.Pruned), ("Orphaned", result.Orphaned),
+                 })
+        {
+            foreach (var path in paths)
+            {
+                _log.Trace($"{label}: {path}");
+            }
+        }
     }
 
     /// <summary>
@@ -997,14 +1160,14 @@ public sealed class ConversionPipeline
     /// component: anything mentioning something that does not survive is refused and reported.
     /// </remarks>
     private static CarriedModelTypes CarryOverModelTypes(
-        IReadOnlyList<DesignerFilePairing> pairings, string projectName)
+        IReadOnlyList<DesignerFilePairing> pairings, string projectName, SemanticProjectContext semantics)
     {
         var warnings = new List<string>();
         var byTypeName = new Dictionary<string, ModelTypeInfo>(StringComparer.Ordinal);
         var winFormsTypeNames = new ControlMappingRegistry().Mappers.Keys.ToHashSet(StringComparer.Ordinal);
         var otherClassNames = pairings.Select(p => p.ClassName).ToHashSet(StringComparer.Ordinal);
         var carried = new List<(string, string)>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var declarations = new List<(DesignerFilePairing Pairing, TypeDeclarationSyntax Nested)>();
 
         foreach (var pairing in pairings.Where(p => p.PrimaryFilePath is not null && File.Exists(p.PrimaryFilePath)))
         {
@@ -1014,33 +1177,53 @@ public sealed class ConversionPipeline
                 .OfType<ClassDeclarationSyntax>()
                 .FirstOrDefault(c => c.Identifier.ValueText == pairing.ClassName);
 
-            if (owner is null)
+            if (owner is not null)
             {
+                declarations.AddRange(owner.Members.OfType<TypeDeclarationSyntax>().Select(nested => (pairing, nested)));
+            }
+        }
+
+        // Models/ is one namespace, so two Forms that each declare a `Row` can have only one of them
+        // there. The same declaration twice (a copied helper type) is still one type; two different
+        // ones are not, and whichever came first would silently answer for the other - its
+        // properties deciding what the second Form's bindings and initializers may say. Neither
+        // is carried, and the reason is reported.
+        foreach (var group in declarations.GroupBy(d => d.Nested.Identifier.ValueText, StringComparer.Ordinal))
+        {
+            var typeName = group.Key;
+            var (pairing, nested) = group.First();
+
+            if (group.Select(d => d.Nested.NormalizeWhitespace().ToFullString()).Distinct(StringComparer.Ordinal).Count() > 1)
+            {
+                warnings.Add(
+                    $"'{typeName}' is declared inside {string.Join(" and ", group.Select(d => $"'{d.Pairing.ClassName}'").Distinct(StringComparer.Ordinal))} "
+                    + "with different members, and Models/ can hold only one type of that name - neither was carried. "
+                    + "Rename one of them in the source and convert again.");
                 continue;
             }
 
-            foreach (var nested in owner.Members.OfType<TypeDeclarationSyntax>())
+            if (!ComponentSourceAnalyzer.TryCarryOverNestedType(
+                    nested, $"{projectName}.Models", winFormsTypeNames, otherClassNames, out var source, out var reason))
             {
-                var typeName = nested.Identifier.ValueText;
-                if (!seen.Add(typeName))
-                {
-                    continue;
-                }
+                warnings.Add(
+                    $"'{typeName}', a type declared inside '{pairing.ClassName}', was not carried into Models/: {reason}.");
+            }
 
-                if (ComponentSourceAnalyzer.TryCarryOverNestedType(
-                        nested, $"{projectName}.Models", winFormsTypeNames, otherClassNames, out var source, out var reason))
-                {
-                    carried.Add(($"Models/{typeName}.cs", source));
-                    byTypeName[typeName] = new ModelTypeInfo(
-                        typeName,
-                        $"{projectName}.Models",
-                        ComponentSourceAnalyzer.SettableAutoPropertyNames(nested));
-                }
-                else
-                {
-                    warnings.Add(
-                        $"'{typeName}', a type declared inside '{pairing.ClassName}', was not carried into Models/: {reason}.");
-                }
+            // Then the compilation without WinForms: a base class from a vendor suite names nothing
+            // the syntactic check knows, and is exactly as absent from the generated project.
+            else if (semantics.NestedTypeProblem(pairing.FullyQualifiedName, typeName) is { } semanticProblem)
+            {
+                warnings.Add(
+                    $"'{typeName}', a type declared inside '{pairing.ClassName}', was not carried into Models/: it does not compile "
+                    + $"without the WinForms and vendor assemblies ({semanticProblem}).");
+            }
+            else
+            {
+                carried.Add(($"Models/{typeName}.cs", source));
+                byTypeName[typeName] = new ModelTypeInfo(
+                    typeName,
+                    $"{projectName}.Models",
+                    ComponentSourceAnalyzer.SettableAutoPropertyNames(nested));
             }
         }
 
@@ -1152,7 +1335,8 @@ public sealed class ConversionPipeline
         DesignerFilePairing pairing,
         IReadOnlyList<DesignerFilePairing> allPairings,
         IReadOnlyDictionary<string, string> customControls,
-        IReadOnlyDictionary<string, UserMapping> userMappings)
+        IReadOnlyDictionary<string, UserMapping> userMappings,
+        VendorCatalog vendors)
     {
         // Visual inheritance: every base Form of this project's own whose designer has to run
         // first, root first - each walk continues from the one before, as InitializeComponent
@@ -1164,33 +1348,64 @@ public sealed class ConversionPipeline
         {
             inherited = _designerSyntaxWalker.Walk(
                 File.ReadAllText(basePairing.DesignerFilePath!), basePairing.DesignerFilePath!,
-                basePairing.ClassName, basePairing.Namespace, _resxReader.Read(basePairing.ResxFilePath), inherited);
+                basePairing.ClassName, basePairing.Namespace, _resxReader.Read(basePairing.ResxFilePath), inherited,
+                vendors, VendorBaseOf(basePairing, allPairings, vendors) is not null);
         }
 
         var designerContent = File.ReadAllText(pairing.DesignerFilePath!);
         var resx = _resxReader.Read(pairing.ResxFilePath);
+        var vendorBase = VendorBaseOf(pairing, allPairings, vendors);
         var walkResult = _designerSyntaxWalker.Walk(
-            designerContent, pairing.DesignerFilePath!, pairing.ClassName, pairing.Namespace, resx, inherited);
+            designerContent, pairing.DesignerFilePath!, pairing.ClassName, pairing.Namespace, resx, inherited,
+            vendors, vendorBase is not null);
 
         // Before the tree is built, so that nothing from here on - mappers, event and property
-        // tables, the planner - ever sees the subclass name instead of the control it is.
+        // tables, the planner - ever sees the subclass name instead of the control it is. The
+        // project's own subclass of a vendor control (`MyEdit : TextEdit`) is that vendor control,
+        // and is converted with it below.
         var customControlWarnings = new List<string>();
         foreach (var control in walkResult.Form.Controls.Values.OrderBy(c => c.FieldName, StringComparer.Ordinal))
         {
-            if (customControls.TryGetValue(control.ClrTypeName, out var winFormsBase))
+            if (!customControls.TryGetValue(control.ClrTypeName, out var resolvedBase))
+            {
+                continue;
+            }
+
+            if (userMappings.TryGetValue(resolvedBase, out var baseMapping)
+                && baseMapping.As is { } asTarget && !UserMappings.BaseTypeTargets.Contains(asTarget))
+            {
+                UserMappings.Retype(control, baseMapping);
+            }
+            else if (vendors.ResolveSimpleName(resolvedBase) is { } vendorBaseControl)
+            {
+                control.VendorTypeName = vendorBaseControl.FullName;
+            }
+            else
             {
                 control.DeclaredClrTypeName = control.ClrTypeName;
-                control.ClrTypeName = winFormsBase;
+                control.ClrTypeName = resolvedBase;
             }
-            else if (userMappings.TryGetValue(control.ClrTypeName, out var userMapping)
-                     && userMapping.As is { } asType && !UserMappings.BaseTypeTargets.Contains(asType))
+        }
+
+        // DevExpress and Telerik: rebuilt into WinForms shapes and converted, before anything below
+        // looks at the controls - see VendorDesignerNormalizer.
+        walkResult = VendorDesignerNormalizer.Normalize(walkResult, vendors, vendorBase);
+
+        foreach (var control in walkResult.Form.Controls.Values.OrderBy(c => c.FieldName, StringComparer.Ordinal))
+        {
+            if (control.VendorTypeName is null
+                && control.DeclaredClrTypeName is null
+                && userMappings.TryGetValue(control.ClrTypeName, out var userMapping)
+                && userMapping.As is { } asType && !UserMappings.BaseTypeTargets.Contains(asType))
             {
                 UserMappings.Retype(control, userMapping);
             }
         }
 
+        customControlWarnings.AddRange(VendorConversionNotes(walkResult.Form));
+
         foreach (var mapped in walkResult.Form.Controls.Values
-                     .Where(c => c.DeclaredClrTypeName is { } declared && !customControls.ContainsKey(declared))
+                     .Where(c => c.VendorTypeName is null && c.DeclaredClrTypeName is { } declared && !customControls.ContainsKey(declared))
                      .GroupBy(c => c.DeclaredClrTypeName!)
                      .OrderBy(g => g.Key, StringComparer.Ordinal))
         {
@@ -1202,7 +1417,7 @@ public sealed class ConversionPipeline
         }
 
         foreach (var custom in walkResult.Form.Controls.Values
-                     .Where(c => c.DeclaredClrTypeName is not null && customControls.ContainsKey(c.DeclaredClrTypeName))
+                     .Where(c => c.VendorTypeName is null && c.DeclaredClrTypeName is not null && customControls.ContainsKey(c.DeclaredClrTypeName))
                      .GroupBy(c => c.DeclaredClrTypeName!)
                      .OrderBy(g => g.Key, StringComparer.Ordinal))
         {
@@ -1283,6 +1498,69 @@ public sealed class ConversionPipeline
     }
 
     /// <summary>
+    /// The vendor Form or UserControl base <paramref name="pairing"/> derives from, directly or
+    /// through the project's own intermediate classes; null for a plain WinForms one.
+    /// </summary>
+    private static VendorBaseType? VendorBaseOf(
+        DesignerFilePairing pairing, IReadOnlyList<DesignerFilePairing> allPairings, VendorCatalog vendors)
+    {
+        var byName = allPairings
+            .GroupBy(p => p.ClassName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.SelectMany(p => p.BaseTypeNames).ToList(), StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>(pairing.BaseTypeNames);
+        while (pending.Count > 0)
+        {
+            var name = pending.Dequeue();
+            if (!visited.Add(name))
+            {
+                continue;
+            }
+
+            if (vendors.BaseTypeNamed(name) is { } vendorBase)
+            {
+                return vendorBase;
+            }
+
+            foreach (var next in byName.GetValueOrDefault(name) ?? [])
+            {
+                pending.Enqueue(next);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// One line per vendor, per artifact, naming what each vendor control became - a project built
+    /// on DevExpress converts dozens of them, and a line apiece would bury everything else.
+    /// </summary>
+    private static IEnumerable<string> VendorConversionNotes(FormModel formModel)
+    {
+        foreach (var vendor in formModel.Controls.Values
+                     .Where(c => c.VendorTypeName is not null && c.DeclaredClrTypeName is not null)
+                     .GroupBy(c => c.VendorTypeName!.Split('.')[0], StringComparer.Ordinal)
+                     .OrderBy(g => g.Key, StringComparer.Ordinal))
+        {
+            var conversions = vendor
+                .GroupBy(c => (Written: c.DeclaredClrTypeName!, Target: c.ClrTypeName))
+                .OrderBy(g => g.Key.Written, StringComparer.Ordinal)
+                .ThenBy(g => g.Key.Target, StringComparer.Ordinal)
+                .Select(g =>
+                {
+                    // A designer local's key and a linked item's copy carry a suffix the reader never wrote.
+                    var who = g.Select(c => c.FieldName.Split('@', '#')[0]).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+                    return $"{g.Key.Written} → {g.Key.Target} ({string.Join(", ", who)})";
+                });
+
+            yield return
+                $"{(vendor.Key == "Telerik" ? "Telerik" : "DevExpress")} controls are converted through the built-in {vendor.Key} support: "
+                + $"{string.Join("; ", conversions)}. Only what that support knows about each control comes across under the "
+                + "vendor's names; anything else it sets is listed among the untranslated properties.";
+        }
+    }
+
+    /// <summary>
     /// The project's own classes that derive - directly or through each other - from a WinForms
     /// control this converter maps, each with that WinForms type.
     /// </summary>
@@ -1291,9 +1569,20 @@ public sealed class ConversionPipeline
     /// <c>Button</c> is a Button for every purpose the conversion has. Form and UserControl are not
     /// in the registry, so their subclasses never land here - they are artifacts of their own.
     /// </remarks>
-    private static Dictionary<string, string> CustomControlBaseTypes(IReadOnlyList<DesignerFilePairing> allPairings)
+    /// <remarks>
+    /// A chain may also end at a control this converter knows only through a mapping - the user's
+    /// <c>--mappings</c> entry or a built-in vendor one (<c>MyEdit : TextEdit</c>). The value is then
+    /// that name, and the caller converts the control as the mapping says.
+    /// </remarks>
+    private static Dictionary<string, string> CustomControlBaseTypes(
+        IReadOnlyList<DesignerFilePairing> allPairings,
+        VendorCatalog vendors,
+        IReadOnlyDictionary<string, UserMapping> userMappings)
     {
-        var mapped = DefaultControlMappers.All.Select(m => m.WinFormsTypeName).ToHashSet(StringComparer.Ordinal);
+        var mapped = DefaultControlMappers.All.Select(m => m.WinFormsTypeName)
+            .Concat(userMappings.Values.Where(m => m.As is null || !UserMappings.BaseTypeTargets.Contains(m.As)).Select(m => m.SourceType))
+            .Concat(vendors.Controls.Select(c => c.SimpleName).Where(n => vendors.ResolveSimpleName(n) is not null))
+            .ToHashSet(StringComparer.Ordinal);
         var candidates = allPairings
             .Where(p => p.Kind == WinFormsArtifactKind.Other)
             .GroupBy(p => p.ClassName, StringComparer.Ordinal)

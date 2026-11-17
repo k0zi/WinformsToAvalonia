@@ -49,7 +49,9 @@ public static class DesignerPropertyCoverage
 
                 if (fieldName is not null)
                 {
-                    fields.Add(fieldName);
+                    // A vendor designer local (`col1@MainForm`) or a copied item (`openItem#2`) is
+                    // named as the designer wrote it.
+                    fields.Add(fieldName.Split('@', '#')[0]);
                 }
             }
         }

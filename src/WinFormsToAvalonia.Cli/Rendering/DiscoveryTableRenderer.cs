@@ -21,9 +21,9 @@ public static class DiscoveryTableRenderer
         {
             table.AddRow(
                 FormatKind(pairing.Kind),
-                pairing.ClassName,
-                pairing.Namespace ?? "-",
-                pairing.PrimaryFilePath is null ? "-" : Path.GetRelativePath(project.ProjectDirectory, pairing.PrimaryFilePath),
+                Markup.Escape(pairing.ClassName),
+                Markup.Escape(pairing.Namespace ?? "-"),
+                pairing.PrimaryFilePath is null ? "-" : Markup.Escape(Path.GetRelativePath(project.ProjectDirectory, pairing.PrimaryFilePath)),
                 FormatPresence(pairing.DesignerFilePath is not null),
                 FormatPresence(pairing.ResxFilePath is not null));
         }

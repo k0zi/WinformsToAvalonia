@@ -6,6 +6,25 @@ namespace WinFormsToAvalonia.Core.Tests.Mapping;
 
 public class PropertyValueFormattersTests
 {
+    /// <summary>
+    /// An attribute that starts with `{` is a markup extension to the XAML compiler, so a caption
+    /// like this one failed the generated build; `{}` in front is the standard escape.
+    /// </summary>
+    [Theory]
+    [InlineData("{0} files selected", "{}{0} files selected")]
+    [InlineData("Files: {0}", "Files: {0}")]
+    [InlineData("plain", "plain")]
+    public void AsText_LeadingBrace_IsEscapedForXaml(string designerText, string expected)
+    {
+        Assert.Equal(expected, PropertyValueFormatters.AsText(new PropertyValue.Literal(designerText)));
+    }
+
+    [Fact]
+    public void AsPlainText_IsTheDesignerTextAsWritten()
+    {
+        Assert.Equal("{0} files", PropertyValueFormatters.AsPlainText(new PropertyValue.Literal("{0} files")));
+    }
+
     [Fact]
     public void AsBrush_FromArgbThreeComponents_EmitsOpaqueHex()
     {

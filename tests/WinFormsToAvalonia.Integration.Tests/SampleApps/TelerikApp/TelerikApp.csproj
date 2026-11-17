@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>TelerikApp</RootNamespace>
+    <AssemblyName>TelerikApp</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Telerik.UI.for.WinForms.AllControls" Version="2026.4.1111" />
+  </ItemGroup>
+
+</Project>

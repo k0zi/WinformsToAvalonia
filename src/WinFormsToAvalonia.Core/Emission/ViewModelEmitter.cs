@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.CodeAnalysis.CSharp;
 using WinFormsToAvalonia.Core.Model;
 
 namespace WinFormsToAvalonia.Core.Emission;
@@ -131,7 +132,7 @@ public sealed class ViewModelEmitter
             Line("    [");
             foreach (var item in checkedList.Items)
             {
-                Line($"        new() {{ Text = \"{item}\" }},");
+                Line($"        new() {{ Text = {SymbolDisplay.FormatLiteral(item, quote: true)} }},");
             }
 
             Line("    ];");

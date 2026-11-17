@@ -34,9 +34,13 @@ public sealed class ConvertCommandSettings : CommandSettings
     [Description("Run the full pipeline and render the report UI, but write nothing to disk.")]
     public bool DryRun { get; init; }
 
-    [CommandOption("--verbose")]
-    [Description("Include per-property mapping trace output, not just the summary.")]
+    [CommandOption("-v|--verbose")]
+    [Description("Show what each stage is doing as it runs (what it found, where each handler landed in summary, every NuGet download), and list every warning instead of the first five.")]
     public bool Verbose { get; init; }
+
+    [CommandOption("--trace")]
+    [Description("Everything --verbose shows, plus every individual decision: each control type, each handler and the statement it stopped at, each NuGet package lookup, each file written. Implies --verbose.")]
+    public bool Trace { get; init; }
 
     [CommandOption("--no-fallback-controls")]
     [Description("Fail/warn instead of emitting fallback controls (strict mode).")]
@@ -55,7 +59,7 @@ public sealed class ConvertCommandSettings : CommandSettings
     public bool Offline { get; init; }
 
     [CommandOption("--log-file <PATH>")]
-    [Description("Write a full structured (JSON) conversion report alongside the console output.")]
+    [Description("Write a full structured (JSON) conversion report alongside the console output, including the complete --trace log.")]
     public string? LogFile { get; init; }
 
     public override ValidationResult Validate()

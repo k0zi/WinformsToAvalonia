@@ -24,6 +24,13 @@ public class RealFormConversionBuildTests
     [InlineData("PrintingApp", "PrintingApp.csproj", "Views/MainView.axaml")]
     [InlineData("FormNavigationApp", "FormNavigationApp.csproj", "Views/MainView.axaml")]
     [InlineData("ItemsAndCanExecuteApp", "ItemsAndCanExecuteApp.csproj", "Views/MainView.axaml")]
+    // Designer text that looks like syntax - a leading `{`, C# escapes, line breaks, `--` - and a
+    // Form in a folder whose name is not an identifier.
+    [InlineData("EdgeCasesApp", "EdgeCasesApp.csproj", "Views/2024 Dialogs/SettingsView.axaml")]
+    // Forms built on DevExpress and Telerik base classes, made of their controls - converted with no
+    // mappings file, through the built-in vendor support.
+    [InlineData("DevExpressApp", "DevExpressApp.csproj", "Views/DetailsView.axaml")]
+    [InlineData("TelerikApp", "TelerikApp.csproj", "Views/EditorView.axaml")]
     public async Task ConvertedFixtureProject_BuildsSuccessfullyWithDotnetBuild(string appFolder, string csprojName, string expectedViewPath)
     {
         var sourceProject = Path.Combine(SampleAppsRoot, appFolder, csprojName);

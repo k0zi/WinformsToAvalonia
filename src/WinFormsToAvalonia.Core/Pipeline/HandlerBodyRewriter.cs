@@ -37,6 +37,17 @@ namespace WinFormsToAvalonia.Core.Pipeline;
 public sealed partial class HandlerBodyRewriter
 {
     /// <summary>
+    /// The WinForms name a handler body's <paramref name="member"/> stands for on
+    /// <paramref name="control"/>: itself on a WinForms control; on a vendor control, only what its
+    /// catalog entry proved to have the same type on both sides - anything else refuses.
+    /// </summary>
+    internal static bool VendorCanonicalMember(ControlModel control, string member, out string canonical)
+    {
+        canonical = member;
+        return control.VendorMembers is null || control.VendorMembers.TryGetValue(member, out canonical!);
+    }
+
+    /// <summary>
     /// Types whose static members are plain .NET and compile unchanged in an Avalonia project.
     /// A conservative list on purpose: an unrecognized receiver stops the migration rather than
     /// risking a WinForms API that does not exist any more.
@@ -740,7 +751,7 @@ public sealed partial class HandlerBodyRewriter
         }
 
         tailCount = 1 + closeStatements;
-        tailText = $"Close({(accepted ? "true" : "false")});";
+        tailText = $"{target.WindowMemberPrefix}Close({(accepted ? "true" : "false")});";
         return true;
     }
 
@@ -3134,7 +3145,8 @@ public sealed partial class HandlerBodyRewriter
         // equivalent, per ControlMethodCatalog. The arguments go through the ordinary expression
         // path first, so one reaching for a WinForms API refuses the whole call.
         if (receiver is not null
-            && target.TryResolveControlField(receiver, out var controlField)
+            && (target.TryResolveControlField(receiver, out var controlField)
+                || target.TryResolveVendorControlField(receiver, out controlField))
             && TryRewriteArguments(invocation, target, out var methodArguments)
             && target.TryResolveControlMethod(controlField, methodName, methodArguments, out var call))
         {
@@ -3232,7 +3244,7 @@ public sealed partial class HandlerBodyRewriter
             return false;
         }
 
-        if (receiver is IdentifierNameSyntax { Identifier.ValueText: "MessageBox" } && methodName == "Show")
+        if (MessageBoxReceivers.IsMessageBox(receiver) && methodName == "Show")
         {
             return TryRewriteMessageBox(invocation, target, out rewritten);
         }
@@ -4632,9 +4644,9 @@ public sealed partial class HandlerBodyRewriter
         if (call is null
             || call.Expression is not MemberAccessExpressionSyntax
             {
-                Expression: IdentifierNameSyntax { Identifier.ValueText: "MessageBox" },
                 Name.Identifier.ValueText: "Show",
-            }
+            } showAccess
+            || !MessageBoxReceivers.IsMessageBox(showAccess.Expression)
             || expected is not MemberAccessExpressionSyntax
             {
                 Expression: IdentifierNameSyntax { Identifier.ValueText: "DialogResult" },
@@ -4697,10 +4709,10 @@ public sealed partial class HandlerBodyRewriter
             {
                 Expression: MemberAccessExpressionSyntax
                 {
-                    Expression: IdentifierNameSyntax { Identifier.ValueText: "MessageBox" },
                     Name.Identifier.ValueText: "Show",
-                },
-            } call)
+                } showAccess,
+            } call
+            || !MessageBoxReceivers.IsMessageBox(showAccess.Expression))
         {
             return false;
         }
@@ -5427,7 +5439,8 @@ public sealed partial class HandlerBodyRewriter
             return true;
         }
 
-        if (!target.TryResolveControlField(access.Expression, out var fieldName))
+        if (!target.TryResolveControlField(access.Expression, out var fieldName)
+            && !target.TryResolveVendorControlField(access.Expression, out fieldName))
         {
             return false;
         }
@@ -5745,6 +5758,17 @@ public sealed partial class HandlerBodyRewriter
         bool TryResolveEventArgsParameter(ExpressionSyntax expression, string argsTypeName, out string parameterName);
 
         bool TryResolveControlField(ExpressionSyntax expression, out string fieldName);
+
+        /// <summary>
+        /// A vendor control's field - recognised only where the member after it is then checked
+        /// against the control's proved list: a property read or write, a catalog method call.
+        /// Every other path refuses a vendor control, since it answers by WinForms member names.
+        /// </summary>
+        bool TryResolveVendorControlField(ExpressionSyntax expression, out string fieldName)
+        {
+            fieldName = "";
+            return false;
+        }
 
         /// <param name="forWrite">True for an assignment target, where the expression must stay assignable.</param>
         bool TryResolveProperty(string fieldName, string winFormsPropertyName, bool forWrite, out string text);
@@ -6190,6 +6214,22 @@ public sealed partial class HandlerBodyRewriter
             return fieldName.Length > 0 && TryGetControl(fieldName, out _);
         }
 
+        public bool TryResolveVendorControlField(ExpressionSyntax expression, out string fieldName)
+        {
+            fieldName = expression switch
+            {
+                MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name.Identifier.ValueText: var name } => name,
+                IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+                _ => "",
+            };
+
+            return fieldName.Length > 0
+                && !_senderAliases.ContainsKey(fieldName)
+                && formModel.Controls.TryGetValue(fieldName, out var control)
+                && control.VendorMembers is not null
+                && !control.IsDesignerLocal;
+        }
+
         /// <summary>
         /// The control still exists as an x:Name field, so the access survives - but only for a
         /// property with a proven Avalonia counterpart, on a control that really is that Avalonia
@@ -6199,7 +6239,7 @@ public sealed partial class HandlerBodyRewriter
         {
             text = "";
 
-            if (!TryGetControl(fieldName, out var control))
+            if (!TryGetControlMember(fieldName, winFormsPropertyName, out var control, out winFormsPropertyName))
             {
                 return false;
             }
@@ -6247,9 +6287,10 @@ public sealed partial class HandlerBodyRewriter
             property = default;
 
             return left is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var propertyName } access
-                && TryResolveControlField(access.Expression, out var fieldName)
-                && TryGetControl(fieldName, out var control)
-                && BindablePropertyCatalog.TryGet(control.ClrTypeName, propertyName, out property);
+                && (TryResolveControlField(access.Expression, out var fieldName)
+                    || TryResolveVendorControlField(access.Expression, out fieldName))
+                && TryGetControlMember(fieldName, propertyName, out var control, out var canonical)
+                && BindablePropertyCatalog.TryGet(control.ClrTypeName, canonical, out property);
         }
 
         public bool TryResolveFileDialog(string fieldName, out FileDialogKind kind)
@@ -6397,10 +6438,35 @@ public sealed partial class HandlerBodyRewriter
         /// uses the local's name. Routing every lookup through here is what keeps the rest of the
         /// translation from having to know the difference.
         /// </remarks>
+        /// <remarks>
+        /// A vendor control is refused here: every shape-specific translation below this answers
+        /// for the WinForms control by its own member names, and a vendor member that shares a name
+        /// need not share a type (Telerik's float <c>RadTrackBar.Value</c>). Only the catalog
+        /// lookups reach one, through <see cref="TryGetControlMember"/> and its proved list.
+        /// </remarks>
         private bool TryGetControl(string name, out ControlModel control) =>
+            TryGetAnyControl(name, out control) && control.VendorMembers is null;
+
+        private bool TryGetAnyControl(string name, out ControlModel control) =>
             _senderAliases.TryGetValue(name, out control!)
             || formModel.Controls.TryGetValue(name, out control!)
             || formModel.RuntimeControls.TryGetValue(name, out control!);
+
+        /// <summary>
+        /// A control and the WinForms name of <paramref name="member"/> on it: as written for a
+        /// WinForms control; for a vendor control only a member its catalog entry proved to have the
+        /// same type, renamed (<c>IsChecked</c> → <c>Checked</c>) - anything else refuses.
+        /// </summary>
+        private bool TryGetControlMember(string name, string member, out ControlModel control, out string canonical)
+        {
+            canonical = member;
+            if (!TryGetAnyControl(name, out control))
+            {
+                return false;
+            }
+
+            return control.VendorMembers is null || control.VendorMembers.TryGetValue(member, out canonical!);
+        }
 
         /// <summary>
         /// <c>var button = (Button)sender!;</c> resolved to the control the local stands for.
@@ -6571,7 +6637,7 @@ public sealed partial class HandlerBodyRewriter
                 fieldName = layer;
             }
 
-            if (!TryGetControl(fieldName, out var control)
+            if (!TryGetControlMember(fieldName, methodName, out var control, out methodName)
                 || !ControlMethodCatalog.TryGet(control.ClrTypeName, methodName, out var method)
                 || method.ArgumentCount != arguments.Count
                 // The member the *translation* touches, not the WinForms method it came from:
@@ -6678,6 +6744,7 @@ public sealed partial class HandlerBodyRewriter
             statement = "";
 
             if (!formModel.Controls.TryGetValue(fieldName, out var control)
+                || !VendorCanonicalMember(control, methodName, out methodName)
                 || !ControlMethodCatalog.TryGet(control.ClrTypeName, methodName, out var method)
                 || method.ArgumentCount != arguments.Count)
             {
@@ -6843,6 +6910,7 @@ public sealed partial class HandlerBodyRewriter
             // go through the catalog first - with the control's own type, which only the
             // FormModel still knows at this point.
             if (!formModel.Controls.TryGetValue(fieldName, out var control)
+                || !VendorCanonicalMember(control, winFormsPropertyName, out winFormsPropertyName)
                 || !BindablePropertyCatalog.TryGet(control.ClrTypeName, winFormsPropertyName, out var bindable))
             {
                 return false;

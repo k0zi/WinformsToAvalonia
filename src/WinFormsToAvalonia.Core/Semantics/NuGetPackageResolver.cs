@@ -89,6 +89,16 @@ internal static partial class NuGetPackageResolver
                 continue;
             }
 
+            // A WinForms control suite is refused on sight, before the store is asked: every one of
+            // them references WinForms, so the check below would refuse it anyway - after
+            // downloading hundreds of megabytes from nuget.org, where both of these now live. Their
+            // controls are converted by the built-in vendor support instead.
+            if (IsWinFormsControlSuite(item.Id))
+            {
+                Refuse("it is a WinForms control suite - its controls are converted by the built-in vendor support, and none of it can run in the generated project");
+                continue;
+            }
+
             if (store.Locate(item.Id, item.Version, item.ProjectDirectory) is not { } folder)
             {
                 Refuse("it is not in the local NuGet cache and could not be downloaded (run a restore of the original project, or convert without --offline)");
@@ -163,6 +173,16 @@ internal static partial class NuGetPackageResolver
     /// The assemblies of the best framework folder for <c>net10.0</c> - <c>ref/</c> if the package has
     /// one, as NuGet prefers it for compiling - or the folders that exist when none fits.
     /// </summary>
+    /// <summary>
+    /// DevExpress' and Telerik's WinForms packages. Deliberately not every <c>DevExpress.*</c>: XPO and
+    /// DevExpress.Data are UI-neutral, and code calling into them can come across.
+    /// </summary>
+    internal static bool IsWinFormsControlSuite(string packageId) =>
+        packageId.StartsWith("DevExpress.Win", StringComparison.OrdinalIgnoreCase)
+        || packageId.StartsWith("DevExpress.Utils", StringComparison.OrdinalIgnoreCase)
+        || packageId.StartsWith("Telerik.UI.for.WinForms", StringComparison.OrdinalIgnoreCase)
+        || packageId.StartsWith("UI.for.WinForms", StringComparison.OrdinalIgnoreCase);
+
     internal static (IReadOnlyList<string> Assemblies, IReadOnlyList<string>? IncompatibleFolders) SelectCompileAssets(string packageFolder)
     {
         foreach (var kind in new[] { "ref", "lib" })

@@ -87,4 +87,116 @@ public class SolutionConversionTests
         Assert.False(Directory.Exists(outputDir));
     }
 
+    /// <summary>
+    /// Two projects called <c>App.csproj</c> in different folders used to be written into the
+    /// same output folder, and a malformed csproj aborted the whole run - after the projects before
+    /// it were already on disk, and without the solution file.
+    /// </summary>
+    [Fact]
+    public async Task ConvertedSolution_SameNamedProjectsGetTheirOwnFoldersAndABrokenOneIsOnlySkipped()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), "w2a-solution-src-" + Guid.NewGuid());
+        var outputDir = Path.Combine(Path.GetTempPath(), "w2a-solution-out-" + Guid.NewGuid());
+        try
+        {
+            var widgets = Path.Combine(AppContext.BaseDirectory, "SampleApps", "MultiProjectSolution", "Widgets");
+            foreach (var folder in new[] { "Client", "Server" })
+            {
+                CopyDirectory(widgets, Path.Combine(sourceDir, folder));
+                File.Move(Path.Combine(sourceDir, folder, "Widgets.csproj"), Path.Combine(sourceDir, folder, "App.csproj"));
+            }
+
+            Directory.CreateDirectory(Path.Combine(sourceDir, "Broken"));
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "Broken", "Broken.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup>");
+
+            var solutionPath = Path.Combine(sourceDir, "Mixed.slnx");
+            await File.WriteAllTextAsync(
+                solutionPath,
+                """
+                <Solution>
+                  <Project Path="Client/App.csproj" />
+                  <Project Path="Broken/Broken.csproj" />
+                  <Project Path="Server/App.csproj" />
+                </Solution>
+                """);
+
+            var result = new SolutionConversionPipeline().Run(new ConversionOptions(solutionPath, outputDir));
+
+            Assert.Equal(
+                [Path.Combine(outputDir, "App"), Path.Combine(outputDir, "App2")],
+                result.Converted.Select(c => c.OutputDirectory).Order(StringComparer.Ordinal));
+            var skipped = Assert.Single(result.Skipped);
+            Assert.EndsWith("Broken.csproj", skipped.SourceProjectPath, StringComparison.Ordinal);
+            Assert.StartsWith("the conversion failed", skipped.Reason, StringComparison.Ordinal);
+
+            var solutionText = await File.ReadAllTextAsync(Path.Combine(outputDir, "Mixed.slnx"));
+            Assert.Contains("App/App.csproj", solutionText);
+            Assert.Contains("App2/App2.csproj", solutionText);
+            Assert.True(File.Exists(Path.Combine(outputDir, "App2", "App2.csproj")));
+        }
+        finally
+        {
+            foreach (var dir in new[] { sourceDir, outputDir })
+            {
+                if (Directory.Exists(dir))
+                {
+                    Directory.Delete(dir, recursive: true);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A UserControl deriving from a vendor base class the mappings file names as a UserControl is
+    /// converted in its own project - and has to be predicted as one by the solution-wide
+    /// discovery too, or the Form hosting it in another project finds no View to name.
+    /// </summary>
+    [Fact]
+    public void ConvertedSolution_DiscoveryHonoursTheMappingsFile()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), "w2a-solution-map-" + Guid.NewGuid());
+        try
+        {
+            CopyDirectory(Path.Combine(AppContext.BaseDirectory, "SampleApps", "MultiProjectSolution"), sourceDir);
+            var panel = Path.Combine(sourceDir, "Widgets", "Controls", "SharedPanel.cs");
+            File.WriteAllText(panel, File.ReadAllText(panel).Replace("SharedPanel : UserControl", "SharedPanel : Vendor.PanelBase", StringComparison.Ordinal));
+            var mappings = Path.Combine(sourceDir, "mappings.json");
+            File.WriteAllText(mappings, """{ "controls": { "PanelBase": { "as": "UserControl" } } }""");
+
+            var result = new SolutionConversionPipeline().Run(
+                new ConversionOptions(Path.Combine(sourceDir, "MultiProjectSolution.slnx"), Path.Combine(sourceDir, "out"))
+                {
+                    DryRun = true,
+                    MappingsFile = mappings,
+                });
+
+            var shell = result.Converted.Single(c => c.SourceProjectPath.EndsWith("Shell.csproj", StringComparison.Ordinal));
+            Assert.DoesNotContain(shell.Result.Report.Warnings, w => w.Contains("sharedPanel1", StringComparison.Ordinal));
+            Assert.True(shell.Result.Vfs.TryGetText("Views/MainView.axaml", out var mainView));
+            Assert.Contains("<uc0:SharedPanelView", mainView);
+        }
+        finally
+        {
+            if (Directory.Exists(sourceDir))
+            {
+                Directory.Delete(sourceDir, recursive: true);
+            }
+        }
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(source, file);
+            if (relative.Split(Path.DirectorySeparatorChar).Any(s => s is "bin" or "obj"))
+            {
+                continue;
+            }
+
+            var target = Path.Combine(destination, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
+    }
 }

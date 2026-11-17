@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace WinFormsToAvalonia.Core.Emission;
 
@@ -11,7 +12,7 @@ namespace WinFormsToAvalonia.Core.Emission;
 /// strings while still safely XML-escaping every attribute value, and produces
 /// deterministic, fixed-indent output suitable for golden-file snapshot tests.
 /// </summary>
-public sealed class AxamlDocumentBuilder
+public sealed partial class AxamlDocumentBuilder
 {
     private readonly StringBuilder _text = new();
     private readonly Stack<string> _openElements = new();
@@ -67,7 +68,7 @@ public sealed class AxamlDocumentBuilder
     {
         FinishPendingOpenTag();
         WriteIndent();
-        _text.Append("<!-- ").Append(text.Replace("--", "- -")).Append(" -->\n");
+        _text.Append("<!-- ").Append(CommentSafe(text)).Append(" -->\n");
     }
 
     public override string ToString()
@@ -92,9 +93,27 @@ public sealed class AxamlDocumentBuilder
     /// <c>AvaloniaProjectScaffolder</c> rather than through this builder, and the two must not
     /// disagree about what needs escaping.
     /// </summary>
+    /// <remarks>
+    /// Line breaks and tabs are written as character references: a parser normalizes a literal
+    /// one in an attribute value to a space, so a multi-line Label or TextBox would otherwise
+    /// arrive as a single line.
+    /// </remarks>
     internal static string Escape(string value) => value
         .Replace("&", "&amp;")
         .Replace("<", "&lt;")
         .Replace(">", "&gt;")
-        .Replace("\"", "&quot;");
+        .Replace("\"", "&quot;")
+        .Replace("\r", "&#13;")
+        .Replace("\n", "&#10;")
+        .Replace("\t", "&#9;");
+
+    /// <summary>
+    /// Text safe inside an XML comment, which may not contain <c>--</c> anywhere. Every dash
+    /// followed by another gets a space after it, so a run of any length - <c>---</c> included,
+    /// which a single pairwise replace leaves as <c>- --</c> - comes out legal.
+    /// </summary>
+    internal static string CommentSafe(string text) => DashBeforeDash().Replace(text, "- ");
+
+    [GeneratedRegex("-(?=-)")]
+    private static partial Regex DashBeforeDash();
 }

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>DevExpressApp</RootNamespace>
+    <AssemblyName>DevExpressApp</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- On nuget.org, and hundreds of megabytes: the conversion must refuse it without a download. -->
+    <PackageReference Include="DevExpress.Win" Version="26.1.6" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,6 @@
 using System.Text;
 using WinFormsToAvalonia.Core.Emission;
+using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 using WinFormsToAvalonia.Core.Parsing;
 using WinFormsToAvalonia.Core.Scaffolding;
@@ -43,20 +44,54 @@ public sealed record SolutionConversionResult(
 /// </remarks>
 public sealed class SolutionConversionPipeline
 {
+    private readonly ConversionLog _log;
+
+    /// <param name="log">Shared with every project's own pipeline, so one run reads as one log.</param>
+    public SolutionConversionPipeline(ConversionLog? log = null)
+    {
+        _log = log ?? ConversionLog.None;
+    }
+
     public SolutionConversionResult Run(ConversionOptions options)
     {
+        _log.Stage($"Reading {Path.GetFileName(options.SourceProjectPath)}");
         var projectPaths = SolutionReader.ReadProjectPaths(options.SourceProjectPath);
+        _log.Detail($"{projectPaths.Count} project(s) listed");
         var converted = new List<ConvertedProject>();
         var skipped = new List<SkippedProject>();
 
-        var existingProjects = projectPaths.Where(File.Exists).ToList();
-        var outputDirectories = existingProjects.ToDictionary(
-            p => p,
-            p => Path.Combine(options.OutputDirectory, Path.GetFileNameWithoutExtension(p)),
-            StringComparer.OrdinalIgnoreCase);
+        // Read once, before anything is converted: a vendor base class mapped `"as": "UserControl"`
+        // decides what the discovery pass below predicts, exactly as it decides what each project's
+        // own run converts. A rejected file aborts the whole run here, as it always did per project.
+        var userMappings = options.MappingsFile is { } mappingsFile
+            ? UserMappings.Load(mappingsFile, new ControlMappingRegistry())
+            : new Dictionary<string, UserMapping>(StringComparer.Ordinal);
+        var mappedBaseTypes = Mapping.Vendors.VendorCatalog.BuiltIn.Without(userMappings.Keys).ExternalBaseTypes(userMappings);
+
+        // Project lookups stay case-insensitive - a csproj written on Windows references its
+        // siblings in whatever case it likes - so two listed paths that differ only in case cannot
+        // both be in them. On a case-sensitive file system they are two files; the second is
+        // reported rather than letting the dictionary throw.
+        var caseDuplicates = new HashSet<string>(StringComparer.Ordinal);
+        var existingProjects = new List<string>();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in projectPaths.Where(File.Exists))
+        {
+            if (seenPaths.Add(path))
+            {
+                existingProjects.Add(path);
+            }
+            else
+            {
+                caseDuplicates.Add(path);
+            }
+        }
+
+        var outputDirectories = UniqueOutputDirectories(existingProjects, options.OutputDirectory);
+        _log.Stage("Discovering UserControls across the solution");
         var userControlsByProject = existingProjects.ToDictionary(
             p => p,
-            p => DiscoverUserControls(p, outputDirectories[p]),
+            p => DiscoverUserControls(p, outputDirectories[p], mappedBaseTypes),
             StringComparer.OrdinalIgnoreCase);
 
         foreach (var projectPath in projectPaths)
@@ -67,11 +102,18 @@ public sealed class SolutionConversionPipeline
                 continue;
             }
 
+            if (caseDuplicates.Contains(projectPath))
+            {
+                skipped.Add(new SkippedProject(projectPath, "another project in the solution has the same path apart from letter case"));
+                continue;
+            }
+
             var outputDirectory = outputDirectories[projectPath];
+            _log.Stage($"Project {converted.Count + skipped.Count + 1}/{projectPaths.Count}: {Path.GetFileName(projectPath)}");
 
             try
             {
-                var result = new ConversionPipeline().Run(
+                var result = new ConversionPipeline(_log).Run(
                     options with
                     {
                         SourceProjectPath = projectPath,
@@ -85,6 +127,17 @@ public sealed class SolutionConversionPipeline
             catch (NoConvertibleArtifactsException)
             {
                 skipped.Add(new SkippedProject(projectPath, "no WinForms Form, UserControl or Component in it"));
+                _log.Detail($"Skipped {Path.GetFileName(projectPath)}: no WinForms Form, UserControl or Component in it");
+            }
+
+            // One project that cannot be read or converted - a malformed csproj, a file it may not
+            // open - is that project's problem. Letting it escape abandoned every project after it,
+            // and the solution file, while the ones before it were already on disk.
+            catch (Exception e) when (e is not UserMappingsException and not OperationCanceledException)
+            {
+                var reason = $"the conversion failed ({e.GetType().Name}: {e.Message})";
+                skipped.Add(new SkippedProject(projectPath, reason));
+                _log.Detail($"Skipped {Path.GetFileName(projectPath)}: {reason}");
             }
         }
 
@@ -92,6 +145,7 @@ public sealed class SolutionConversionPipeline
 
         if (!options.DryRun && converted.Count > 0)
         {
+            _log.Stage($"Writing {solutionFileName}");
             var vfs = new VirtualFileSystem();
             vfs.AddText(solutionFileName, BuildSolution(converted, options.WithWeb));
             vfs.WriteToDisk(
@@ -101,6 +155,51 @@ public sealed class SolutionConversionPipeline
         }
 
         return new SolutionConversionResult(solutionFileName, converted, skipped);
+    }
+
+    /// <summary>
+    /// The folder each project is converted into: its own name, unless another project in the
+    /// solution has the same one (an <c>App.csproj</c> in two folders), in which case every
+    /// project sharing it after the first gets the lowest free numeric suffix - <c>App2</c>.
+    /// </summary>
+    /// <remarks>
+    /// Compared case-insensitively, because the output may land on a file system that is. Names
+    /// nobody shares are claimed first, so a project really called <c>App2</c> keeps its name.
+    /// </remarks>
+    private Dictionary<string, string> UniqueOutputDirectories(IReadOnlyList<string> projectPaths, string outputRoot)
+    {
+        var baseNames = projectPaths.ToDictionary(p => p, p => Path.GetFileNameWithoutExtension(p), StringComparer.OrdinalIgnoreCase);
+        var shared = baseNames.Values
+            .GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var taken = baseNames.Values.Where(n => !shared.Contains(n)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var directories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in projectPaths)
+        {
+            var name = baseNames[path];
+            if (shared.Contains(name))
+            {
+                var candidate = name;
+                for (var suffix = 2; !taken.Add(candidate); suffix++)
+                {
+                    candidate = $"{name}{suffix}";
+                }
+
+                if (!string.Equals(candidate, name, StringComparison.Ordinal))
+                {
+                    _log.Detail($"{Path.GetFileName(path)} shares its name with another project: converted into '{candidate}'");
+                }
+
+                name = candidate;
+            }
+
+            directories[path] = Path.Combine(outputRoot, name);
+        }
+
+        return directories;
     }
 
     /// <summary>
@@ -151,14 +250,15 @@ public sealed class SolutionConversionPipeline
     /// both derive the View name and namespace through <see cref="NamingConventions"/>, which is
     /// what keeps the prediction and the eventual emission in agreement.
     /// </remarks>
-    private static IReadOnlyList<ExternalUserControl> DiscoverUserControls(string projectPath, string outputDirectory)
+    private static IReadOnlyList<ExternalUserControl> DiscoverUserControls(
+        string projectPath, string outputDirectory, IReadOnlyDictionary<string, string> mappedBaseTypes)
     {
         WinFormsProjectModel project;
         try
         {
             project = new WinFormsProjectLoader().Load(projectPath);
         }
-        catch (Exception e) when (e is IOException or InvalidOperationException or System.Xml.XmlException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.Xml.XmlException)
         {
             // A project that will not even load is reported by the conversion attempt below; it
             // simply contributes no UserControls.
@@ -167,7 +267,7 @@ public sealed class SolutionConversionPipeline
 
         var assemblyName = NamingConventions.DeriveProjectName(outputDirectory);
 
-        return new DesignerFileLocator().Locate(project)
+        return new DesignerFileLocator().Locate(project, mappedBaseTypes)
             .Where(p => p.Kind == WinFormsArtifactKind.UserControl && p.DesignerFilePath is not null)
             .Select(p => new ExternalUserControl(
                 p.ClassName,

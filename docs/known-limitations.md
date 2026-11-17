@@ -106,9 +106,10 @@ contributors know what to expect and where to look before filing a duplicate iss
 - **Carried-over fields may be used only by code that did not come across**, so the generated View
   wraps them in `#pragma warning disable CS0169, CS0414, CS0649`, and a field with no initializer
   whose type may be a non-nullable reference starts as `default!` (CS8618 otherwise).
-- **A vendor base class** (`MetroForm`, `C1RibbonForm`, `XtraForm`) cannot be traced by syntax, so
-  a Form deriving from one is skipped - with a message that says how to fix it: a `--mappings`
-  entry `{ "MetroForm": { "as": "Form" } }` (or `"UserControl"`).
+- **A vendor base class** cannot be traced by syntax. DevExpress' and Telerik's are built in
+  (`XtraForm`, `RibbonForm`, `RadForm`, ... - see `docs/ThirdPartyControls.md`); any other
+  (`MetroForm`, `C1RibbonForm`) makes a Form deriving from it skipped - with a message that says how
+  to fix it: a `--mappings` entry `{ "MetroForm": { "as": "Form" } }` (or `"UserControl"`).
 
 ## Startup form
 
@@ -1427,7 +1428,11 @@ in the generated project.
 lists is converted into its own folder under the output directory, and a generated `.slnx` ties
 them together - which is what `samples/convert.sh` had been doing by hand. A project the pipeline
 finds nothing convertible in (a class library, a test project) is reported and skipped rather than
-failing the run: a solution with non-WinForms projects in it is the normal case. Solution files are
+failing the run: a solution with non-WinForms projects in it is the normal case. So is a project
+that cannot be read or converted at all (a malformed csproj): it is reported with the reason, and
+every other project - and the `.slnx` - is still written. Two projects with the same file name
+(`Client/App.csproj`, `Server/App.csproj`) get their own folders: the first keeps its name, the
+next gets the lowest free numeric suffix (`App2`). Solution files are
 parsed as text rather than through MSBuild, so a project path built from an MSBuild property is not
 understood - and is reported rather than guessed at.
 
@@ -1459,9 +1464,18 @@ tells you.
 
 ## Third-party controls (`--mappings`)
 
-A vendor control (DevExpress, Telerik, Infragistics, ...) is a type this converter cannot know, and
-on its own it gets "No mapping registered" and no element. `--mappings <file.json>` lets you say
-what it is:
+**DevExpress and Telerik are built in** and need no mappings file: their base Forms, editors,
+buttons, lists, tabs, grids, bars, ribbons, menus, trees and layout controls are converted - see
+`docs/ThirdPartyControls.md` for what each becomes, and what it cannot carry (a ribbon is one
+menu-bar row; a layout control's captions are placed beside their controls, approximately; a tree's
+designer nodes and a TreeList's columns are reported; Telerik element-tree styling is not carried).
+Their charts, schedulers, pivot grids, gauges and docking managers have no counterpart and get "No
+mapping registered".
+
+Any other vendor control (Infragistics, ComponentOne, Syncfusion, ...) is a type this converter
+cannot know, and on its own it gets "No mapping registered" and no element. `--mappings
+<file.json>` lets you say what it is - and an entry for a DevExpress or Telerik type replaces the
+built-in one:
 
 ```json
 {
@@ -1477,7 +1491,8 @@ what it is:
   own `MyButton : Button` - so every table applies: its mapper, its events, its bindable properties,
   and handler bodies that read it. `properties`/`events` rename the vendor's names to the WinForms
   control's first; anything else the vendor added is listed among the untranslated properties.
-  Handler bodies are not renamed: `nameEdit.EditValue` in code still stops the prefix.
+  Handler bodies are not renamed: `nameEdit.EditValue` in code still stops the prefix. (The built-in
+  vendor support does translate the members it has proved to have the same type, and only those.)
 - **`as": "Form"`** (or `"UserControl"`) is for a vendor *base class* instead: a Form deriving from
   `MetroForm` is converted as a Form at all only once the mapping says what `MetroForm` is. It takes
   no `properties`/`events` - the derived Form's designer properties are read as the Form's.
@@ -1495,10 +1510,12 @@ what it is:
 ## Re-converting over output you have already migrated
 
 Conversion is a starting point you then edit by hand, so a second run defaults to **never
-destroying an existing file**: identical files are skipped, and a file whose generated content
-differs from what is on disk is left alone with the regenerated version written beside it as
-`<name>.w2a-new` for you to merge. The conversion summary says how many files that affected;
-`--overwrite-all` restores the old clobber-everything behaviour.
+destroying a file you have edited**: identical files are skipped, a file still exactly as the
+previous run generated it (per `.w2a-manifest.json`, below) is simply updated, and a file you have
+changed is left alone with the regenerated version written beside it as `<name>.w2a-new` for you
+to merge. Once a file holds exactly what a run generates - you merged by taking the new version -
+the leftover `<name>.w2a-new` beside it is removed. The conversion summary says how many files
+were kept; `--overwrite-all` restores the old clobber-everything behaviour.
 
 This is a per-file safety net, not a merge tool - it cannot combine your edits with newly
 generated code. `--force` is still required before anything is written into a non-empty output

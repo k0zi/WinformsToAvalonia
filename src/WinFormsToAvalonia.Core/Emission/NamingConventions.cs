@@ -12,22 +12,25 @@ public static class NamingConventions
     public static string DeriveProjectName(string outputDirectory)
     {
         var leaf = Path.GetFileName(outputDirectory.TrimEnd('/', '\\'));
-        if (string.IsNullOrEmpty(leaf))
-        {
-            leaf = "GeneratedAvaloniaApp";
-        }
+        return ToIdentifier(string.IsNullOrEmpty(leaf) ? "GeneratedAvaloniaApp" : leaf);
+    }
 
-        var builder = new StringBuilder(leaf.Length);
-        foreach (var c in leaf)
+    /// <summary>
+    /// Any text as a C# identifier: every character that cannot appear in one becomes <c>_</c>,
+    /// and a leading digit or a reserved keyword gets a <c>_</c> in front.
+    /// </summary>
+    /// <remarks>
+    /// A directory called <c>out</c>, <c>class</c> or <c>new</c> sanitizes to a reserved keyword,
+    /// which is not a legal namespace - and every generated file opens with it, so the whole
+    /// project fails to compile. Only <em>reserved</em> words need this: a contextual keyword like
+    /// <c>var</c> or <c>record</c> is a perfectly good identifier.
+    /// </remarks>
+    public static string ToIdentifier(string text)
+    {
+        var builder = new StringBuilder(text.Length + 1);
+        foreach (var c in text)
         {
-            if (char.IsLetterOrDigit(c) || c == '_')
-            {
-                builder.Append(c);
-            }
-            else
-            {
-                builder.Append('_');
-            }
+            builder.Append(char.IsLetterOrDigit(c) || c == '_' ? c : '_');
         }
 
         if (builder.Length == 0 || char.IsDigit(builder[0]))
@@ -35,10 +38,6 @@ public static class NamingConventions
             builder.Insert(0, '_');
         }
 
-        // A directory called `out`, `class` or `new` sanitizes to a reserved keyword, which is not
-        // a legal namespace - and every generated file opens with it, so the whole project fails
-        // to compile. Only *reserved* words need this: a contextual keyword like `var` or `record`
-        // is a perfectly good identifier.
         if (SyntaxFacts.GetKeywordKind(builder.ToString()) != SyntaxKind.None)
         {
             builder.Insert(0, '_');
@@ -79,8 +78,15 @@ public static class NamingConventions
     }
 
     /// <summary>"Demo.Views" + "Admin/Users" -> "Demo.Views.Admin.Users".</summary>
+    /// <remarks>
+    /// Each folder name becomes an identifier first: a Form in <c>User Controls/</c> or
+    /// <c>2024/</c> would otherwise open its file with a namespace that does not parse. Only the
+    /// namespace changes - the file still goes to the folder it came from.
+    /// </remarks>
     public static string NamespaceOf(string rootNamespace, string relativeFolder) =>
-        string.IsNullOrEmpty(relativeFolder) ? rootNamespace : $"{rootNamespace}.{relativeFolder.Replace('/', '.')}";
+        string.IsNullOrEmpty(relativeFolder)
+            ? rootNamespace
+            : $"{rootNamespace}.{string.Join('.', relativeFolder.Split('/').Select(ToIdentifier))}";
 
     public static string Capitalize(string value) =>
         value.Length == 0 ? value : char.ToUpperInvariant(value[0]) + value[1..];

@@ -2,6 +2,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using WinFormsToAvalonia.Core.Mapping;
 using WinFormsToAvalonia.Core.Model;
 
 namespace WinFormsToAvalonia.Core.Parsing;
@@ -395,10 +396,9 @@ public sealed class CodeBehindAnalyzer
                     {
                         Expression: MemberAccessExpressionSyntax
                         {
-                            Expression: IdentifierNameSyntax { Identifier.ValueText: "MessageBox" },
                             Name.Identifier.ValueText: "Show",
-                        },
-                    }:
+                        } showAccess,
+                    } when MessageBoxReceivers.IsMessageBox(showAccess.Expression):
                     case InvocationExpressionSyntax
                     {
                         Expression: MemberAccessExpressionSyntax

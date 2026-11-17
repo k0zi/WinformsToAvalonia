@@ -147,6 +147,75 @@ public class VirtualFileSystemTests
         });
     }
 
+    /// <summary>
+    /// A file nobody touched since the last run generated it is this tool's to update - after a
+    /// source change or an upgrade, not a *.w2a-new beside every regenerated file.
+    /// </summary>
+    [Fact]
+    public void WriteToDisk_FileUnchangedSinceTheLastRunGeneratedIt_IsUpdatedInPlace()
+    {
+        WithTempDir(dir =>
+        {
+            Vfs(("Views/MainView.axaml", "first"), ("Views/MainView.axaml.cs", "first")).WriteToDisk(dir);
+            File.WriteAllText(Path.Combine(dir, "Views", "MainView.axaml.cs"), "hand-migrated");
+
+            var result = Vfs(("Views/MainView.axaml", "second"), ("Views/MainView.axaml.cs", "second")).WriteToDisk(dir);
+
+            Assert.Equal(["Views/MainView.axaml"], result.Written);
+            Assert.Equal("second", File.ReadAllText(Path.Combine(dir, "Views", "MainView.axaml")));
+            Assert.False(File.Exists(Path.Combine(dir, "Views", "MainView.axaml") + VirtualFileSystem.GeneratedFileSuffix));
+
+            // The edited one is still a human's work.
+            Assert.Equal(["Views/MainView.axaml.cs"], result.Preserved);
+            Assert.Equal("hand-migrated", File.ReadAllText(Path.Combine(dir, "Views", "MainView.axaml.cs")));
+        });
+    }
+
+    /// <summary>Once the file holds exactly this run's output, an old merge copy beside it is stale.</summary>
+    [Fact]
+    public void WriteToDisk_MergedFile_LosesItsStaleMergeCopy()
+    {
+        WithTempDir(dir =>
+        {
+            var target = Path.Combine(dir, "App.axaml");
+            Vfs(("App.axaml", "first")).WriteToDisk(dir);
+            File.WriteAllText(target, "edited");
+            Vfs(("App.axaml", "second")).WriteToDisk(dir);
+            Assert.True(File.Exists(target + VirtualFileSystem.GeneratedFileSuffix));
+
+            // The human merges by taking the regenerated version.
+            File.WriteAllText(target, "second");
+            var result = Vfs(("App.axaml", "second")).WriteToDisk(dir);
+
+            Assert.Equal(["App.axaml"], result.Unchanged);
+            Assert.False(File.Exists(target + VirtualFileSystem.GeneratedFileSuffix));
+        });
+    }
+
+    /// <summary>The manifest is just a file: an entry leading outside the output root is never pruned.</summary>
+    [Fact]
+    public void WriteToDisk_ManifestEntryOutsideTheRoot_IsNeitherDeletedNorCarried()
+    {
+        WithTempDir(dir =>
+        {
+            var root = Path.Combine(dir, "out");
+            var outside = Path.Combine(dir, "victim.txt");
+            File.WriteAllText(outside, "not generated");
+            Vfs(("App.axaml", "<Application/>")).WriteToDisk(root);
+
+            var manifestPath = Path.Combine(root, VirtualFileSystem.ManifestFileName);
+            var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(outside)));
+            File.WriteAllText(manifestPath, $$"""{ "files": { "App.axaml": "x", "../victim.txt": "{{hash}}" } }""");
+
+            var result = Vfs(("App.axaml", "<Application/>")).WriteToDisk(root, prune: true);
+
+            Assert.True(File.Exists(outside));
+            Assert.Empty(result.Pruned);
+            Assert.Empty(result.Orphaned);
+            Assert.DoesNotContain("victim", File.ReadAllText(manifestPath));
+        });
+    }
+
     [Fact]
     public void WriteToDisk_ExistingFileWithIdenticalContent_IsLeftAloneWithNoSidecar()
     {

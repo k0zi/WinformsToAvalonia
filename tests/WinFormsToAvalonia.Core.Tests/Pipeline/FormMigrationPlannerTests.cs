@@ -421,6 +421,47 @@ public class FormMigrationPlannerTests
     }
 
     /// <summary>
+    /// Everything downstream knows a helper by name, so two overloads cannot both be promoted -
+    /// that crashed the whole conversion with a duplicate-key exception. Neither is, and the
+    /// handler calling one of them stays un-migrated rather than reaching the wrong one.
+    /// </summary>
+    [Fact]
+    public void Plan_OverloadedHelpers_AreNeitherPromotedNorCrashThePlan()
+    {
+        var formModel = FormWith(("goButton", "Button"), ("statusLabel", "Label"));
+        Wire(formModel, "goButton", "Click", "goButton_Click");
+
+        var plan = PlanFor(formModel, """
+            namespace Demo
+            {
+                public partial class Form1 : Form
+                {
+                    private void goButton_Click(object sender, EventArgs e)
+                    {
+                        UpdateStatus("Go");
+                    }
+
+                    private void UpdateStatus(string text)
+                    {
+                        statusLabel.Text = text;
+                    }
+
+                    private void UpdateStatus()
+                    {
+                        statusLabel.Text = "Ready";
+                    }
+                }
+            }
+            """);
+
+        Assert.Empty(plan.PromotedHelpers);
+        Assert.Empty(plan.ViewModelHelpers);
+        Assert.Empty(plan.ViewModelCommands);
+        Assert.Equal(["UpdateStatus", "UpdateStatus"], plan.PreservedMembers.Select(m => m.Name));
+        Assert.True(Assert.Single(plan.CodeBehindHandlers).IsUnfinished);
+    }
+
+    /// <summary>
     /// A helper's own-state write blocks its caller too - and the reason names it as state
     /// rather than as the Form being driven, which sent readers looking for a Close.
     /// </summary>
